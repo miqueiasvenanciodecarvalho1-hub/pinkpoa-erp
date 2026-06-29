@@ -2369,9 +2369,9 @@ const IMPORT_TIPOS = [
       { key:'pagamentos', label:'Pagamentos', icon:'✅', desc:'vpdpcl2', required:false,
         cols_req:['vup-numrdpcl'],
         cols_opt:['dc2-vlorprin','dc2-datapag','dc2-datapgto','vup-vlorprin','vup-datacont','dc2-vlortota'] },
-      { key:'baixas', label:'Baixas (banco)', icon:'🏦', desc:'arquivo banco', required:false,
-        cols_req:['vup-numrdpcl'],
-        cols_opt:['vup-codimovi','vup-vlorvenc','vup-vlorprin','vup-vlordesc','vup-vlorliqu','vup-datacont','vup-desddpcl','vup-numrclie','vup-filidpcl'] }
+      { key:'baixas', label:'Movimentos Banco (vpbanc3)', icon:'🏦', desc:'vpbanc3', required:false,
+        cols_req:['vup-numrlanc','cb3-datalanc'],
+        cols_opt:['vup-numrbanc','vup-agenbanc','vup-contbanc','cb3-vlorlanc','cb3-tipolanc','cb3-portador','cb3-numrorig','cb3-datavenc','cb3-debicred','cb3-datadepo'] }
     ]
   },
   {
@@ -3523,6 +3523,8 @@ function renderEstoques() {
     </div>`;
 }
 function mudaEstPag(pag){let el=document.getElementById('est-pag');if(!el){el=document.createElement('input');el.id='est-pag';el.type='hidden';document.body.appendChild(el);}el.value=pag;renderEstoques();}
+
+const automacaoLogs = [];
 
 function renderAutomacao() {
   document.getElementById('content').innerHTML = `
