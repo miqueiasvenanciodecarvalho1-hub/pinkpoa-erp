@@ -509,7 +509,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.203</span>
+      ">v2.14.204</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -573,8 +573,8 @@ License: MIT
 
 // ── CONFIG ────────────────────────────────────────────────────
 // v203: endereço da API configurável (clicar no indicador ⬤ API no topo). Guardado em 'pinkpoa_api_url'.
-const API_PADRAO = 'http://localhost:8000';
-let API = (()=>{ try{ return (localStorage.getItem('pinkpoa_api_url')||API_PADRAO).replace(/\/+$/,''); }catch(e){ return API_PADRAO; } })();
+const API_PADRAO = 'https://pinkpoa-api.onrender.com'; // v204: API no Render já como padrão
+let API = (()=>{ try{ const u=localStorage.getItem('pinkpoa_api_url'); return ((u && !/localhost|127\.0\.0\.1/.test(u))?u:API_PADRAO).replace(/\/+$/,''); }catch(e){ return API_PADRAO; } })();
 let TOKEN = localStorage.getItem('pinkpoa_token') || '';
 let USER  = null;
 try { USER = JSON.parse(localStorage.getItem('pinkpoa_user') || 'null'); } catch(e) { localStorage.clear(); TOKEN = ''; }
@@ -948,15 +948,17 @@ if (TOKEN && USER && USER.email) {
 
 // ── API STATUS ────────────────────────────────────────────────
 async function checkApiStatus(avisar) {
+  let tAcorda=null;
   const el = document.getElementById('api-status'); if(!el) return;
   const pinta=(txt,cor,tit)=>{ el.textContent=txt; el.style.color=cor; el.title=(tit||'')+'\nClique para configurar o endereço da API.'; };
   pinta('⬤ API…','var(--gray-3)', 'Testando '+API);
   try {
     const ctrl = new AbortController();
     // o Render grátis "acorda" em até ~50 s: na verificação manual espera mais
-    const tm=setTimeout(() => ctrl.abort(), avisar?60000:8000);
+    const tm=setTimeout(() => ctrl.abort(), 60000);
+    tAcorda=setTimeout(()=>pinta('⬤ API acordando…','var(--gray-3)','O servidor grátis do Render estava dormindo — pode levar até 1 minuto.'),4000);
     const r = await fetch(API+'/health', { signal: ctrl.signal, cache:'no-store' });
-    clearTimeout(tm);
+    clearTimeout(tm); clearTimeout(tAcorda);
     let j=null; try{ j=await r.json(); }catch(e){}
     window._apiStatus=j;
     if (j && j.mysql && j.mysql.ok) {
@@ -968,6 +970,7 @@ async function checkApiStatus(avisar) {
     } else if (r.ok) { pinta('⬤ API Online','#2E7D52', API); }
     else { pinta('⬤ API Offline','#B91C1C', API+' respondeu '+r.status); if(avisar) toast('A API respondeu com erro '+r.status,'error'); }
   } catch(e) {
+    try{ clearTimeout(tAcorda); }catch(_){}
     const local=/localhost|127\.0\.0\.1/.test(API);
     pinta(local?'⬤ API Offline (demo)':'⬤ API inacessível', local?'#B45309':'#B91C1C',
       local?'Nenhuma API configurada.':`${API}\nSem resposta: servidor desligado, endereço errado ou bloqueio de CORS (confira ALLOWED_ORIGIN).`);
