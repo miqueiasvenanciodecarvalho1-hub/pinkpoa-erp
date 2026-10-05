@@ -483,7 +483,7 @@ License: MIT
         if(r) c(); else document.addEventListener('DOMContentLoaded',c);})();</script>
     </div>
     <div class="topbar-right">
-      <span id="api-status" style="font-size:12px;color:var(--gray-3);cursor:pointer" title="Clique para configurar o endereço da API" onclick="configurarApi()">⬤ API</span>
+      <span id="api-status" style="font-size:12px;color:var(--gray-3);cursor:pointer" title="Clique para abrir o painel do servidor" onclick="abrirNuvem()">⬤ API</span>
       <!-- Botões de compartilhamento -->
       <div style="display:flex;gap:6px;align-items:center">
         <button onclick="modalCompartilhar()" title="Compartilhar ERP"
@@ -515,7 +515,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.205</span>
+      ">v2.14.206</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -956,7 +956,7 @@ if (TOKEN && USER && USER.email) {
 async function checkApiStatus(avisar) {
   let tAcorda=null;
   const el = document.getElementById('api-status'); if(!el) return;
-  const pinta=(txt,cor,tit)=>{ el.textContent=txt; el.style.color=cor; el.title=(tit||'')+'\nClique para configurar o endereço da API.'; };
+  const pinta=(txt,cor,tit)=>{ el.textContent=txt; el.style.color=cor; el.title=(tit||'')+'\nClique para abrir o painel do servidor (salvar/carregar no MySQL).'; };
   pinta('⬤ API…','var(--gray-3)', 'Testando '+API);
   try {
     const ctrl = new AbortController();
@@ -8780,11 +8780,28 @@ function imprimirRelatorio(){
   baixarRelatorioHTML();
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
+// v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
+function _versaoApp(){ return ((document.getElementById('app-versao')||{}).textContent||'').trim().replace(/^v/,''); }
+function _montarBackup(){
+  const backup = { _tipo:'PINKPOA_BACKUP', _versao:_versaoApp(), _data:new Date().toISOString(), db:{}, local:{} };
+  Object.keys(DB).forEach(k=>{ try{ backup.db[k]=DB[k]; }catch(e){} });
+  for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
+    // login local e sessão da nuvem NÃO viajam no backup
+    if(k && k.indexOf('pinkpoa_')===0 && k!=='pinkpoa_token' && k.indexOf('pinkpoa_nuvem_')!==0 && k!=='pinkpoa_api_url'){ backup.local[k]=localStorage.getItem(k); } }
+  return backup;
+}
+function _aplicarBackup(obj){
+  if(obj.db && typeof obj.db==='object') Object.keys(obj.db).forEach(k=>{ DB[k]=obj.db[k]; });
+  if(obj.local && typeof obj.local==='object') Object.keys(obj.local).forEach(k=>{
+    if(k.indexOf('pinkpoa_nuvem_')===0 || k==='pinkpoa_api_url') return;
+    try{ localStorage.setItem(k, obj.local[k]); }catch(e){} });
+  if(typeof _aplicarGruposRep==='function'){ try{ _aplicarGruposRep(); }catch(e){} }
+  let _pmFix=0; try{ _pmFix=_pmAutoCorrigir(); }catch(e){}
+  return _pmFix;
+}
 function exportarBackupCompleto(){
   try{
-    const backup = { _tipo:'PINKPOA_BACKUP', _versao:(()=>{try{const m=(document.body.textContent||'').match(/v(\\d+\\.\\d+\\.\\d+)/);return m?m[1]:'';}catch(e){return '';}})(), _data:new Date().toISOString(), db:{}, local:{} };
-    Object.keys(DB).forEach(k=>{ try{ backup.db[k]=DB[k]; }catch(e){} });
-    for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k && k.indexOf('pinkpoa_')===0 && k!=='pinkpoa_token'){ backup.local[k]=localStorage.getItem(k); } }
+    const backup = _montarBackup();
     const t=new Date(), pad=n=>String(n).padStart(2,'0');
     const nome=`PINKPOA_BACKUP_${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}_${pad(t.getHours())}${pad(t.getMinutes())}.json`;
     _baixarJSON(backup, nome);
@@ -8801,11 +8818,8 @@ function importarBackupCompleto(){
       const info = obj && obj._data ? ('\\nBackup de: '+new Date(obj._data).toLocaleString('pt-BR')) : '';
       if(!confirm('ATENÇÃO: restaurar vai SUBSTITUIR todos os dados atuais (faturamento, comissões, cadastros, grupos, supervisões...).'+info+'\\n\\nContinuar?')) return;
       try{
-        if(obj.db && typeof obj.db==='object') Object.keys(obj.db).forEach(k=>{ DB[k]=obj.db[k]; });
-        if(obj.local && typeof obj.local==='object') Object.keys(obj.local).forEach(k=>{ try{ localStorage.setItem(k, obj.local[k]); }catch(e){} });
-        if(typeof _aplicarGruposRep==='function'){ try{ _aplicarGruposRep(); }catch(e){} }
-        // O backup traz o cartão JÁ PROCESSADO — se veio de antes da v177, corrigir na hora.
-        let _pmFix=0; try{ _pmFix=_pmAutoCorrigir(); }catch(e){}
+        // O backup traz o cartão JÁ PROCESSADO — se veio de antes da v177, corrigir na hora (dentro de _aplicarBackup).
+        const _pmFix=_aplicarBackup(obj);
         toast('Backup restaurado! Todos os dados foram substituídos.'
           + (_pmFix?` Cartão corrigido: ${_pmFix} → ${PM_CARTEIRA.length} parcelas (estornos abatidos).`:''));
         if(typeof renderImportacao==='function') renderImportacao();
@@ -8814,6 +8828,147 @@ function importarBackupCompleto(){
     r.readAsText(f); };
   inp.click();
 }
+// ════════════════════════════════════════════════════════════════
+// v206 — NUVEM (MySQL via API): salvar / carregar todos os dados do app
+// Login próprio da API (tabela usuarios do app_pinkpoa). Os dados vão em partes de ~400 mil
+// caracteres (erp_partes) e cada envio vira uma "versão" (erp_versoes, guarda as 10 últimas).
+// ════════════════════════════════════════════════════════════════
+const NV_TOKEN='pinkpoa_nuvem_token', NV_USER='pinkpoa_nuvem_usuario', NV_PARTE=400000;
+function _nvLer(k){ try{ return localStorage.getItem(k)||''; }catch(e){ return ''; } }
+function _nvGravar(k,v){ try{ if(v) localStorage.setItem(k,v); else localStorage.removeItem(k); }catch(e){} }
+function _nvEsc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+function _nvTam(n){ n=Number(n)||0; return n>1048576?(n/1048576).toFixed(1)+' MB':(n/1024).toFixed(0)+' KB'; }
+async function _nvFetch(caminho, opt){
+  opt=opt||{};
+  const h={'Content-Type':'application/json'}; const tk=_nvLer(NV_TOKEN); if(tk) h.Authorization='Bearer '+tk;
+  const ctrl=new AbortController(); const tm=setTimeout(()=>ctrl.abort(), 90000);
+  let r;
+  try{ r=await fetch(API+caminho,{method:opt.method||'GET',headers:h,body:opt.body?JSON.stringify(opt.body):undefined,signal:ctrl.signal,cache:'no-store'}); }
+  catch(e){ throw new Error('Sem resposta da API (servidor dormindo ou sem internet). Tente de novo em 1 minuto.'); }
+  finally{ clearTimeout(tm); }
+  let j={}; try{ j=await r.json(); }catch(e){}
+  if(r.status===401 && tk && caminho!=='/login'){ _nvGravar(NV_TOKEN,''); _nvGravar(NV_USER,''); const e=new Error('Sessão expirada — entre de novo.'); e.auth=true; throw e; }
+  if(!r.ok) throw new Error(j.error||('Erro '+r.status));
+  return j;
+}
+function _nvUsuario(){ try{ return JSON.parse(_nvLer(NV_USER)||'null'); }catch(e){ return null; } }
+
+async function abrirNuvem(){
+  openModal('☁ Servidor (MySQL)', '<div style="padding:20px;text-align:center;color:var(--gray-5)">Conectando ao servidor… (se estava dormindo, pode levar até 1 minuto)</div>', '<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>');
+  const rodapeEnd=`<div style="margin-top:14px;font-size:11px;color:var(--gray-5)">API: ${_nvEsc(API)} · <a href="#" onclick="event.preventDefault();closeModal();configurarApi()">alterar endereço</a></div>`;
+  try{
+    if(!_nvLer(NV_TOKEN)){
+      const st=await _nvFetch('/setup/status');
+      if(st.precisa_setup){
+        openModal('☁ Servidor — criar administrador', `
+          <div style="font-size:13px;margin-bottom:12px">O banco ainda não tem nenhum usuário. Crie agora o <b>administrador do servidor</b> (só acontece uma vez).</div>
+          <div class="form-group"><label>Nome</label><input id="nv-nome" class="form-control no-up" placeholder="Seu nome"></div>
+          <div class="form-group"><label>E-mail</label><input id="nv-email" type="email" class="form-control no-up" placeholder="e-mail de login"></div>
+          <div class="form-group"><label>Senha (mín. 10 caracteres)</label><input id="nv-senha" type="password" class="form-control no-up"></div>
+          <div class="form-group"><label>Repita a senha</label><input id="nv-senha2" type="password" class="form-control no-up"></div>
+          <div style="font-size:11px;color:var(--gray-5)">Use uma senha NOVA — não reaproveite a do banco nem a antiga do app.</div>${rodapeEnd}`,
+          `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_nvCriarAdmin()">Criar administrador</button>`);
+        return;
+      }
+      openModal('☁ Servidor — entrar', `
+        <div style="font-size:13px;margin-bottom:12px">Entre com o usuário do <b>servidor</b> para salvar e carregar os dados no MySQL.</div>
+        <div class="form-group"><label>E-mail</label><input id="nv-email" type="email" class="form-control no-up" value="${_nvEsc((_nvUsuario()||{}).email||'')}"></div>
+        <div class="form-group"><label>Senha</label><input id="nv-senha" type="password" class="form-control no-up" onkeydown="if(event.key==='Enter')_nvEntrar()"></div>${rodapeEnd}`,
+        `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_nvEntrar()">Entrar</button>`);
+      return;
+    }
+    const u=_nvUsuario()||{};
+    const {versao:v}=await _nvFetch('/dados/ultima');
+    const loc=_montarResumo(_montarBackup());
+    const linhaRes=r=>Object.keys(r||{}).filter(k=>r[k]).map(k=>`${k}: <b>${Number(r[k]).toLocaleString('pt-BR')}</b>`).join(' · ')||'—';
+    openModal('☁ Servidor (MySQL)', `
+      <div style="font-size:12px;color:var(--gray-5);margin-bottom:10px">Conectado como <b>${_nvEsc(u.nome||u.email||'')}</b> (${_nvEsc(u.email||'')})</div>
+      <div style="border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 12px;margin-bottom:10px">
+        <div style="font-weight:700;margin-bottom:4px">No servidor</div>
+        ${v?`<div style="font-size:12px">Última cópia: <b>${new Date(v.criado_em).toLocaleString('pt-BR')}</b> por ${_nvEsc(v.criado_por)} · ${_nvTam(v.bytes)} · app v${_nvEsc(v.versao_app||'?')}</div>
+             <div style="font-size:11px;color:var(--gray-5);margin-top:4px">${linhaRes(v.resumo)}</div>`
+          :'<div style="font-size:12px;color:var(--gray-5)">Ainda não há nenhuma cópia salva no servidor.</div>'}
+      </div>
+      <div style="border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 12px">
+        <div style="font-weight:700;margin-bottom:4px">Neste computador</div>
+        <div style="font-size:11px;color:var(--gray-5)">${linhaRes(loc)}</div>
+      </div>
+      <div id="nv-prog" style="margin-top:12px;font-size:13px;font-weight:700;color:var(--pink)"></div>
+      ${rodapeEnd}`,
+      `<button class="btn btn-secondary" onclick="_nvSair()">Sair</button>
+       ${v?'<button class="btn btn-secondary" id="nv-b-carregar" onclick="_nvCarregar()">⬇ Carregar do servidor</button>':''}
+       <button class="btn btn-primary" id="nv-b-salvar" onclick="_nvSalvar()">☁ Salvar no servidor</button>`);
+  }catch(e){
+    if(e.auth){ abrirNuvem(); return; }
+    openModal('☁ Servidor', `<div style="color:var(--red);font-size:13px">${_nvEsc(e.message)}</div>${rodapeEnd}`,
+      `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button><button class="btn btn-primary" onclick="abrirNuvem()">Tentar de novo</button>`);
+  }
+}
+function _montarResumo(b){
+  const r={}, d=(b&&b.db)||{};
+  ['faturamento','comissoes','recebiveis','clientes','representantes','compras','pagar','extrato_banco'].forEach(k=>{ if(Array.isArray(d[k])) r[k]=d[k].length; });
+  r.configuracoes=Object.keys((b&&b.local)||{}).length;
+  return r;
+}
+async function _nvCriarAdmin(){
+  const nome=(document.getElementById('nv-nome')||{}).value||'', email=((document.getElementById('nv-email')||{}).value||'').trim();
+  const s1=(document.getElementById('nv-senha')||{}).value||'', s2=(document.getElementById('nv-senha2')||{}).value||'';
+  if(!email || email.indexOf('@')<0){ toast('Informe um e-mail válido','error'); return; }
+  if(s1.length<10){ toast('A senha precisa ter pelo menos 10 caracteres','error'); return; }
+  if(s1!==s2){ toast('As duas senhas não são iguais','error'); return; }
+  try{ await _nvFetch('/setup',{method:'POST',body:{nome:nome.trim(),email,senha:s1}});
+       toast('Administrador criado! Entrando…'); await _nvLogin(email,s1); abrirNuvem(); }
+  catch(e){ toast(e.message,'error'); }
+}
+async function _nvLogin(email,senha){
+  const j=await _nvFetch('/login',{method:'POST',body:{email,senha}});
+  _nvGravar(NV_TOKEN,j.token); _nvGravar(NV_USER,JSON.stringify(j.usuario||{email}));
+}
+async function _nvEntrar(){
+  const email=((document.getElementById('nv-email')||{}).value||'').trim(), senha=(document.getElementById('nv-senha')||{}).value||'';
+  if(!email||!senha){ toast('Preencha e-mail e senha','error'); return; }
+  try{ await _nvLogin(email,senha); toast('Conectado ao servidor'); abrirNuvem(); }catch(e){ toast(e.message,'error'); }
+}
+function _nvSair(){ _nvGravar(NV_TOKEN,''); toast('Desconectado do servidor'); closeModal(); }
+function _nvBotoes(on){ ['nv-b-salvar','nv-b-carregar'].forEach(id=>{ const b=document.getElementById(id); if(b) b.disabled=!on; }); }
+function _nvProg(t){ const el=document.getElementById('nv-prog'); if(el) el.textContent=t; }
+async function _nvSalvar(){
+  _nvBotoes(false);
+  try{
+    _nvProg('Preparando os dados…');
+    const b=_montarBackup(), txt=JSON.stringify(b), total=Math.max(1,Math.ceil(txt.length/NV_PARTE));
+    const lote='L'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+    for(let i=0;i<total;i++){
+      _nvProg(`Enviando parte ${i+1} de ${total}…`);
+      const pedaco=txt.slice(i*NV_PARTE,(i+1)*NV_PARTE);
+      let ok=false, ult=null;
+      for(let t=0;t<3 && !ok;t++){ try{ await _nvFetch('/dados/parte',{method:'POST',body:{lote,parte:i,texto:pedaco}}); ok=true; }catch(e){ ult=e; if(e.auth) throw e; } }
+      if(!ok) throw ult;
+    }
+    _nvProg('Finalizando…');
+    await _nvFetch('/dados/concluir',{method:'POST',body:{lote,partes:total,bytes:txt.length,resumo:_montarResumo(b),versao_app:_versaoApp()}});
+    toast(`Dados salvos no servidor (${_nvTam(txt.length)})`);
+    abrirNuvem();
+  }catch(e){ _nvProg(''); _nvBotoes(true); toast('Não salvou: '+e.message,'error'); if(e.auth) abrirNuvem(); }
+}
+async function _nvCarregar(){
+  _nvBotoes(false);
+  try{
+    const {versao:v}=await _nvFetch('/dados/ultima');
+    if(!v){ toast('Não há cópia no servidor','error'); _nvBotoes(true); return; }
+    if(!confirm(`Carregar a cópia do servidor de ${new Date(v.criado_em).toLocaleString('pt-BR')} (por ${v.criado_por})?\n\nIsso SUBSTITUI os dados deste computador.`)){ _nvBotoes(true); return; }
+    let txt='';
+    for(let i=0;i<v.partes;i++){ _nvProg(`Baixando parte ${i+1} de ${v.partes}…`); txt+=(await _nvFetch(`/dados/parte?lote=${encodeURIComponent(v.lote)}&parte=${i}`)).texto; }
+    _nvProg('Aplicando…');
+    const obj=JSON.parse(txt);
+    if(!obj || obj._tipo!=='PINKPOA_BACKUP') throw new Error('Cópia do servidor com formato inesperado');
+    const fix=_aplicarBackup(obj);
+    closeModal();
+    toast('Dados carregados do servidor!'+(fix?` Cartão corrigido: ${fix}.`:''));
+    try{ if(typeof navigate==='function' && typeof CURRENT_PAGE!=='undefined') navigate(CURRENT_PAGE); }catch(e){}
+  }catch(e){ _nvProg(''); _nvBotoes(true); toast('Não carregou: '+e.message,'error'); if(e.auth) abrirNuvem(); }
+}
+
 function _baixarJSON(obj, nome){
   const blob = new Blob([JSON.stringify(obj, null, 2)], {type:'application/json;charset=utf-8'});
   const url = URL.createObjectURL(blob);
