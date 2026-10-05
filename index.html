@@ -515,7 +515,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.208</span>
+      ">v2.14.209</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -8913,16 +8913,48 @@ async function abrirNuvem(){
         <div style="font-weight:700;margin-bottom:4px">Neste computador</div>
         <div style="font-size:11px;color:var(--gray-5)">${linhaRes(loc)}</div>
       </div>
+      <div id="nv-tabelas" style="border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 12px;margin-top:10px;font-size:12px;color:var(--gray-5)">Tabelas do MySQL: consultando…</div>
       <div id="nv-prog" style="margin-top:12px;font-size:13px;font-weight:700;color:var(--pink)"></div>
       ${rodapeEnd}`,
       `<button class="btn btn-secondary" onclick="_nvSair()">Sair</button>
        ${v?'<button class="btn btn-secondary" id="nv-b-carregar" onclick="_nvCarregar()">⬇ Carregar do servidor</button>':''}
        <button class="btn btn-primary" id="nv-b-salvar" onclick="_nvSalvar()">☁ Salvar no servidor</button>`);
+    _nvTabelas();
   }catch(e){
     if(e.auth){ abrirNuvem(); return; }
     openModal('☁ Servidor', `<div style="color:var(--red);font-size:13px">${_nvEsc(e.message)}</div>${rodapeEnd}`,
       `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button><button class="btn btn-primary" onclick="abrirNuvem()">Tentar de novo</button>`);
   }
+}
+// v209: a API v3 copia cada cópia salva para as tabelas do MySQL (clientes, faturamento, recebiveis...).
+// Aqui só mostra a situação de cada tabela e permite refazer a cópia ("↻ Atualizar tabelas").
+let _nvTabTimer=null;
+async function _nvTabelas(){
+  clearTimeout(_nvTabTimer);
+  const el=document.getElementById('nv-tabelas'); if(!el) return;
+  let j;
+  try{ j=await _nvFetch('/dados/tabelas'); }
+  catch(e){ el.innerHTML='Tabelas do MySQL: '+_nvEsc(/Rota não encontrada/.test(e.message)?'a API ainda não tem esta função (atualize a API).':e.message); return; }
+  const tabs=j.tabelas||[];
+  const ult=tabs.reduce((m,t)=>t.em&&(!m||t.em>m)?t.em:m,null);
+  const comErro=tabs.filter(t=>t.status!=='ok');
+  const lin=tabs.filter(t=>t.status==='ok').map(t=>`${_nvEsc(t.tabela)}: <b>${Number(t.linhas).toLocaleString('pt-BR')}</b>`).join(' · ');
+  const avisos=tabs.filter(t=>t.status==='ok'&&t.erro).map(t=>`<div style="color:#B45309">⚠ ${_nvEsc(t.tabela)}: ${_nvEsc(t.erro)}</div>`).join('');
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
+      <b style="color:var(--gray-7,#333);font-size:13px">Tabelas do MySQL</b>
+      <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px" onclick="_nvTabSinc()" ${j.rodando?'disabled':''}>↻ Atualizar tabelas</button></div>
+    ${j.rodando?'<div style="color:var(--pink);font-weight:700">Copiando a última cópia para as tabelas…</div>':''}
+    ${ult?`<div>Atualizadas em <b>${new Date(ult).toLocaleString('pt-BR')}</b></div>`:(j.rodando?'':'<div>Ainda não copiadas — clique em ↻ Atualizar tabelas.</div>')}
+    ${lin?`<div style="font-size:11px;margin-top:4px">${lin}</div>`:''}
+    ${comErro.map(t=>`<div style="color:var(--red);font-size:11px">✖ ${_nvEsc(t.tabela)}: ${_nvEsc(t.erro||t.status)}</div>`).join('')}
+    ${avisos?`<div style="font-size:11px;margin-top:4px">${avisos}</div>`:''}
+    ${j.erro?`<div style="color:var(--red);font-size:11px">✖ ${_nvEsc(j.erro)}</div>`:''}`;
+  if(j.rodando) _nvTabTimer=setTimeout(_nvTabelas,3000);
+}
+async function _nvTabSinc(){
+  try{ await _nvFetch('/dados/tabelas/sincronizar',{method:'POST'}); toast('Copiando os dados para as tabelas do MySQL…'); }
+  catch(e){ toast('Não iniciou: '+e.message,'error'); }
+  setTimeout(_nvTabelas,1500);
 }
 function _montarResumo(b){
   const r={}, d=(b&&b.db)||{};
