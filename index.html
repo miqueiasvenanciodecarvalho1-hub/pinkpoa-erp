@@ -476,6 +476,7 @@ License: MIT
     <div class="nav-item" onclick="navigate('importacao')"><span class="nav-icon">📥</span> Importação</div>
     <div class="nav-item" onclick="navigate('automacao')"><span class="nav-icon">🤖</span> Automação</div>
     <div class="nav-item" id="nav-usuarios" onclick="navigate('usuarios')" style="display:none"><span class="nav-icon">👥</span> Usuários e Acessos</div>
+    <div class="nav-item" id="nav-config" onclick="navigate('configuracoes')" style="display:none"><span class="nav-icon">⚙️</span> Configurações</div>
   </div>
   <div style="flex:1"></div>
   <div style="padding:12px 16px;border-top:1px solid rgba(255,255,255,.08)">
@@ -541,7 +542,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.213</span>
+      ">v2.14.214</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1033,18 +1034,19 @@ checkApiStatus();
 // ── v212: PERMISSÕES POR MÓDULO ─────────────────────────────────
 // Vêm do servidor no login (/login) e são reconferidas ao abrir (/me). O servidor também filtra os dados
 // (o usuário só recebe as listas dos módulos liberados) e só aceita gravar os módulos com "editar".
+const _PAGINAS_ADMIN=['usuarios','configuracoes'];   // só administrador
 function _ehAdmin(){ return !!USER && USER.perfil==='admin'; }
 function _perm(mod){ if(!USER) return ''; if(_ehAdmin()) return 'editar'; return (USER.permissoes||{})[mod]||''; }
 function _podeEditarAlgo(){ return _ehAdmin() || Object.values((USER&&USER.permissoes)||{}).includes('editar'); }
 function _primeiraPagina(){
   for(const el of document.querySelectorAll('#sidebar .nav-item')){ const m=(el.getAttribute('onclick')||'').match(/navigate\('(\w+)'\)/);
-    if(m && m[1]!=='usuarios' && _perm(m[1])) return m[1]; }
+    if(m && !_PAGINAS_ADMIN.includes(m[1]) && _perm(m[1])) return m[1]; }
   return _ehAdmin()?'usuarios':'';
 }
 function _aplicarPermissoes(){
   const itens=Array.from(document.querySelectorAll('#sidebar .nav-item'));
   itens.forEach(el=>{ const m=(el.getAttribute('onclick')||'').match(/navigate\('(\w+)'\)/); if(!m) return;
-    el.style.display = (m[1]==='usuarios' ? _ehAdmin() : !!_perm(m[1])) ? '' : 'none'; });
+    el.style.display = (_PAGINAS_ADMIN.includes(m[1]) ? _ehAdmin() : !!_perm(m[1])) ? '' : 'none'; });
   // título de seção sem nenhum item visível some junto
   document.querySelectorAll('#sidebar .nav-label').forEach(lb=>{ let n=lb.nextElementSibling, vis=false;
     while(n && !n.classList.contains('nav-label')){ if(n.classList.contains('nav-item') && n.style.display!=='none') vis=true; n=n.nextElementSibling; }
@@ -1069,7 +1071,7 @@ function _travarEdicao(){
 }
 function _modoLeitura(){
   const c=document.getElementById('content'); if(!c) return;
-  const so = CURRENT_PAGE && CURRENT_PAGE!=='usuarios' && _perm(CURRENT_PAGE)==='ver';
+  const so = CURRENT_PAGE && !_PAGINAS_ADMIN.includes(CURRENT_PAGE) && _perm(CURRENT_PAGE)==='ver';
   if(_leituraObs){ _leituraObs.disconnect(); _leituraObs=null; }
   if(!so) return;
   if(!document.getElementById('aviso-leitura')) c.insertAdjacentHTML('afterbegin','<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600">👁 Somente leitura — seu usuário pode ver este módulo, mas não alterar.</div>');
@@ -1151,6 +1153,87 @@ async function _usuSalvar(id){
        if(USER && id===USER.id) _sessaoAtualizar(); }
   catch(e){ toast(e.message,'error'); }
 }
+// ── v214: CONFIGURAÇÕES (só administrador) — servidor no Render: situação e opção de plano pago ──
+const _CFG_PLANO='pinkpoa_cfg_render_plano';   // 'gratis' | 'pago' (escolha do admin; vai na cópia como preferência)
+async function renderConfiguracoes(){
+  const c=document.getElementById('content');
+  const plano=(()=>{ try{ return localStorage.getItem(_CFG_PLANO)||'gratis'; }catch(e){ return 'gratis'; } })();
+  c.innerHTML=`<div style="text-transform:none;display:flex;flex-direction:column;gap:14px">
+    <div class="card" style="padding:18px">
+      <h2 style="margin:0 0 4px">☁ Servidor (Render)</h2>
+      <div style="font-size:12px;color:var(--gray-5);margin-bottom:12px">A API que liga o app ao MySQL roda no Render: ${_nvEsc(API)}</div>
+      <div id="cfg-srv" style="font-size:13px">Consultando o servidor…</div>
+    </div>
+    <div class="card" style="padding:18px">
+      <h2 style="margin:0 0 4px">Plano do servidor</h2>
+      <div style="font-size:12px;color:var(--gray-5);margin-bottom:12px">No plano grátis o servidor <b>dorme depois de 15 min sem uso</b> e a 1ª chamada espera até ~50 s (login, conferir atualização, salvar). No plano pago ele fica sempre acordado.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+        <label style="border:2px solid ${plano==='gratis'?'var(--pink)':'var(--gray-2)'};border-radius:var(--radius);padding:12px;cursor:pointer;display:block">
+          <input type="radio" name="cfg-plano" value="gratis" ${plano==='gratis'?'checked':''} onchange="_cfgPlano('gratis')"> <b>Grátis (Free)</b> — US$ 0
+          <div style="font-size:12px;color:var(--gray-5);margin-top:4px">Dorme após 15 min. O app abre com a cópia do aparelho, mas login e salvar podem esperar até 1 min.</div></label>
+        <label style="border:2px solid ${plano==='pago'?'var(--pink)':'var(--gray-2)'};border-radius:var(--radius);padding:12px;cursor:pointer;display:block">
+          <input type="radio" name="cfg-plano" value="pago" ${plano==='pago'?'checked':''} onchange="_cfgPlano('pago')"> <b>Pago (Starter)</b> — cerca de US$ 7/mês
+          <div style="font-size:12px;color:var(--gray-5);margin-top:4px">Sempre acordado: login e atualizações em segundos. Cobrança feita pelo Render no cartão cadastrado lá.</div></label>
+      </div>
+      <div id="cfg-passos" style="margin-top:14px"></div>
+    </div>
+  </div>`;
+  _cfgPassos(plano);
+  _cfgServidor();
+}
+async function _cfgServidor(){
+  const el=document.getElementById('cfg-srv'); if(!el) return;
+  const t0=performance.now(); let h=null, s=null, erro='';
+  try{ const r=await fetch(API+'/health',{cache:'no-store'}); h=await r.json(); }catch(e){ erro='sem resposta'; }
+  const seg=(performance.now()-t0)/1000;
+  try{ s=await _nvFetch('/servidor'); }catch(e){}
+  window._cfgSrv=s||{};
+  const dormia=seg>8;
+  const min=s&&s.acordado_ha_s!=null?Math.round(s.acordado_ha_s/60):null;
+  el.innerHTML=erro?`<div style="color:var(--red)">✖ O servidor não respondeu (${_nvEsc(erro)}).</div>`:`
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px">
+      <div><div style="font-size:11px;color:var(--gray-5)">Respondeu em</div><b style="color:${dormia?'#B45309':'var(--green)'}">${seg.toFixed(1)} s</b>${dormia?' <span style="font-size:11px;color:#B45309">(estava dormindo)</span>':''}</div>
+      <div><div style="font-size:11px;color:var(--gray-5)">Acordado há</div><b>${min==null?'—':min<60?min+' min':(min/60).toFixed(1)+' h'}</b></div>
+      <div><div style="font-size:11px;color:var(--gray-5)">Banco MySQL</div><b>${h&&h.mysql&&h.mysql.ok?'OK · '+h.mysql.ms+' ms':'com erro'}</b></div>
+      <div><div style="font-size:11px;color:var(--gray-5)">Versão da API</div><b>${_nvEsc((h&&h.versao_api)||'?')}</b></div>
+      <div><div style="font-size:11px;color:var(--gray-5)">Memória em uso</div><b>${s&&s.memoria_mb?s.memoria_mb+' MB de 512':'—'}</b></div>
+    </div>`;
+  _cfgPassos((()=>{ try{ return localStorage.getItem(_CFG_PLANO)||'gratis'; }catch(e){ return 'gratis'; } })());
+}
+function _cfgLinkRender(){ const id=(window._cfgSrv||{}).render_service_id; return id?`https://dashboard.render.com/web/${encodeURIComponent(id)}/settings`:'https://dashboard.render.com/'; }
+function _cfgPlano(p){ try{ localStorage.setItem(_CFG_PLANO,p); }catch(e){} renderConfiguracoes(); }
+function _cfgPassos(plano){
+  const el=document.getElementById('cfg-passos'); if(!el) return;
+  const url=API.replace(/\/+$/,'')+'/health';
+  el.innerHTML = plano==='pago' ? `
+    <div style="padding:12px;border-radius:var(--radius);background:#F0FDF4;border:1px solid #86EFAC;font-size:13px">
+      <b>Como passar para o plano pago (faça uma vez, no site do Render):</b>
+      <ol style="margin:8px 0 10px 18px;padding:0;line-height:1.7">
+        <li>Clique em <b>Abrir o Render</b> e entre com a conta do Render (a mesma que publica a API).</li>
+        <li>No serviço <b>${_nvEsc((window._cfgSrv||{}).render_service_name||'pinkpoa-api')}</b>, vá em <b>Settings → Instance Type</b>.</li>
+        <li>Troque <b>Free</b> por <b>Starter</b> e clique em <b>Save Changes</b>. Se pedir, cadastre o cartão em <b>Billing</b>.</li>
+        <li>Pronto — em 1 a 2 minutos o servidor reinicia já no plano pago. Volte aqui e confira "Acordado há".</li>
+      </ol>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn btn-primary" href="${_cfgLinkRender()}" target="_blank" rel="noopener">Abrir o Render ↗</a>
+        <a class="btn btn-secondary" href="https://dashboard.render.com/billing" target="_blank" rel="noopener">Cobrança (Billing) ↗</a>
+      </div>
+      <div style="font-size:11px;color:var(--gray-5);margin-top:8px">O valor exato e a cobrança são do Render (em dólar, no cartão). Para voltar ao grátis, troque Starter por Free no mesmo lugar.</div>
+    </div>` : `
+    <div style="padding:12px;border-radius:var(--radius);background:#FFFBEB;border:1px solid #FCD34D;font-size:13px">
+      <b>Continuar no grátis, com o servidor acordado (opcional, também grátis):</b>
+      <ol style="margin:8px 0 10px 18px;padding:0;line-height:1.7">
+        <li>Crie uma conta em <b>UptimeRobot</b> (grátis).</li>
+        <li>Clique em <b>New monitor</b> → tipo <b>HTTP(s)</b> → intervalo <b>5 minutes</b>.</li>
+        <li>No endereço, cole: <code style="background:#fff;padding:1px 6px;border-radius:4px">${_nvEsc(url)}</code> <button class="btn btn-secondary" style="padding:1px 8px;font-size:11px" onclick="navigator.clipboard&&navigator.clipboard.writeText('${_nvEsc(url)}').then(()=>toast('Endereço copiado'))">copiar</button></li>
+      </ol>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn btn-secondary" href="https://uptimerobot.com/" target="_blank" rel="noopener">Abrir UptimeRobot ↗</a>
+        <button class="btn btn-primary" onclick="_cfgPlano('pago')">Quero o plano pago</button>
+      </div>
+    </div>`;
+}
+
 function trocarMinhaSenha(){
   openModal('🔑 Minha senha',`<div class="form-group"><label>Senha atual</label><input id="ms-atual" type="password" class="form-control no-up"></div>
     <div class="form-group"><label>Nova senha (mín. 10 caracteres)</label><input id="ms-nova" type="password" class="form-control no-up" autocomplete="new-password"></div>
@@ -1167,7 +1250,7 @@ async function _msSalvar(){
 // ── NAVEGAÇÃO ─────────────────────────────────────────────────
 const PAGE_TITLES = {
   dashboard:'Dashboard', clientes:'Clientes', representantes:'Representantes',
-  usuarios:'Usuários e Acessos',
+  usuarios:'Usuários e Acessos', configuracoes:'Configurações',
   produtos:'Produtos', faturamento:'Faturamento', comissoes:'Comissões',
   recebiveis:'Recebíveis', pagar:'Contas a Pagar (Fornecedores)', conciliacao:'Conciliação Bancária', vendas:'Análise de Vendas', estoques:'Gestão de Estoques', naturezas:'Naturezas de Operação', compras:'Compras', importacao:'Importação de Arquivos', automacao:'Automação'
 };
@@ -1190,7 +1273,7 @@ document.addEventListener('input', _autoUpper, true);
 function navigate(page) {
   fecharSidebar();
   // v212: só abre o que o usuário tem liberado
-  if (page === 'usuarios' ? !_ehAdmin() : !_perm(page)) {
+  if (_PAGINAS_ADMIN.includes(page) ? !_ehAdmin() : !_perm(page)) {
     const p = _primeiraPagina();
     if (!p) { CURRENT_PAGE=''; document.getElementById('content').innerHTML = '<div class="empty-state"><div class="es-icon">🔒</div><div class="es-text">Seu usuário ainda não tem nenhum módulo liberado. Fale com o administrador.</div></div>'; return; }
     if (USER) toast('Sem acesso a '+(PAGE_TITLES[page]||page),'error');
@@ -1211,6 +1294,7 @@ function navigate(page) {
     importacao: renderImportacao,
     automacao: renderAutomacao,
     usuarios: renderUsuarios,
+    configuracoes: renderConfiguracoes,
   };
   if (page === 'importacao' && !_pastaHandle && typeof restaurarPasta === 'function') {
     restaurarPasta().then(h => { if (h) renderImportacao(); });
