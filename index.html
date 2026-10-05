@@ -515,7 +515,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.209</span>
+      ">v2.14.210</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -8940,6 +8940,12 @@ async function _nvTabelas(){
   const comErro=tabs.filter(t=>t.status!=='ok');
   const lin=tabs.filter(t=>t.status==='ok').map(t=>`${_nvEsc(t.tabela)}: <b>${Number(t.linhas).toLocaleString('pt-BR')}</b>`).join(' · ');
   const avisos=tabs.filter(t=>t.status==='ok'&&t.erro).map(t=>`<div style="color:#B45309">⚠ ${_nvEsc(t.tabela)}: ${_nvEsc(t.erro)}</div>`).join('');
+  // v210: duplicidade NÃO entra no banco — a API devolve a lista para corrigir na origem
+  const dups=tabs.filter(t=>Number(t.dup_chaves));
+  const dupHtml=dups.length?`<div style="margin-top:8px;padding:8px 10px;border-radius:var(--radius);background:#FEF2F2;border:1px solid #FCA5A5;color:#991B1B">
+      <b>⛔ Duplicidades recusadas pelo banco</b> — não foram gravadas e precisam ser corrigidas na origem:<br>
+      ${dups.map(t=>`${_nvEsc(t.tabela)}: <b>${Number(t.dup_chaves).toLocaleString('pt-BR')}</b> chave(s), ${Number(t.dup_linhas).toLocaleString('pt-BR')} linha(s)`).join(' · ')}
+      <div style="margin-top:6px"><button class="btn btn-secondary" style="padding:3px 10px;font-size:12px" onclick="_nvDuplicidades()">Ver duplicidades</button></div></div>`:'';
   el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px">
       <b style="color:var(--gray-7,#333);font-size:13px">Tabelas do MySQL</b>
       <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px" onclick="_nvTabSinc()" ${j.rodando?'disabled':''}>↻ Atualizar tabelas</button></div>
@@ -8948,8 +8954,49 @@ async function _nvTabelas(){
     ${lin?`<div style="font-size:11px;margin-top:4px">${lin}</div>`:''}
     ${comErro.map(t=>`<div style="color:var(--red);font-size:11px">✖ ${_nvEsc(t.tabela)}: ${_nvEsc(t.erro||t.status)}</div>`).join('')}
     ${avisos?`<div style="font-size:11px;margin-top:4px">${avisos}</div>`:''}
+    ${dupHtml}
     ${j.erro?`<div style="color:var(--red);font-size:11px">✖ ${_nvEsc(j.erro)}</div>`:''}`;
   if(j.rodando) _nvTabTimer=setTimeout(_nvTabelas,3000);
+}
+// v210: lista das duplicidades devolvidas pela API (por tabela), com os registros de cada ocorrência
+let _nvDupCache=[];
+const _NV_DUP_ORIGEM={clientes:'vpclie1 (Clientes)',representantes:'vprepr1 (Representantes)',faturamento:'vpfatu1/2 (Faturamento)',
+  comissoes:'vp42541a/b (Comissões)',recebiveis:'vpdpcl1 / Pagar.me (Recebíveis)',duplicatas_banco:'Conciliação — duplicatas',
+  movimentos_bancarios:'vpbanc3 (Conciliação — movimentos)',naturezas_operacao:'Naturezas',produtos:'vp0000 / produtos (Vendas)',estoques:'Estoques (Vendas)'};
+async function _nvDuplicidades(tab){
+  openModal('⛔ Duplicidades recusadas','<div style="padding:16px;color:var(--gray-5)">Carregando…</div>','<button class="btn btn-secondary" onclick="abrirNuvem()">Voltar</button>');
+  let j; try{ j=await _nvFetch('/dados/duplicidades'+(tab?'?tabela='+encodeURIComponent(tab):'')); }
+  catch(e){ document.getElementById('modal-body').innerHTML=`<div style="color:var(--red)">${_nvEsc(e.message)}</div>`; return; }
+  _nvDupCache=j.duplicidades||[];
+  const porTab={}; _nvDupCache.forEach(d=>{ (porTab[d.tabela]=porTab[d.tabela]||[]).push(d); });
+  const cel=v=>_nvEsc(v==null?'':typeof v==='object'?JSON.stringify(v):String(v));
+  const MAX=200;
+  const html=Object.keys(porTab).map(t=>{
+    const lista=porTab[t];
+    return `<div style="margin-bottom:14px"><div style="font-weight:700;font-size:13px;margin-bottom:4px">${_nvEsc(t)} — ${lista.length.toLocaleString('pt-BR')} chave(s) repetida(s)
+        <span style="font-weight:400;color:var(--gray-5);font-size:11px">· corrigir em: ${_nvEsc(_NV_DUP_ORIGEM[t]||t)}</span></div>
+      ${lista.slice(0,MAX).map(d=>{
+        const regs=d.registros||[]; const cols=[...new Set(regs.flatMap(r=>Object.keys(r||{})))].filter(c=>!/^_/.test(c)).slice(0,12);
+        return `<div style="border:1px solid var(--gray-2);border-radius:6px;padding:6px 8px;margin-bottom:6px;font-size:11px">
+          <div><b>${_nvEsc(d.chave)}</b>: <b style="color:#991B1B">${_nvEsc(d.valor)}</b> — ${d.ocorrencias}× </div>
+          <div style="overflow-x:auto"><table style="border-collapse:collapse;margin-top:4px;font-size:11px">
+            <tr>${cols.map(c=>`<th style="text-align:left;padding:2px 6px;border-bottom:1px solid var(--gray-2)">${_nvEsc(c)}</th>`).join('')}</tr>
+            ${regs.map(r=>`<tr>${cols.map(c=>`<td style="padding:2px 6px;white-space:nowrap">${cel((r||{})[c])}</td>`).join('')}</tr>`).join('')}
+          </table></div></div>`; }).join('')}
+      ${lista.length>MAX?`<div style="font-size:11px;color:var(--gray-5)">… mais ${(lista.length-MAX).toLocaleString('pt-BR')} chave(s) — baixe o CSV para ver todas.</div>`:''}</div>`;
+  }).join('') || '<div style="color:var(--green)">Nenhuma duplicidade. ✅</div>';
+  openModal('⛔ Duplicidades recusadas pelo banco',
+    `<div style="font-size:12px;margin-bottom:10px">Estas linhas <b>não foram gravadas</b> no MySQL (nenhuma das ocorrências). Corrija na origem (o arquivo/cadastro indicado), reimporte no app e clique em <b>☁ Salvar no servidor</b>.</div>${html}`,
+    `<button class="btn btn-secondary" onclick="abrirNuvem()">Voltar</button>${_nvDupCache.length?'<button class="btn btn-primary" onclick="_nvDupCSV()">⬇ Baixar CSV</button>':''}`);
+}
+function _nvDupCSV(){
+  const q=v=>'"'+String(v==null?'':typeof v==='object'?JSON.stringify(v):v).replace(/"/g,'""')+'"';
+  const cols=[...new Set(_nvDupCache.flatMap(d=>(d.registros||[]).flatMap(r=>Object.keys(r||{}))))].filter(c=>!/^_/.test(c));
+  const linhas=[['tabela','chave','valor_repetido','ocorrencia',...cols].map(q).join(';')];
+  _nvDupCache.forEach(d=>(d.registros||[]).forEach((r,i)=>linhas.push([d.tabela,d.chave,d.valor,i+1,...cols.map(c=>(r||{})[c])].map(q).join(';'))));
+  const blob=new Blob(['﻿'+linhas.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='PINKPOA_DUPLICIDADES_'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),1500);
 }
 async function _nvTabSinc(){
   try{ await _nvFetch('/dados/tabelas/sincronizar',{method:'POST'}); toast('Copiando os dados para as tabelas do MySQL…'); }
