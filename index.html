@@ -541,7 +541,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.212</span>
+      ">v2.14.213</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -969,7 +969,7 @@ function doLogout() {
   // v212: sai do servidor também e recarrega a página — os dados ficam só em memória, então somem junto
   ['pinkpoa_token','pinkpoa_user','pinkpoa_nuvem_token','pinkpoa_nuvem_usuario'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
   TOKEN=''; USER=null;
-  location.reload();
+  _cacheLimpar().finally(()=>location.reload());   // v213: a cópia guardada no aparelho sai junto
 }
 
 // Auto-login se já logado
@@ -9035,6 +9035,28 @@ async function _nvFetch(caminho, opt){
   if(!r.ok) throw new Error(j.error||('Erro '+r.status));
   return j;
 }
+// v213: resposta em texto (a cópia), com os mesmos cuidados do _nvFetch
+async function _nvFetchTexto(caminho){
+  const h={}; const tk=_nvLer(NV_TOKEN); if(tk) h.Authorization='Bearer '+tk;
+  const ctrl=new AbortController(); const tm=setTimeout(()=>ctrl.abort(), 180000);
+  let r;
+  try{ r=await fetch(API+caminho,{headers:h,signal:ctrl.signal,cache:'no-store'}); }
+  catch(e){ throw new Error('Sem resposta da API (servidor dormindo ou sem internet). Tente de novo em 1 minuto.'); }
+  finally{ clearTimeout(tm); }
+  if(!r.ok){ let j={}; try{ j=await r.json(); }catch(e){}
+    if(r.status===401){ _nvGravar(NV_TOKEN,''); const e=new Error('Sessão expirada — entre de novo.'); e.auth=true; throw e; }
+    throw new Error(j.error||('Erro '+r.status)); }
+  return await r.text();
+}
+// v213: CÓPIA GUARDADA NO APARELHO (IndexedDB). Ao abrir, o app mostra na hora a última cópia baixada e só
+// confere no servidor se existe uma mais nova (pedido pequeno). Sair do sistema apaga a cópia do aparelho.
+function _cacheAbrir(){ return new Promise((ok,er)=>{ try{ const r=indexedDB.open('pinkpoa_cache',1);
+  r.onupgradeneeded=()=>r.result.createObjectStore('copia'); r.onsuccess=()=>ok(r.result); r.onerror=()=>er(r.error); }catch(e){ er(e); } }); }
+async function _cacheLer(){ try{ const db=await _cacheAbrir(); return await new Promise(ok=>{ const t=db.transaction('copia','readonly').objectStore('copia').get('ultima');
+  t.onsuccess=()=>ok(t.result||null); t.onerror=()=>ok(null); }); }catch(e){ return null; } }
+async function _cacheGravar(rec){ try{ const db=await _cacheAbrir(); rec=Object.assign({ dono:(USER&&USER.email)||'', em:new Date().toISOString() },rec);
+  await new Promise(ok=>{ const t=db.transaction('copia','readwrite'); t.objectStore('copia').put(rec,'ultima'); t.oncomplete=ok; t.onerror=ok; t.onabort=ok; }); }catch(e){} }
+async function _cacheLimpar(){ try{ const db=await _cacheAbrir(); await new Promise(ok=>{ const t=db.transaction('copia','readwrite'); t.objectStore('copia').clear(); t.oncomplete=ok; t.onerror=ok; }); }catch(e){} }
 function _nvUsuario(){ try{ return JSON.parse(_nvLer(NV_USER)||'null'); }catch(e){ return null; } }
 
 async function abrirNuvem(){
@@ -9209,6 +9231,7 @@ async function _nvSalvar(){
     _nvProg('Finalizando…');
     const rc=await _nvFetch('/dados/concluir',{method:'POST',body:{lote,partes:total,bytes:txt.length,resumo:_montarResumo(b),versao_app:_versaoApp()}});
     toast(rc.mesclado?`Salvo no servidor: ${(rc.listas||[]).join(', ')||'nada a gravar'}`:`Dados salvos no servidor (${_nvTam(txt.length)})`);
+    if(!rc.mesclado) _cacheGravar({ ref: lote, criado_em: new Date().toISOString(), txt });
     abrirNuvem();
   }catch(e){ _nvProg(''); _nvBotoes(true); toast('Não salvou: '+e.message,'error'); if(e.auth) abrirNuvem(); }
 }
@@ -9219,9 +9242,16 @@ async function _nvUltima(){
 }
 async function _nvBaixarAplicar(v){
   let txt='';
-  for(let i=0;i<v.partes;i++){ _nvProg(`Baixando parte ${i+1} de ${v.partes}…`);
-    txt+=(await _nvFetch(v.chave?`/dados/minha/parte?chave=${encodeURIComponent(v.chave)}&parte=${i}`:`/dados/parte?lote=${encodeURIComponent(v.lote)}&parte=${i}`)).texto; }
+  _nvProg('Baixando os dados…');
+  try{   // v213: a cópia inteira numa resposta só, compactada (API v4.1)
+    txt=await _nvFetchTexto(v.chave?`/dados/minha/completa?chave=${encodeURIComponent(v.chave)}`:`/dados/completa?lote=${encodeURIComponent(v.lote)}`);
+  }catch(e){
+    if(e.auth || !/Rota não encontrada|404/.test(e.message)) throw e;
+    for(let i=0;i<v.partes;i++){ _nvProg(`Baixando parte ${i+1} de ${v.partes}…`);
+      txt+=(await _nvFetch(v.chave?`/dados/minha/parte?chave=${encodeURIComponent(v.chave)}&parte=${i}`:`/dados/parte?lote=${encodeURIComponent(v.lote)}&parte=${i}`)).texto; }
+  }
   _nvProg('Aplicando…');
+  _cacheGravar({ ref: v.chave||v.lote, criado_em: v.criado_em, txt });
   const obj=JSON.parse(txt);
   if(!obj || obj._tipo!=='PINKPOA_BACKUP') throw new Error('Cópia do servidor com formato inesperado');
   const fix=_aplicarBackup(obj);
@@ -9234,6 +9264,18 @@ async function _nvAutoCarregar(){
   if(_nvAutoRodando || !_appSemDados()) return;
   if(!_nvLer(NV_TOKEN)){ doLogout(); return; }           // v212: sem sessão = volta para o login
   _nvAutoRodando=true;
+  // v213: tem cópia deste usuário no aparelho? abre com ela na hora e confere o servidor sem travar a tela
+  const c=await _cacheLer();
+  if(c && c.txt && c.dono===((USER&&USER.email)||'')){
+    try{
+      const fix=_aplicarBackup(JSON.parse(c.txt));
+      try{ navigate(CURRENT_PAGE||_primeiraPagina()); }catch(e){}
+      toast(`Dados do aparelho (cópia de ${c.criado_em?new Date(c.criado_em).toLocaleString('pt-BR'):'?'}) — conferindo se há atualização…`);
+      _nvAutoRodando=false;
+      _nvConferirAtualizacao(c.ref);
+      return;
+    }catch(e){ await _cacheLimpar(); }
+  }
   openModal('☁ Carregando os dados', `<div style="padding:14px 4px;text-align:center">
       <div class="spinner" style="margin-bottom:10px"></div>
       <div style="font-size:13px">Buscando a última cópia no servidor (MySQL)…</div>
@@ -9253,6 +9295,19 @@ async function _nvAutoCarregar(){
       `<button class="btn btn-secondary" onclick="closeModal();_avisoEscolherOrigem()">Usar arquivo de backup</button><button class="btn btn-primary" onclick="_nvAutoCarregar()">Tentar de novo</button>`);
   }finally{ _nvAutoRodando=false; }
 }
+// v213: em segundo plano — se o servidor tem cópia mais nova (ou as permissões mudaram), baixa e troca
+async function _nvConferirAtualizacao(refAtual){
+  try{
+    await _sessaoAtualizar();
+    const v=await _nvUltima();
+    if(!v || (v.chave||v.lote)===refAtual){ _nvStatusDados('em dia'); return; }
+    _nvStatusDados('baixando atualização…');
+    const fix=await _nvBaixarAplicar(v);
+    toast(`Dados atualizados (cópia de ${new Date(v.criado_em).toLocaleString('pt-BR')})`);
+  }catch(e){ if(e.auth){ toast('Sessão expirada — entre de novo','error'); setTimeout(doLogout,1200); return; }
+    _nvStatusDados('sem conexão — usando a cópia do aparelho'); }
+}
+function _nvStatusDados(t){ const el=document.getElementById('api-status'); if(el) el.dataset.dados=t; }
 async function _nvCarregar(){
   _nvBotoes(false);
   try{
