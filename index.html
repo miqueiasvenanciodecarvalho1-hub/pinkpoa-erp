@@ -347,7 +347,7 @@ License: MIT
     </div>
 
     <!-- Abas Login / Cadastro -->
-    <div class="login-tabs">
+    <div class="login-tabs" style="display:none"><!-- v212: sem "Criar conta" — quem cria usuários é o administrador -->
       <button class="login-tab active" id="tab-login" onclick="trocarAbaLogin('login')">Entrar</button>
       <button class="login-tab" id="tab-cadastro" onclick="trocarAbaLogin('cadastro')">Criar Conta</button>
     </div>
@@ -375,8 +375,9 @@ License: MIT
       <button class="btn btn-primary" onclick="doLogin()" style="margin-top:4px;justify-content:center;padding:11px;font-size:14px">
         Entrar →
       </button>
+      <div id="l-status" style="text-align:center;font-size:12px;color:var(--pink);font-weight:600;min-height:16px"></div>
       <p style="text-align:center;font-size:11px;color:var(--gray-4)">
-        Não tem conta? <span style="color:var(--pink);cursor:pointer;font-weight:600" onclick="trocarAbaLogin('cadastro')">Criar conta gratuita</span>
+        Acesso liberado pelo administrador do sistema. Esqueceu a senha? Fale com ele.
       </p>
     </div>
 
@@ -474,9 +475,11 @@ License: MIT
     <div class="nav-item" onclick="navigate('compras')"><span class="nav-icon">🛒</span> Compras</div>
     <div class="nav-item" onclick="navigate('importacao')"><span class="nav-icon">📥</span> Importação</div>
     <div class="nav-item" onclick="navigate('automacao')"><span class="nav-icon">🤖</span> Automação</div>
+    <div class="nav-item" id="nav-usuarios" onclick="navigate('usuarios')" style="display:none"><span class="nav-icon">👥</span> Usuários e Acessos</div>
   </div>
   <div style="flex:1"></div>
   <div style="padding:12px 16px;border-top:1px solid rgba(255,255,255,.08)">
+    <div class="nav-item" onclick="trocarMinhaSenha()" style="padding:8px 0"><span class="nav-icon">🔑</span> Minha senha</div>
     <div class="nav-item" onclick="doLogout()" style="padding:8px 0"><span class="nav-icon">🚪</span> Sair</div>
   </div>
 </div>
@@ -538,7 +541,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.211</span>
+      ">v2.14.212</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -710,12 +713,7 @@ function closeModal() { document.getElementById('modal-overlay').style.display =
 // ── AUTH ──────────────────────────────────────────────────────
 // ── SISTEMA DE USUÁRIOS ─────────────────────────────────────────
 const ADMIN_EMAIL = 'admin@pinkpoa.com.br';
-// v207: a senha do admin master não fica mais escrita no HTML (repositório público) — só o SHA-256 dela.
-const ADMIN_HASH  = 'e09b766b4eda79afec1e3f7b0e66c3023f40b450400ac3b6504b7b1c7cfba764';
-async function _sha256(t){
-  const b=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
-  return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');
-}
+// v212: login ÚNICO pelo servidor (API → tabela usuarios do MySQL). Não existe mais senha dentro do HTML.
 const DB_KEY      = 'pinkpoa_users_v1';
 
 function getUsers() {
@@ -791,29 +789,23 @@ async function doLogin() {
   const email = (document.getElementById('l-email')?.value||'').trim().toLowerCase();
   const senha = document.getElementById('l-senha')?.value||'';
   if(!email || !senha) return toast('Preencha e-mail e senha','error');
-
   if (document.getElementById('l-lembrar')?.checked) localStorage.setItem(EMAIL_KEY, email);
   else localStorage.removeItem(EMAIL_KEY);
-
-  // Admin master (não aparece no cadastro)
-  let _hAdm='';
-  if(email===ADMIN_EMAIL){ try{ _hAdm=await _sha256(senha); }catch(e){ return toast('Este navegador não permite conferir a senha (abra pelo site https)','error'); } }
-  if(email===ADMIN_EMAIL && _hAdm===ADMIN_HASH) {
-    _entrarSistema({email, nome:'Administrador', cargo:'Admin', role:'admin'});
-    return;
-  }
-
-  // Usuários cadastrados
-  const users = getUsers();
-  const user  = users.find(u=>u.email===email);
-  if(!user) return toast('E-mail não cadastrado','error');
-  if(user.hash !== hashSenha(senha)) return toast('Senha incorreta','error');
-
-  _entrarSistema(user);
+  const st=document.getElementById('l-status'), msg=t=>{ if(st) st.textContent=t; };
+  msg('Conectando ao servidor…');
+  const tAc=setTimeout(()=>msg('O servidor estava dormindo — pode levar até 1 minuto…'),4000);
+  try{
+    const s0=await _nvFetch('/setup/status');
+    if(s0.precisa_setup){ clearTimeout(tAc); msg(''); _nvCriarAdminModal(email); return; }
+    await _nvLogin(email,senha);
+    clearTimeout(tAc); msg('');
+    _entrarSistema(_nvUsuario());
+  }catch(e){ clearTimeout(tAc); msg(''); toast(e.message,'error'); }
 }
 
 function _entrarSistema(user) {
   TOKEN = 'pp-' + Date.now();
+  user = user || {};
   USER  = user;
   localStorage.setItem('pinkpoa_token', TOKEN);
   localStorage.setItem('pinkpoa_user',  JSON.stringify(user));
@@ -825,7 +817,8 @@ function _entrarSistema(user) {
   document.getElementById('user-email').textContent = rotulo;
   document.getElementById('avatar-initials').textContent = rotulo.trim()[0].toUpperCase();
   checkApiStatus();
-  navigate('dashboard');
+  _aplicarPermissoes();
+  navigate(_primeiraPagina() || 'dashboard');
   toast(`Bem-vinda, ${user.nome||user.email}! 🌸`);
   _avisoSemDados();
 }
@@ -834,7 +827,7 @@ function _appSemDados(){ return !['faturamento','recebiveis','clientes','comisso
 function _avisoSemDados(){
   if(!_appSemDados()) return;
   // v211: ao abrir, os dados vêm do banco sozinhos (logado no servidor → baixa a última cópia; senão pede o login dele)
-  setTimeout(()=>{ if(_appSemDados()) _nvAutoCarregar(); }, 300);
+  setTimeout(()=>{ if(_appSemDados()) _nvAutoCarregar(); else _sessaoAtualizar(); }, 300);
 }
 function _avisoEscolherOrigem(){
   setTimeout(()=>{ if(!_appSemDados()) return;
@@ -973,23 +966,19 @@ window.addEventListener('resize', () => {
 
 
 function doLogout() {
-  TOKEN = ''; USER = null;
-  localStorage.removeItem('pinkpoa_token');
-  localStorage.removeItem('pinkpoa_user');
-  fecharSidebar();
-  closeModal();
-  trocarAbaLogin('login');
-  ['l-senha','c-senha','c-senha2'].forEach(id => { const el = document.getElementById(id); if (el) { el.value = ''; el.type = 'password'; } });
-  const eye = document.getElementById('l-eye'); if (eye) eye.textContent = '👁';
-  document.getElementById('content').innerHTML = '';
-  document.getElementById('login-screen').style.display = 'flex';
-  restaurarEmailLembrado();
-  document.getElementById('l-email')?.focus();
+  // v212: sai do servidor também e recarrega a página — os dados ficam só em memória, então somem junto
+  ['pinkpoa_token','pinkpoa_user','pinkpoa_nuvem_token','pinkpoa_nuvem_usuario'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+  TOKEN=''; USER=null;
+  location.reload();
 }
 
 // Auto-login se já logado
+// v212: sessão antiga (login local) sem a do servidor não vale mais
+if (TOKEN && !localStorage.getItem('pinkpoa_nuvem_token')) { localStorage.removeItem('pinkpoa_token'); localStorage.removeItem('pinkpoa_user'); TOKEN=''; USER=null; }
 if (TOKEN && USER && USER.email) {
   try {
+    try{ const nu=JSON.parse(localStorage.getItem('pinkpoa_nuvem_usuario')||'null'); if(nu) USER=Object.assign({},USER,nu); }catch(_){}
+    _aplicarPermissoes();
     const rotulo = USER.nome || USER.email;
     document.getElementById('login-screen').style.display = 'none';
     document.getElementById('user-email').textContent = rotulo;
@@ -1041,9 +1030,144 @@ function configurarApi(){
 }
 checkApiStatus();
 
+// ── v212: PERMISSÕES POR MÓDULO ─────────────────────────────────
+// Vêm do servidor no login (/login) e são reconferidas ao abrir (/me). O servidor também filtra os dados
+// (o usuário só recebe as listas dos módulos liberados) e só aceita gravar os módulos com "editar".
+function _ehAdmin(){ return !!USER && USER.perfil==='admin'; }
+function _perm(mod){ if(!USER) return ''; if(_ehAdmin()) return 'editar'; return (USER.permissoes||{})[mod]||''; }
+function _podeEditarAlgo(){ return _ehAdmin() || Object.values((USER&&USER.permissoes)||{}).includes('editar'); }
+function _primeiraPagina(){
+  for(const el of document.querySelectorAll('#sidebar .nav-item')){ const m=(el.getAttribute('onclick')||'').match(/navigate\('(\w+)'\)/);
+    if(m && m[1]!=='usuarios' && _perm(m[1])) return m[1]; }
+  return _ehAdmin()?'usuarios':'';
+}
+function _aplicarPermissoes(){
+  const itens=Array.from(document.querySelectorAll('#sidebar .nav-item'));
+  itens.forEach(el=>{ const m=(el.getAttribute('onclick')||'').match(/navigate\('(\w+)'\)/); if(!m) return;
+    el.style.display = (m[1]==='usuarios' ? _ehAdmin() : !!_perm(m[1])) ? '' : 'none'; });
+  // título de seção sem nenhum item visível some junto
+  document.querySelectorAll('#sidebar .nav-label').forEach(lb=>{ let n=lb.nextElementSibling, vis=false;
+    while(n && !n.classList.contains('nav-label')){ if(n.classList.contains('nav-item') && n.style.display!=='none') vis=true; n=n.nextElementSibling; }
+    lb.style.display=vis?'':'none'; });
+}
+// "Ver" = somente leitura: botões de gravar/importar/excluir ficam desativados (o servidor também recusa)
+const _RE_EDITA=/(importar|import\w*\(|excluir|remov|delet|apagar|salvar|novo|nova\b|editar|adicionar|incluir|zerar|lan[çc]ar|upload|cadastr|reprocess|processar|conciliar|desconciliar|baixar t[ií]tulo|_pmAuto|modalFechar|fechar per[ií]odo|_puxarCanais|gerenciarFornecedores|escolherPasta|escolherArquivos|conectarPasta|repararTextos|_cmpLote)/i;
+// botão que abre um seletor de arquivo = importação (menos o "Comparar", que só lê um arquivo para comparar)
+const _RE_ARQUIVO=/getElementById\('([^']+)'\)\.click\(\)/;
+let _leituraObs=null;
+function _travarEdicao(){
+  const c=document.getElementById('content'); if(!c) return;
+  c.querySelectorAll('button, .btn, input[type=file], [onclick]').forEach(el=>{
+    if(el.dataset.ro) return;
+    const txt=(el.getAttribute('onclick')||'')+' '+(el.textContent||'')+' '+(el.title||'');
+    const arq=(el.getAttribute('onclick')||'').match(_RE_ARQUIVO);
+    const ehImport = arq && !/snap/i.test(arq[1]);
+    if((el.matches('input[type=file]') && !/snap/i.test(el.id||'')) || (el.matches('button,.btn') && (_RE_EDITA.test(txt) || ehImport))){
+      el.dataset.ro='1'; el.disabled=true; el.style.opacity='.4'; el.style.pointerEvents='none'; el.title='Somente leitura — seu usuário pode só ver este módulo';
+    }
+  });
+}
+function _modoLeitura(){
+  const c=document.getElementById('content'); if(!c) return;
+  const so = CURRENT_PAGE && CURRENT_PAGE!=='usuarios' && _perm(CURRENT_PAGE)==='ver';
+  if(_leituraObs){ _leituraObs.disconnect(); _leituraObs=null; }
+  if(!so) return;
+  if(!document.getElementById('aviso-leitura')) c.insertAdjacentHTML('afterbegin','<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600">👁 Somente leitura — seu usuário pode ver este módulo, mas não alterar.</div>');
+  _travarEdicao();
+  _leituraObs=new MutationObserver(()=>{ clearTimeout(_leituraObs._t); _leituraObs._t=setTimeout(()=>{
+    if(!document.getElementById('aviso-leitura')) c.insertAdjacentHTML('afterbegin','<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600">👁 Somente leitura — seu usuário pode ver este módulo, mas não alterar.</div>');
+    _travarEdicao(); },60); });
+  _leituraObs.observe(c,{childList:true,subtree:true});
+}
+// reconfere usuário e permissões no servidor (o admin pode ter mudado algo)
+async function _sessaoAtualizar(){
+  try{
+    const j=await _nvFetch('/me');
+    const u=Object.assign({},j.usuario,{permissoes:j.permissoes,modulos:j.modulos});
+    _nvGravar(NV_USER,JSON.stringify(u));
+    const antes=JSON.stringify([USER&&USER.perfil,USER&&USER.permissoes]);
+    USER=Object.assign({},USER||{},u); localStorage.setItem('pinkpoa_user',JSON.stringify(USER));
+    _aplicarPermissoes();
+    if(antes!==JSON.stringify([USER.perfil,USER.permissoes])) navigate(CURRENT_PAGE||_primeiraPagina());
+    return true;
+  }catch(e){ if(e.auth){ toast('Sessão expirada — entre de novo','error'); setTimeout(doLogout,1200); } return false; }
+}
+
+// ── v212: USUÁRIOS E ACESSOS (só administrador) ─────────────────
+let _usuCache={usuarios:[],modulos:[]};
+async function renderUsuarios(){
+  const c=document.getElementById('content');
+  c.innerHTML='<div class="card" style="padding:20px;text-transform:none">Carregando usuários…</div>';
+  try{ _usuCache=await _nvFetch('/usuarios'); }catch(e){ c.innerHTML=`<div class="card" style="padding:20px;color:var(--red);text-transform:none">${_nvEsc(e.message)}</div>`; return; }
+  const mods=_usuCache.modulos||[];
+  const resumo=u=>u.perfil==='admin'?'<b>Administrador — tudo</b>':(mods.map(m=>{ const v=(u.permissoes||{})[m.id]; return v?`<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:${v==='editar'?'#DCFCE7':'#E0F2FE'};color:${v==='editar'?'#166534':'#075985'}">${_nvEsc(m.nome)}${v==='editar'?' ✎':''}</span>`:''; }).join('')||'<span style="color:var(--red)">nenhum módulo</span>');
+  c.innerHTML=`<div style="text-transform:none">
+    <div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <div><h2 style="margin:0">Usuários e Acessos</h2><div style="font-size:12px;color:var(--gray-5)">Cada usuário vê só os módulos liberados. <b>Ver</b> = consulta e relatórios · <b>Editar</b> = também importa/altera e salva no servidor.</div></div>
+      <button class="btn btn-primary" onclick="_usuEditar(0)">+ Novo usuário</button></div>
+      <div class="card-table" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr style="text-align:left;border-bottom:1px solid var(--gray-2)"><th style="padding:8px">Nome</th><th>E-mail</th><th>Cargo</th><th>Acessos</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead>
+        <tbody>${(_usuCache.usuarios||[]).map(u=>`<tr style="border-bottom:1px solid var(--gray-1)">
+          <td style="padding:8px"><b>${_nvEsc(u.nome)}</b></td><td>${_nvEsc(u.email)}</td><td>${_nvEsc(u.cargo||'')}</td>
+          <td style="max-width:420px">${resumo(u)}</td>
+          <td>${u.ativo?'<span style="color:var(--green)">ativo</span>':'<span style="color:var(--red)">desativado</span>'}</td>
+          <td style="font-size:11px">${u.ultimo_login?new Date(u.ultimo_login).toLocaleString('pt-BR'):'—'}</td>
+          <td><button class="btn btn-secondary" style="padding:4px 10px" onclick="_usuEditar(${u.id})">Alterar</button></td></tr>`).join('')}</tbody></table></div></div></div>`;
+}
+function _usuEditar(id){
+  const u=(_usuCache.usuarios||[]).find(x=>x.id===id)||{perfil:'user',ativo:true,permissoes:{}};
+  const mods=_usuCache.modulos||[], novo=!id;
+  const linha=m=>{ const v=(u.permissoes||{})[m.id]||''; const r=(val,txt)=>`<label style="margin-right:10px;white-space:nowrap"><input type="radio" name="up-${m.id}" value="${val}" ${v===val?'checked':''}> ${txt}</label>`;
+    return `<tr><td style="padding:4px 8px 4px 0;font-weight:600">${_nvEsc(m.nome)}</td><td>${r('','Sem acesso')}${r('ver','Ver')}${r('editar','Editar')}</td></tr>`; };
+  openModal(novo?'Novo usuário':'Alterar usuário', `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="form-group"><label>Nome *</label><input id="uu-nome" class="form-control no-up" value="${_nvEsc(u.nome||'')}"></div>
+      <div class="form-group"><label>E-mail (login) *</label><input id="uu-email" type="email" class="form-control no-up" value="${_nvEsc(u.email||'')}"></div>
+      <div class="form-group"><label>Cargo</label><input id="uu-cargo" class="form-control no-up" value="${_nvEsc(u.cargo||'')}"></div>
+      <div class="form-group"><label>${novo?'Senha * (mín. 10)':'Nova senha (deixe vazio para manter)'}</label><input id="uu-senha" type="password" class="form-control no-up" autocomplete="new-password"></div>
+      <div class="form-group"><label>Perfil</label><select id="uu-perfil" class="form-control" onchange="document.getElementById('uu-perms').style.display=this.value==='admin'?'none':''">
+        <option value="user" ${u.perfil!=='admin'?'selected':''}>Usuário (acessos abaixo)</option><option value="admin" ${u.perfil==='admin'?'selected':''}>Administrador (tudo + usuários)</option></select></div>
+      <div class="form-group" style="display:flex;align-items:flex-end"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="uu-ativo" ${u.ativo!==false?'checked':''}> Usuário ativo</label></div>
+    </div>
+    <div id="uu-perms" style="${u.perfil==='admin'?'display:none':''};margin-top:6px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;font-size:12px"><b style="margin-right:6px">Acessos por módulo</b>
+        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('')">Nada</button>
+        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('ver')">Tudo: ver</button>
+        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('editar')">Tudo: editar</button></div>
+      <div style="overflow-x:auto"><table style="font-size:13px">${mods.map(linha).join('')}</table></div>
+      <div style="font-size:11px;color:var(--gray-5);margin-top:6px">Relatórios, PDF e Excel seguem o módulo. Para importar arquivos, libere também <b>Importação</b> e marque <b>Editar</b> nos módulos que o usuário vai atualizar. Clientes, representantes e naturezas são enviados a todos como cadastro de referência (nomes nas telas).</div>
+    </div>`,
+    `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_usuSalvar(${id||0})">Salvar</button>`);
+}
+function _usuTodos(v){ (_usuCache.modulos||[]).forEach(m=>{ const r=document.querySelector(`input[name="up-${m.id}"][value="${v}"]`); if(r) r.checked=true; }); }
+async function _usuSalvar(id){
+  const g=x=>(document.getElementById(x)||{}).value||'';
+  const permissoes={}; (_usuCache.modulos||[]).forEach(m=>{ const r=document.querySelector(`input[name="up-${m.id}"]:checked`); if(r&&r.value) permissoes[m.id]=r.value; });
+  const corpo={nome:g('uu-nome').trim(),email:g('uu-email').trim(),cargo:g('uu-cargo').trim(),perfil:g('uu-perfil'),ativo:!!(document.getElementById('uu-ativo')||{}).checked,permissoes};
+  const senha=g('uu-senha'); if(senha) corpo.senha=senha;
+  if(!corpo.nome||!corpo.email) return toast('Preencha nome e e-mail','error');
+  if(!id && senha.length<10) return toast('A senha precisa ter pelo menos 10 caracteres','error');
+  try{ await _nvFetch(id?'/usuarios/'+id:'/usuarios',{method:'POST',body:corpo}); closeModal(); toast(id?'Usuário alterado':'Usuário criado'); renderUsuarios();
+       if(USER && id===USER.id) _sessaoAtualizar(); }
+  catch(e){ toast(e.message,'error'); }
+}
+function trocarMinhaSenha(){
+  openModal('🔑 Minha senha',`<div class="form-group"><label>Senha atual</label><input id="ms-atual" type="password" class="form-control no-up"></div>
+    <div class="form-group"><label>Nova senha (mín. 10 caracteres)</label><input id="ms-nova" type="password" class="form-control no-up" autocomplete="new-password"></div>
+    <div class="form-group"><label>Repita a nova senha</label><input id="ms-nova2" type="password" class="form-control no-up" autocomplete="new-password"></div>`,
+    `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_msSalvar()">Trocar senha</button>`);
+}
+async function _msSalvar(){
+  const g=x=>(document.getElementById(x)||{}).value||'';
+  if(g('ms-nova').length<10) return toast('A nova senha precisa ter pelo menos 10 caracteres','error');
+  if(g('ms-nova')!==g('ms-nova2')) return toast('As duas senhas novas não são iguais','error');
+  try{ await _nvFetch('/me/senha',{method:'POST',body:{atual:g('ms-atual'),nova:g('ms-nova')}}); closeModal(); toast('Senha trocada'); }catch(e){ toast(e.message,'error'); }
+}
+
 // ── NAVEGAÇÃO ─────────────────────────────────────────────────
 const PAGE_TITLES = {
   dashboard:'Dashboard', clientes:'Clientes', representantes:'Representantes',
+  usuarios:'Usuários e Acessos',
   produtos:'Produtos', faturamento:'Faturamento', comissoes:'Comissões',
   recebiveis:'Recebíveis', pagar:'Contas a Pagar (Fornecedores)', conciliacao:'Conciliação Bancária', vendas:'Análise de Vendas', estoques:'Gestão de Estoques', naturezas:'Naturezas de Operação', compras:'Compras', importacao:'Importação de Arquivos', automacao:'Automação'
 };
@@ -1065,6 +1189,13 @@ document.addEventListener('input', _autoUpper, true);
 
 function navigate(page) {
   fecharSidebar();
+  // v212: só abre o que o usuário tem liberado
+  if (page === 'usuarios' ? !_ehAdmin() : !_perm(page)) {
+    const p = _primeiraPagina();
+    if (!p) { CURRENT_PAGE=''; document.getElementById('content').innerHTML = '<div class="empty-state"><div class="es-icon">🔒</div><div class="es-text">Seu usuário ainda não tem nenhum módulo liberado. Fale com o administrador.</div></div>'; return; }
+    if (USER) toast('Sem acesso a '+(PAGE_TITLES[page]||page),'error');
+    page = p;
+  }
   CURRENT_PAGE = page;
   document.getElementById('page-title').textContent = PAGE_TITLES[page] || page;
   const fm=document.getElementById('footer-modulo');if(fm)fm.textContent=PAGE_TITLES[page]||page;
@@ -1079,11 +1210,13 @@ function navigate(page) {
     compras: renderCompras,
     importacao: renderImportacao,
     automacao: renderAutomacao,
+    usuarios: renderUsuarios,
   };
   if (page === 'importacao' && !_pastaHandle && typeof restaurarPasta === 'function') {
     restaurarPasta().then(h => { if (h) renderImportacao(); });
   }
   (renders[page] || (() => { document.getElementById('content').innerHTML = '<div class="empty-state"><div class="es-icon">🚧</div><div class="es-text">Em desenvolvimento</div></div>'; }))();
+  _modoLeitura();
 }
 
 // ── DASHBOARD ─────────────────────────────────────────────────
@@ -8829,18 +8962,22 @@ function imprimirRelatorio(){
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
 function _versaoApp(){ return ((document.getElementById('app-versao')||{}).textContent||'').trim().replace(/^v/,''); }
+// v212: login/sessão e o login antigo do app (com CPF) NUNCA entram nem saem da cópia
+const _LOCAL_FORA = k => k.indexOf('pinkpoa_nuvem_')===0 || ['pinkpoa_token','pinkpoa_user','pinkpoa_users_v1','pinkpoa_api_url','pinkpoa_email_lembrado'].includes(k);
 function _montarBackup(){
   const backup = { _tipo:'PINKPOA_BACKUP', _versao:_versaoApp(), _data:new Date().toISOString(), db:{}, local:{} };
   Object.keys(DB).forEach(k=>{ try{ backup.db[k]=DB[k]; }catch(e){} });
   for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i);
     // login local e sessão da nuvem NÃO viajam no backup
-    if(k && k.indexOf('pinkpoa_')===0 && k!=='pinkpoa_token' && k.indexOf('pinkpoa_nuvem_')!==0 && k!=='pinkpoa_api_url'){ backup.local[k]=localStorage.getItem(k); } }
+    if(k && k.indexOf('pinkpoa_')===0 && !_LOCAL_FORA(k)){ backup.local[k]=localStorage.getItem(k); } }
   return backup;
 }
 function _aplicarBackup(obj){
+  // v212: listas que o app lê das configurações locais (Compras) recarregam a partir da cópia
+  ['compras','compras_map','compras_grupos','compras_forn_grupos','compras_forn_excluidos'].forEach(k=>{ if(!(obj.db&&k in obj.db)) delete DB[k]; });
   if(obj.db && typeof obj.db==='object') Object.keys(obj.db).forEach(k=>{ DB[k]=obj.db[k]; });
   if(obj.local && typeof obj.local==='object') Object.keys(obj.local).forEach(k=>{
-    if(k.indexOf('pinkpoa_nuvem_')===0 || k==='pinkpoa_api_url') return;
+    if(_LOCAL_FORA(k)) return;
     try{ localStorage.setItem(k, obj.local[k]); }catch(e){} });
   if(typeof _aplicarGruposRep==='function'){ try{ _aplicarGruposRep(); }catch(e){} }
   let _pmFix=0; try{ _pmFix=_pmAutoCorrigir(); }catch(e){}
@@ -8904,28 +9041,9 @@ async function abrirNuvem(){
   openModal('☁ Servidor (MySQL)', '<div style="padding:20px;text-align:center;color:var(--gray-5)">Conectando ao servidor… (se estava dormindo, pode levar até 1 minuto)</div>', '<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>');
   const rodapeEnd=`<div style="margin-top:14px;font-size:11px;color:var(--gray-5)">API: ${_nvEsc(API)} · <a href="#" onclick="event.preventDefault();closeModal();configurarApi()">alterar endereço</a></div>`;
   try{
-    if(!_nvLer(NV_TOKEN)){
-      const st=await _nvFetch('/setup/status');
-      if(st.precisa_setup){
-        openModal('☁ Servidor — criar administrador', `
-          <div style="font-size:13px;margin-bottom:12px">O banco ainda não tem nenhum usuário. Crie agora o <b>administrador do servidor</b> (só acontece uma vez).</div>
-          <div class="form-group"><label>Nome</label><input id="nv-nome" class="form-control no-up" placeholder="Seu nome"></div>
-          <div class="form-group"><label>E-mail</label><input id="nv-email" type="email" class="form-control no-up" placeholder="e-mail de login"></div>
-          <div class="form-group"><label>Senha (mín. 10 caracteres)</label><input id="nv-senha" type="password" class="form-control no-up"></div>
-          <div class="form-group"><label>Repita a senha</label><input id="nv-senha2" type="password" class="form-control no-up"></div>
-          <div style="font-size:11px;color:var(--gray-5)">Use uma senha NOVA — não reaproveite a do banco nem a antiga do app.</div>${rodapeEnd}`,
-          `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_nvCriarAdmin()">Criar administrador</button>`);
-        return;
-      }
-      openModal('☁ Servidor — entrar', `
-        <div style="font-size:13px;margin-bottom:12px">Entre com o usuário do <b>servidor</b> para salvar e carregar os dados no MySQL.</div>
-        <div class="form-group"><label>E-mail</label><input id="nv-email" type="email" class="form-control no-up" value="${_nvEsc((_nvUsuario()||{}).email||'')}"></div>
-        <div class="form-group"><label>Senha</label><input id="nv-senha" type="password" class="form-control no-up" onkeydown="if(event.key==='Enter')_nvEntrar()"></div>${rodapeEnd}`,
-        `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_nvEntrar()">Entrar</button>`);
-      return;
-    }
+    if(!_nvLer(NV_TOKEN)){ doLogout(); return; }   // v212: o login do app JÁ é o do servidor
     const u=_nvUsuario()||{};
-    const {versao:v}=await _nvFetch('/dados/ultima');
+    const v=await _nvUltima();
     const loc=_montarResumo(_montarBackup());
     const linhaRes=r=>Object.keys(r||{}).filter(k=>r[k]).map(k=>`${k}: <b>${Number(r[k]).toLocaleString('pt-BR')}</b>`).join(' · ')||'—';
     openModal('☁ Servidor (MySQL)', `
@@ -8940,13 +9058,14 @@ async function abrirNuvem(){
         <div style="font-weight:700;margin-bottom:4px">Neste computador</div>
         <div style="font-size:11px;color:var(--gray-5)">${linhaRes(loc)}</div>
       </div>
-      <div id="nv-tabelas" style="border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 12px;margin-top:10px;font-size:12px;color:var(--gray-5)">Tabelas do MySQL: consultando…</div>
+      ${_ehAdmin()?'':`<div style="margin-top:10px;font-size:12px;color:var(--gray-5)">${_podeEditarAlgo()?'Ao salvar, o servidor grava <b>só os módulos que você pode editar</b>; o resto da cópia continua como está.':'Seu usuário só pode <b>ver</b> os dados — não salva no servidor.'}</div>`}
+      <div id="nv-tabelas" style="${_ehAdmin()?'':'display:none;'}"border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 12px;margin-top:10px;font-size:12px;color:var(--gray-5)">Tabelas do MySQL: consultando…</div>
       <div id="nv-prog" style="margin-top:12px;font-size:13px;font-weight:700;color:var(--pink)"></div>
       ${rodapeEnd}`,
-      `<button class="btn btn-secondary" onclick="_nvSair()">Sair</button>
+      `<button class="btn btn-secondary" onclick="_nvSair()">Sair do sistema</button>
        ${v?'<button class="btn btn-secondary" id="nv-b-carregar" onclick="_nvCarregar()">⬇ Carregar do servidor</button>':''}
-       <button class="btn btn-primary" id="nv-b-salvar" onclick="_nvSalvar()">☁ Salvar no servidor</button>`);
-    _nvTabelas();
+       ${_podeEditarAlgo()?'<button class="btn btn-primary" id="nv-b-salvar" onclick="_nvSalvar()">☁ Salvar no servidor</button>':''}`);
+    if(_ehAdmin()) _nvTabelas();
   }catch(e){
     if(e.auth){ abrirNuvem(); return; }
     openModal('☁ Servidor', `<div style="color:var(--red);font-size:13px">${_nvEsc(e.message)}</div>${rodapeEnd}`,
@@ -9036,6 +9155,15 @@ function _montarResumo(b){
   r.configuracoes=Object.keys((b&&b.local)||{}).length;
   return r;
 }
+function _nvCriarAdminModal(email){
+  openModal('Primeiro acesso — criar administrador', `
+    <div style="font-size:13px;margin-bottom:12px">O banco ainda não tem nenhum usuário. Crie agora o <b>administrador</b> do sistema (só acontece uma vez). Depois ele cria os outros usuários e libera os módulos.</div>
+    <div class="form-group"><label>Nome</label><input id="nv-nome" class="form-control no-up" placeholder="Seu nome"></div>
+    <div class="form-group"><label>E-mail</label><input id="nv-email" type="email" class="form-control no-up" value="${_nvEsc(email||'')}"></div>
+    <div class="form-group"><label>Senha (mín. 10 caracteres)</label><input id="nv-senha" type="password" class="form-control no-up"></div>
+    <div class="form-group"><label>Repita a senha</label><input id="nv-senha2" type="password" class="form-control no-up"></div>`,
+    `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_nvCriarAdmin()">Criar administrador</button>`);
+}
 async function _nvCriarAdmin(){
   const nome=(document.getElementById('nv-nome')||{}).value||'', email=((document.getElementById('nv-email')||{}).value||'').trim();
   const s1=(document.getElementById('nv-senha')||{}).value||'', s2=(document.getElementById('nv-senha2')||{}).value||'';
@@ -9043,12 +9171,13 @@ async function _nvCriarAdmin(){
   if(s1.length<10){ toast('A senha precisa ter pelo menos 10 caracteres','error'); return; }
   if(s1!==s2){ toast('As duas senhas não são iguais','error'); return; }
   try{ await _nvFetch('/setup',{method:'POST',body:{nome:nome.trim(),email,senha:s1}});
-       toast('Administrador criado! Entrando…'); await _nvLogin(email,s1); abrirNuvem(); }
+       toast('Administrador criado! Entrando…'); await _nvLogin(email,s1); closeModal(); _entrarSistema(_nvUsuario()); }
   catch(e){ toast(e.message,'error'); }
 }
 async function _nvLogin(email,senha){
   const j=await _nvFetch('/login',{method:'POST',body:{email,senha}});
-  _nvGravar(NV_TOKEN,j.token); _nvGravar(NV_USER,JSON.stringify(j.usuario||{email}));
+  _nvGravar(NV_TOKEN,j.token);
+  _nvGravar(NV_USER,JSON.stringify(Object.assign({email},j.usuario||{},{permissoes:j.permissoes||{},modulos:j.modulos||[]})));
 }
 async function _nvEntrar(){
   const email=((document.getElementById('nv-email')||{}).value||'').trim(), senha=(document.getElementById('nv-senha')||{}).value||'';
@@ -9056,10 +9185,13 @@ async function _nvEntrar(){
   try{ await _nvLogin(email,senha); toast('Conectado ao servidor');
        if(_appSemDados()) _nvAutoCarregar(); else abrirNuvem(); }catch(e){ toast(e.message,'error'); }
 }
-function _nvSair(){ _nvGravar(NV_TOKEN,''); toast('Desconectado do servidor'); closeModal(); }
+function _nvSair(){ doLogout(); }
 function _nvBotoes(on){ ['nv-b-salvar','nv-b-carregar'].forEach(id=>{ const b=document.getElementById(id); if(b) b.disabled=!on; }); }
 function _nvProg(t){ const el=document.getElementById('nv-prog'); if(el) el.textContent=t; }
 async function _nvSalvar(){
+  if(!_podeEditarAlgo()) return toast('Seu usuário só pode ver os dados','error');
+  if(!_ehAdmin()){ const ed=((USER&&USER.modulos)||[]).filter(m=>_perm(m.id)==='editar').map(m=>m.nome);
+    if(!confirm('Salvar no servidor SÓ os módulos que você pode editar:\n\n'+ed.join(', ')+'\n\nO restante da cópia do servidor não muda. Continuar?')) return; }
   // v208: o app abre vazio — salvar assim apagaria (como última versão) a cópia boa do servidor.
   if(_appSemDados() && !confirm('ATENÇÃO: este computador está SEM DADOS (faturamento, recebíveis, clientes e comissões vazios).\n\nSalvar agora grava uma cópia VAZIA como a mais recente do servidor.\nNormalmente o certo é primeiro ⬇ Carregar do servidor.\n\nSalvar mesmo assim?')) return;
   _nvBotoes(false);
@@ -9075,14 +9207,20 @@ async function _nvSalvar(){
       if(!ok) throw ult;
     }
     _nvProg('Finalizando…');
-    await _nvFetch('/dados/concluir',{method:'POST',body:{lote,partes:total,bytes:txt.length,resumo:_montarResumo(b),versao_app:_versaoApp()}});
-    toast(`Dados salvos no servidor (${_nvTam(txt.length)})`);
+    const rc=await _nvFetch('/dados/concluir',{method:'POST',body:{lote,partes:total,bytes:txt.length,resumo:_montarResumo(b),versao_app:_versaoApp()}});
+    toast(rc.mesclado?`Salvo no servidor: ${(rc.listas||[]).join(', ')||'nada a gravar'}`:`Dados salvos no servidor (${_nvTam(txt.length)})`);
     abrirNuvem();
   }catch(e){ _nvProg(''); _nvBotoes(true); toast('Não salvou: '+e.message,'error'); if(e.auth) abrirNuvem(); }
 }
+// v212: admin baixa a cópia completa; usuário comum, a cópia filtrada pelos módulos liberados (o servidor monta)
+async function _nvUltima(){
+  if(_ehAdmin()) return (await _nvFetch('/dados/ultima')).versao;
+  return (await _nvFetch('/dados/minha')).versao;
+}
 async function _nvBaixarAplicar(v){
   let txt='';
-  for(let i=0;i<v.partes;i++){ _nvProg(`Baixando parte ${i+1} de ${v.partes}…`); txt+=(await _nvFetch(`/dados/parte?lote=${encodeURIComponent(v.lote)}&parte=${i}`)).texto; }
+  for(let i=0;i<v.partes;i++){ _nvProg(`Baixando parte ${i+1} de ${v.partes}…`);
+    txt+=(await _nvFetch(v.chave?`/dados/minha/parte?chave=${encodeURIComponent(v.chave)}&parte=${i}`:`/dados/parte?lote=${encodeURIComponent(v.lote)}&parte=${i}`)).texto; }
   _nvProg('Aplicando…');
   const obj=JSON.parse(txt);
   if(!obj || obj._tipo!=='PINKPOA_BACKUP') throw new Error('Cópia do servidor com formato inesperado');
@@ -9094,7 +9232,7 @@ async function _nvBaixarAplicar(v){
 let _nvAutoRodando=false;
 async function _nvAutoCarregar(){
   if(_nvAutoRodando || !_appSemDados()) return;
-  if(!_nvLer(NV_TOKEN)){ abrirNuvem(); return; }          // sem sessão do servidor: pede o login dele (e carrega ao entrar)
+  if(!_nvLer(NV_TOKEN)){ doLogout(); return; }           // v212: sem sessão = volta para o login
   _nvAutoRodando=true;
   openModal('☁ Carregando os dados', `<div style="padding:14px 4px;text-align:center">
       <div class="spinner" style="margin-bottom:10px"></div>
@@ -9103,13 +9241,14 @@ async function _nvAutoCarregar(){
       <div id="nv-prog" style="margin-top:10px;font-size:13px;font-weight:700;color:var(--pink)"></div></div>`,
     '<button class="btn btn-secondary" onclick="closeModal()">Continuar sem dados</button>');
   try{
-    const {versao:v}=await _nvFetch('/dados/ultima');
-    if(!v){ closeModal(); toast('O servidor ainda não tem nenhuma cópia salva','error'); _avisoEscolherOrigem(); return; }
+    await _sessaoAtualizar();
+    const v=await _nvUltima();
+    if(!v){ closeModal(); toast('O servidor ainda não tem nenhuma cópia salva','error'); if(_podeEditarAlgo()) _avisoEscolherOrigem(); return; }
     const fix=await _nvBaixarAplicar(v);
     closeModal();
     toast(`Dados carregados do servidor (cópia de ${new Date(v.criado_em).toLocaleString('pt-BR')})`+(fix?` · cartão corrigido: ${fix}`:''));
   }catch(e){
-    if(e.auth){ abrirNuvem(); return; }                    // sessão expirou: login do servidor e carrega ao entrar
+    if(e.auth){ toast('Sessão expirada — entre de novo','error'); setTimeout(doLogout,1200); return; }
     openModal('☁ Não carregou', `<div style="color:var(--red);font-size:13px">${_nvEsc(e.message)}</div>`,
       `<button class="btn btn-secondary" onclick="closeModal();_avisoEscolherOrigem()">Usar arquivo de backup</button><button class="btn btn-primary" onclick="_nvAutoCarregar()">Tentar de novo</button>`);
   }finally{ _nvAutoRodando=false; }
@@ -9117,7 +9256,7 @@ async function _nvAutoCarregar(){
 async function _nvCarregar(){
   _nvBotoes(false);
   try{
-    const {versao:v}=await _nvFetch('/dados/ultima');
+    const v=await _nvUltima();
     if(!v){ toast('Não há cópia no servidor','error'); _nvBotoes(true); return; }
     if(!confirm(`Carregar a cópia do servidor de ${new Date(v.criado_em).toLocaleString('pt-BR')} (por ${v.criado_por})?\n\nIsso SUBSTITUI os dados deste computador.`)){ _nvBotoes(true); return; }
     const fix=await _nvBaixarAplicar(v);
