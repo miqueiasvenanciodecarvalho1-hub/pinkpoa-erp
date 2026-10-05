@@ -515,7 +515,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.206</span>
+      ">v2.14.207</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -685,7 +685,12 @@ function closeModal() { document.getElementById('modal-overlay').style.display =
 // ── AUTH ──────────────────────────────────────────────────────
 // ── SISTEMA DE USUÁRIOS ─────────────────────────────────────────
 const ADMIN_EMAIL = 'admin@pinkpoa.com.br';
-const ADMIN_HASH  = 'admin2024pink'; // senha: admin2024pink
+// v207: a senha do admin master não fica mais escrita no HTML (repositório público) — só o SHA-256 dela.
+const ADMIN_HASH  = 'e09b766b4eda79afec1e3f7b0e66c3023f40b450400ac3b6504b7b1c7cfba764';
+async function _sha256(t){
+  const b=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
+  return Array.from(new Uint8Array(b)).map(x=>x.toString(16).padStart(2,'0')).join('');
+}
 const DB_KEY      = 'pinkpoa_users_v1';
 
 function getUsers() {
@@ -757,7 +762,7 @@ function toggleSenha(inputId, btnId) {
   else { el.type='password'; btn.textContent='👁'; }
 }
 
-function doLogin() {
+async function doLogin() {
   const email = (document.getElementById('l-email')?.value||'').trim().toLowerCase();
   const senha = document.getElementById('l-senha')?.value||'';
   if(!email || !senha) return toast('Preencha e-mail e senha','error');
@@ -766,7 +771,9 @@ function doLogin() {
   else localStorage.removeItem(EMAIL_KEY);
 
   // Admin master (não aparece no cadastro)
-  if(email===ADMIN_EMAIL && senha===ADMIN_HASH) {
+  let _hAdm='';
+  if(email===ADMIN_EMAIL){ try{ _hAdm=await _sha256(senha); }catch(e){ return toast('Este navegador não permite conferir a senha (abra pelo site https)','error'); } }
+  if(email===ADMIN_EMAIL && _hAdm===ADMIN_HASH) {
     _entrarSistema({email, nome:'Administrador', cargo:'Admin', role:'admin'});
     return;
   }
