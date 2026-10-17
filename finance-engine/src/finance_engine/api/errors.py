@@ -13,8 +13,11 @@ from finance_engine.core.exceptions import (
     ParseError,
     UnsupportedFormatError,
 )
+from finance_engine.lookup.service import InvalidDocumentError, LookupUnavailableError
 
 _STATUS: list[tuple[type[FinanceEngineError], int]] = [
+    (InvalidDocumentError, status.HTTP_422_UNPROCESSABLE_CONTENT),
+    (LookupUnavailableError, status.HTTP_503_SERVICE_UNAVAILABLE),
     (NotFoundError, status.HTTP_404_NOT_FOUND),
     (ConflictError, status.HTTP_409_CONFLICT),
     (UnsupportedFormatError, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE),

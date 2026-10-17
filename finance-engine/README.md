@@ -6,7 +6,7 @@ financeira multi-empresa (tenant = organização/consultoria) e multi-cliente (P
 ```bash
 pip install -e ".[dev]"
 uvicorn finance_engine.main:app --reload      # docs em http://localhost:8000/docs
-pytest && mypy src && ruff check src tests     # 48 testes, mypy --strict
+pytest && mypy src && ruff check src tests     # 53 testes, mypy --strict
 ```
 
 Configuração por ambiente (`FIN_DATABASE_URL=postgresql+psycopg://...`, `FIN_MAX_UPLOAD_BYTES`,
@@ -64,6 +64,10 @@ src/finance_engine/
 | POST | `/clients/{id}/recategorize` | reaplica regras |
 | GET | `/clients/{id}/analytics/cash-flow` | fluxo diário, resumo, maiores despesas, recorrências, alertas |
 | GET | `/clients/{id}/analytics/cash-flow-statement` | DFC por período (operacional/financeiro/transferências) |
+| GET | `/lookup/cnpj/{cnpj}` | Cadastro da Receita: razão social, situação, CNAE, endereço, Simples/MEI, sócios (QSA), alertas e setor sugerido (BrasilAPI → CNPJ.ws → CNPJá) |
+| GET | `/lookup/cep/{cep}` | Endereço pelo CEP (BrasilAPI → ViaCEP → OpenCEP) |
+| GET | `/lookup/banks` · `/lookup/holidays/{ano}` | Bancos (código COMPE) e feriados nacionais |
+| POST | `/clients/from-cnpj` | Cadastra o cliente só com o CNPJ, preenchendo tudo pela Receita |
 
 O tenant vem do header `X-Organization-Id` **apenas como exemplo** — em produção deve vir de um
 claim do JWT validado.

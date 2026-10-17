@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
@@ -9,11 +11,14 @@ from finance_engine.api.schemas import (
     BankAccountCreate,
     BankAccountRead,
     ClientCreate,
+    ClientFromCnpj,
     ClientRead,
+    CompanyRecordOut,
     OrganizationCreate,
     OrganizationRead,
 )
-from finance_engine.models import BankAccount, Client, Organization
+from finance_engine.lookup import LookupService, get_lookup_service
+from finance_engine.models import BankAccount, Client, Organization, PersonType
 from finance_engine.services.taxonomy import seed_default_taxonomy
 
 router = APIRouter(tags=["Cadastros"])
@@ -36,6 +41,32 @@ def create_organization(payload: OrganizationCreate, db: DbSession) -> Organizat
 @router.post("/clients", response_model=ClientRead, status_code=201)
 def create_client(payload: ClientCreate, db: DbSession, org: CurrentOrg) -> Client:
     client = Client(organization_id=org.id, **payload.model_dump())
+    db.add(client)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, "documento já cadastrado") from exc
+    return client
+
+
+@router.post("/clients/from-cnpj", response_model=ClientRead, status_code=201)
+def create_client_from_cnpj(
+    payload: ClientFromCnpj,
+    db: DbSession,
+    org: CurrentOrg,
+    lookup: Annotated[LookupService, Depends(get_lookup_service)],
+) -> Client:
+    """Cadastro automático: consulta a Receita e preenche razão social, fantasia, endereço,
+    CNAE, situação e sócios. Retorna 422 se o CNPJ for inválido e 503 se as fontes caírem."""
+    record = lookup.company(payload.cnpj)
+    client = Client(
+        organization_id=org.id,
+        person_type=PersonType.PJ,
+        name=record.legal_name,
+        trade_name=record.trade_name or None,
+        document=record.cnpj,
+        registry_data=CompanyRecordOut.model_validate(record).model_dump(mode="json"),
+    )
     db.add(client)
     try:
         db.flush()

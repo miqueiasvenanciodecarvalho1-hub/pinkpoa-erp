@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Self
+from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -66,6 +66,79 @@ class ClientRead(ORMModel):
     person_type: PersonType
     name: str
     document: str
+    trade_name: str | None = None
+    registry_data: dict[str, Any] | None = None
+
+
+class ClientFromCnpj(BaseModel):
+    cnpj: str = Field(description="Só o CNPJ: nome, endereço, CNAE e sócios vêm da Receita")
+
+
+# ----------------------------------------------------------------------------- consultas
+
+
+class AddressOut(ORMModel):
+    cep: str
+    street: str
+    number: str
+    complement: str
+    district: str
+    city: str
+    state: str
+    ibge_code: str | None
+    source: str
+
+
+class ActivityOut(ORMModel):
+    code: str
+    description: str
+
+
+class PartnerOut(ORMModel):
+    name: str
+    document: str
+    kind: str
+    role: str
+    since: date | None
+
+
+class CompanyRecordOut(ORMModel):
+    cnpj: str
+    legal_name: str
+    trade_name: str
+    status: str
+    status_date: date | None
+    opened_at: date | None
+    legal_nature: str
+    size: str
+    share_capital: Decimal
+    simples: bool | None
+    mei: bool | None
+    main_activity: ActivityOut | None
+    secondary_activities: list[ActivityOut]
+    address: AddressOut | None
+    phone: str
+    email: str
+    head_office: bool
+    partners: list[PartnerOut]
+    source: str
+    fetched_at: datetime
+    alerts: list[str]
+    suggested_sector: str | None
+    suggested_specialties: list[str]
+
+
+class BankOut(ORMModel):
+    code: str
+    ispb: str
+    name: str
+    full_name: str
+
+
+class HolidayOut(ORMModel):
+    date: date
+    name: str
+    kind: str
 
 
 class BankAccountCreate(BaseModel):

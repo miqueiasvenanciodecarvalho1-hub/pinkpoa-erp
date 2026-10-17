@@ -9,7 +9,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from finance_engine.api.errors import register_exception_handlers
-from finance_engine.api.routers import analytics, classification, imports, tenancy, transactions
+from finance_engine.api.routers import (
+    analytics,
+    classification,
+    imports,
+    lookup,
+    tenancy,
+    transactions,
+)
 from finance_engine.core.config import get_settings
 from finance_engine.db.base import Base
 from finance_engine.db.session import get_engine
@@ -34,7 +41,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     register_exception_handlers(app)
-    for module in (tenancy, imports, transactions, classification, analytics):
+    for module in (tenancy, lookup, imports, transactions, classification, analytics):
         app.include_router(module.router, prefix=API_PREFIX)
 
     @app.get("/health", tags=["Infra"])
