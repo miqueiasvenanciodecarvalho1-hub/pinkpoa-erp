@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session
 
 from finance_engine.analysis.cashflow import (
     Anomaly,
+    AnomalyKind,
     CashFlowSummary,
     CashMovement,
     CategoryTotal,
     DailyCashFlow,
+    Severity,
     build_daily_cash_flow,
     detect_anomalies,
     summarize,
@@ -55,6 +57,7 @@ class _Dataset:
     opening_balance: Decimal
     movements: list[CashMovement]  # reais + previstos, ordenados por data
     patterns: list[RecurringPattern]
+    notes: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +126,10 @@ class AnalyticsService:
             spike_mad_factor=self.settings.outflow_spike_mad_factor,
             concentration_ratio=self.settings.category_concentration_ratio,
         )
+        for note in data.notes:
+            anomalies.append(
+                Anomaly(AnomalyKind.LOW_BALANCE, Severity.INFO, None, None, ZERO, note)
+            )
         return CashFlowReport(
             client_id=client_id,
             start=start,
@@ -201,6 +208,15 @@ class AnalyticsService:
 
         opening = sum((self._balance_at(a, start) for a in accounts), ZERO)
         movements = self._movements(organization_id, client_id, account_ids, start, end)
+        notes: list[str] = []
+        if end > today:
+            # Títulos em aberto (contas a pagar/receber) entram como movimentos programados.
+            from finance_engine.services.titles_service import TitlesService
+
+            scheduled, notes = TitlesService(self.session).scheduled_movements(client_id, today)
+            movements = sorted(
+                movements + [m for m in scheduled if start <= m.date <= end], key=lambda m: m.date
+            )
 
         patterns: list[RecurringPattern] = []
         if forecast.enabled and end > today:
@@ -208,6 +224,17 @@ class AnalyticsService:
             history = self._movements(organization_id, client_id, account_ids, history_start, today)
             patterns = detect_recurring(history)
             already_known = [m for m in movements if m.date > today - timedelta(days=7)]
+            # Contraparte com títulos lançados: a recorrência dela não é projetada de novo.
+            titled = {
+                t
+                for m in movements
+                if m.description.startswith(("[A RECEBER]", "[A PAGAR]"))
+                for t in m.description.split()[2:]
+                if len(t) > 3
+            }
+            patterns = [
+                p for p in patterns if not titled & {w for w in p.signature.split() if len(w) > 3}
+            ]
             projected = project_recurring(
                 patterns,
                 after=max(today, start - timedelta(days=1)),
@@ -216,7 +243,7 @@ class AnalyticsService:
                 scenario=forecast.scenario,
             )
             movements = sorted(movements + projected, key=lambda m: m.date)
-        return _Dataset(account_ids, opening, movements, patterns)
+        return _Dataset(account_ids, opening, movements, patterns, notes)
 
     def _movements(
         self,

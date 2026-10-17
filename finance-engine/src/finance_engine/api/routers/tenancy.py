@@ -6,7 +6,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from finance_engine.api.deps import CurrentClient, CurrentOrg, DbSession
+from finance_engine.api.deps import (
+    CurrentClient,
+    CurrentOrg,
+    CurrentPrincipal,
+    DbSession,
+    StaffOnly,
+)
 from finance_engine.api.schemas import (
     BankAccountCreate,
     BankAccountRead,
@@ -17,8 +23,9 @@ from finance_engine.api.schemas import (
     OrganizationCreate,
     OrganizationRead,
 )
+from finance_engine.core.security import hash_password
 from finance_engine.lookup import LookupService, get_lookup_service
-from finance_engine.models import BankAccount, Client, Organization, PersonType
+from finance_engine.models import BankAccount, Client, Organization, PersonType, Role, User
 from finance_engine.services.taxonomy import seed_default_taxonomy
 
 router = APIRouter(tags=["Cadastros"])
@@ -35,11 +42,25 @@ def create_organization(payload: OrganizationCreate, db: DbSession) -> Organizat
         raise HTTPException(status.HTTP_409_CONFLICT, "slug já utilizado") from exc
     if payload.seed_default_taxonomy:
         seed_default_taxonomy(db, org.id)
+    if payload.admin_email and payload.admin_password:
+        db.add(
+            User(
+                organization_id=org.id,
+                email=payload.admin_email.lower(),
+                name=payload.admin_name or payload.admin_email,
+                password_hash=hash_password(payload.admin_password),
+                role=Role.MASTER,
+            )
+        )
+        try:
+            db.flush()
+        except IntegrityError as exc:
+            raise HTTPException(status.HTTP_409_CONFLICT, "e-mail já cadastrado") from exc
     return org
 
 
 @router.post("/clients", response_model=ClientRead, status_code=201)
-def create_client(payload: ClientCreate, db: DbSession, org: CurrentOrg) -> Client:
+def create_client(payload: ClientCreate, db: DbSession, org: CurrentOrg, _: StaffOnly) -> Client:
     client = Client(organization_id=org.id, **payload.model_dump())
     db.add(client)
     try:
@@ -54,6 +75,7 @@ def create_client_from_cnpj(
     payload: ClientFromCnpj,
     db: DbSession,
     org: CurrentOrg,
+    _: StaffOnly,
     lookup: Annotated[LookupService, Depends(get_lookup_service)],
 ) -> Client:
     """Cadastro automático: consulta a Receita e preenche razão social, fantasia, endereço,
@@ -76,15 +98,16 @@ def create_client_from_cnpj(
 
 
 @router.get("/clients", response_model=list[ClientRead])
-def list_clients(db: DbSession, org: CurrentOrg) -> list[Client]:
-    return list(
-        db.scalars(select(Client).where(Client.organization_id == org.id).order_by(Client.name))
-    )
+def list_clients(db: DbSession, principal: CurrentPrincipal) -> list[Client]:
+    q = select(Client).where(Client.organization_id == principal.organization.id)
+    if principal.is_client:
+        q = q.where(Client.id == principal.client_id)
+    return list(db.scalars(q.order_by(Client.name)))
 
 
 @router.post("/clients/{client_id}/bank-accounts", response_model=BankAccountRead, status_code=201)
 def create_bank_account(
-    payload: BankAccountCreate, db: DbSession, client: CurrentClient
+    payload: BankAccountCreate, db: DbSession, client: CurrentClient, _: StaffOnly
 ) -> BankAccount:
     account = BankAccount(
         organization_id=client.organization_id, client_id=client.id, **payload.model_dump()

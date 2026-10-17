@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 
-from finance_engine.api.deps import CurrentClient, CurrentOrg, DbSession
+from finance_engine.api.deps import CurrentClient, CurrentOrg, DbSession, StaffOnly
 from finance_engine.api.schemas import TransactionCategoryUpdate, TransactionPage, TransactionRead
 from finance_engine.models import (
     CategorizationSource,
@@ -72,6 +72,7 @@ def set_transaction_category(
     payload: TransactionCategoryUpdate,
     db: DbSession,
     org: CurrentOrg,
+    _: StaffOnly,
 ) -> Transaction:
     """Categorização manual — passa a ter precedência sobre qualquer regra."""
     tx = db.get(Transaction, transaction_id)

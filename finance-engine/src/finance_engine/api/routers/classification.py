@@ -5,7 +5,7 @@ import re
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from finance_engine.api.deps import CurrentClient, CurrentOrg, DbSession
+from finance_engine.api.deps import CurrentClient, CurrentOrg, DbSession, StaffOnly
 from finance_engine.api.schemas import CategoryRead, RecategorizeResult, RuleCreate, RuleRead
 from finance_engine.models import CategorizationRule, Category, Client, MatchType
 from finance_engine.services.categorization_service import recategorize_client
@@ -34,7 +34,9 @@ def list_rules(db: DbSession, org: CurrentOrg) -> list[CategorizationRule]:
 
 
 @router.post("/categorization-rules", response_model=RuleRead, status_code=201)
-def create_rule(payload: RuleCreate, db: DbSession, org: CurrentOrg) -> CategorizationRule:
+def create_rule(
+    payload: RuleCreate, db: DbSession, org: CurrentOrg, _: StaffOnly
+) -> CategorizationRule:
     """Ex.: ``{"pattern": "FORNECEDOR X", "category_id": <Custo de Mercadorias>}``."""
     category = db.get(Category, payload.category_id)
     if category is None or category.organization_id != org.id:
@@ -67,7 +69,7 @@ def create_rule(payload: RuleCreate, db: DbSession, org: CurrentOrg) -> Categori
 
 @router.post("/clients/{client_id}/recategorize", response_model=RecategorizeResult)
 def recategorize(
-    db: DbSession, client: CurrentClient, overwrite: bool = False
+    db: DbSession, client: CurrentClient, _: StaffOnly, overwrite: bool = False
 ) -> RecategorizeResult:
     """Reaplica as regras. ``overwrite=true`` refaz inclusive o que já foi categorizado por regra
     (categorizações manuais são sempre preservadas)."""

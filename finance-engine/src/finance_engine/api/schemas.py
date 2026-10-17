@@ -37,6 +37,9 @@ class OrganizationCreate(BaseModel):
     name: str = Field(min_length=2, max_length=200)
     slug: str = Field(pattern=r"^[a-z0-9-]{2,80}$")
     seed_default_taxonomy: bool = True
+    admin_email: str | None = Field(default=None, description="Cria o primeiro usuário Master")
+    admin_name: str | None = None
+    admin_password: str | None = Field(default=None, min_length=8)
 
 
 class OrganizationRead(ORMModel):
@@ -363,3 +366,206 @@ class CashFlowStatementOut(ORMModel):
     granularity: Granularity
     scenario: Scenario | None
     periods: list[StatementPeriodOut]
+
+
+# ----------------------------------------------------------------------------- autenticação
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+
+
+class TokenOut(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    client_id: uuid.UUID | None = None
+
+
+class UserCreate(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    name: str = Field(min_length=2)
+    password: str = Field(min_length=8)
+    role: str = Field(pattern=r"^(MASTER|CONSULTANT|CLIENT)$")
+    client_id: uuid.UUID | None = None
+
+
+class UserRead(ORMModel):
+    id: uuid.UUID
+    email: str
+    name: str
+    role: str
+    client_id: uuid.UUID | None
+
+
+# ------------------------------------------------------------------- títulos e conciliação
+
+
+class TitleRead(ORMModel):
+    id: uuid.UUID
+    kind: str
+    counterparty: str
+    counterparty_document: str | None
+    document_number: str | None
+    issue_date: date | None
+    due_date: date
+    amount: Decimal
+    open_amount: Decimal
+    status: str
+    paid_date: date | None
+
+
+class TitleImportOut(BaseModel):
+    created: int
+    updated: int
+    errors: list[str]
+
+
+class AgingBucketOut(ORMModel):
+    label: str
+    overdue: bool
+    total: Decimal
+    count: int
+    share: Decimal
+
+
+class ExposureOut(ORMModel):
+    counterparty: str
+    total: Decimal
+    overdue: Decimal
+    share: Decimal
+    oldest_overdue_days: int
+
+
+class AgingOut(ORMModel):
+    reference_date: date
+    total_open: Decimal
+    total_overdue: Decimal
+    overdue_ratio: Decimal
+    weighted_days_to_due: Decimal
+    buckets: list[AgingBucketOut]
+    top_counterparties: list[ExposureOut]
+    concentration_top5: Decimal
+
+
+class MatchOut(ORMModel):
+    transaction_id: uuid.UUID
+    title_ids: list[uuid.UUID]
+    allocated: list[Decimal]
+    score: Decimal
+    reasons: list[str]
+    auto: bool
+
+
+class ApplyMatchesIn(BaseModel):
+    matches: list[MatchOut] | None = Field(
+        default=None, description="Vazio = aplicar só as sugestões automáticas"
+    )
+
+
+class ApplyMatchesOut(BaseModel):
+    applied: int
+
+
+# ----------------------------------------------------------------------------- antecipação
+
+
+class ReceivableIn(BaseModel):
+    amount: Decimal = Field(gt=0)
+    due_date: date
+    reference: str = ""
+
+
+class AnticipationIn(BaseModel):
+    monthly_rate: Decimal = Field(ge=0, le=1, description="0.025 = 2,5% a.m.")
+    operation_date: date | None = None
+    float_days: int = Field(default=1, ge=0, le=10)
+    fee_per_title: Decimal = Decimal("0")
+    fixed_fee: Decimal = Decimal("0")
+    iof: bool = True
+    simples_nacional: bool = False
+    alternative_monthly_rate: Decimal | None = None
+    receivables: list[ReceivableIn] | None = None
+    title_ids: list[uuid.UUID] | None = Field(
+        default=None, description="Títulos a receber do cliente"
+    )
+
+
+class AnticipationTitleOut(ORMModel):
+    reference: str
+    amount: Decimal
+    due_date: date
+    days: int
+    discount: Decimal
+    iof: Decimal
+    fee: Decimal
+    net: Decimal
+
+
+class AnticipationOut(ORMModel):
+    titles: list[AnticipationTitleOut]
+    face_value: Decimal
+    discount: Decimal
+    iof: Decimal
+    fees: Decimal
+    net_value: Decimal
+    total_cost: Decimal
+    cost_pct_of_face: Decimal
+    weighted_days: Decimal
+    effective_monthly_rate: Decimal
+    effective_annual_rate: Decimal
+    alternative_cost: Decimal | None
+    recommendation: str
+    warnings: list[str]
+
+
+# ------------------------------------------------------------- demonstrativos e indicadores
+
+
+class StatementRead(ORMModel):
+    id: uuid.UUID
+    kind: str
+    status: str
+    period_start: date | None
+    period_end: date | None
+    source: str
+    filename: str
+    values: dict[str, Decimal]
+    lines: list[str]
+    warnings: list[str]
+
+
+class StatementUpdate(BaseModel):
+    values: dict[str, Decimal] = Field(default_factory=dict)
+    validate_statement: bool = Field(default=False, alias="validate")
+
+
+class IndicatorsOut(ORMModel):
+    pmr: Decimal | None
+    pme: Decimal | None
+    pmp: Decimal | None
+    operating_cycle: Decimal | None
+    cash_cycle: Decimal | None
+    ncg: Decimal | None
+    working_capital: Decimal | None
+    treasury_balance: Decimal | None
+    current_ratio: Decimal | None
+    quick_ratio: Decimal | None
+    cash_ratio: Decimal | None
+    debt_to_equity: Decimal | None
+    gross_margin: Decimal | None
+    net_margin: Decimal | None
+    contribution_margin: Decimal | None
+    fixed_costs: Decimal | None
+    break_even_revenue: Decimal | None
+    safety_margin: Decimal | None
+    alerts: list[str]
+    missing: list[str]
+
+
+class IndicatorsReportOut(BaseModel):
+    accounting: IndicatorsOut
+    operational_pmr: Decimal | None
+    operational_pmp: Decimal | None
+    statements: list[StatementRead]

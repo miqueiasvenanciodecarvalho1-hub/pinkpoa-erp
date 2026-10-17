@@ -6,7 +6,8 @@ financeira multi-empresa (tenant = organização/consultoria) e multi-cliente (P
 ```bash
 pip install -e ".[dev]"
 uvicorn finance_engine.main:app --reload      # docs em http://localhost:8000/docs
-pytest && mypy src && ruff check src tests     # 53 testes, mypy --strict
+pytest && mypy src && ruff check src tests     # 72 testes, mypy --strict
+python -m finance_engine.worker               # fila de processamento (produção)
 ```
 
 Configuração por ambiente (`FIN_DATABASE_URL=postgresql+psycopg://...`, `FIN_MAX_UPLOAD_BYTES`,
@@ -68,9 +69,44 @@ src/finance_engine/
 | GET | `/lookup/cep/{cep}` | Endereço pelo CEP (BrasilAPI → ViaCEP → OpenCEP) |
 | GET | `/lookup/banks` · `/lookup/holidays/{ano}` | Bancos (código COMPE) e feriados nacionais |
 | POST | `/clients/from-cnpj` | Cadastra o cliente só com o CNPJ, preenchendo tudo pela Receita |
+| POST | `/auth/login` · GET `/auth/me` | login (token Bearer) com papel Master, Consultor ou Cliente |
+| POST/GET | `/auth/users` | usuários da consultoria (só Master); usuário Cliente fica preso ao próprio `client_id` |
+| POST | `/clients/{id}/titles/import` | contas a receber/pagar por planilha (reimportar atualiza saldos) |
+| GET | `/clients/{id}/titles` · `/titles/aging` | títulos em aberto e aging list (faixas, inadimplência, concentração) |
+| GET | `/clients/{id}/reconciliation/suggestions` | casamento extrato × títulos (1:1 e 1 lançamento : até 3 títulos), com pontuação e motivos |
+| POST | `/clients/{id}/reconciliation/apply` | aplica as sugestões automáticas (corpo vazio) ou as escolhidas (Master/Consultor) |
+| POST | `/tools/anticipation` · `/clients/{id}/anticipation` | simulação de antecipação: deságio, IOF, tarifas, CET a.m./a.a. e comparação com outra linha |
+| POST/GET/PATCH | `/clients/{id}/statements` | balanço/DRE/balancete por SPED ECD, planilha ou PDF (texto ou IA); revisão e validação |
+| GET | `/clients/{id}/analytics/indicators` | PMR, PMP, PME, ciclos, NCG, saldo de tesouraria, liquidez, margens, ponto de equilíbrio e alertas |
 
-O tenant vem do header `X-Organization-Id` **apenas como exemplo** — em produção deve vir de um
-claim do JWT validado.
+Acesso: em produção use `Authorization: Bearer <token>` de `/auth/login` e defina
+`FIN_SECRET_KEY` (segredo forte) e `FIN_ALLOW_HEADER_TENANT=false`. O header `X-Organization-Id`
+existe só para desenvolvimento.
+
+A projeção de caixa (`/analytics/cash-flow` com horizonte futuro) soma os títulos em aberto: a
+receber na data provável (vencimento + atraso médio do cliente), a pagar no vencimento; vencidos há
+mais de 90 dias ficam fora como duvidosos.
+
+### Inteligência artificial (Claude, ChatGPT ou Gemini)
+
+A leitura de balanços/DREs em PDF usa a mesma interface para os três fornecedores
+(`finance_engine.ai`). Instale `pip install -e ".[ai,pdf]"` e configure:
+
+| Variável | Valor |
+|---|---|
+| `FIN_AI_PROVIDER` | `claude` (padrão), `openai`, `gemini` ou `none` |
+| `FIN_AI_MODEL_CLAUDE` | padrão `claude-opus-5-5` |
+| `FIN_AI_MODEL_OPENAI` / `FIN_AI_MODEL_GEMINI` | modelo da sua conta (obrigatório para esses fornecedores) |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | chave do fornecedor escolhido (só no ambiente, nunca no código) |
+
+A resposta da IA vem em JSON validado por esquema e entra como **rascunho**: o consultor revisa
+e valida antes de os indicadores usarem os números.
+
+### Fila de processamento
+
+Importações em segundo plano vão para a tabela `jobs` (com retentativas). Em produção defina
+`FIN_JOBS_INLINE=false` e rode um ou mais `python -m finance_engine.worker`; no PostgreSQL a
+captura usa `FOR UPDATE SKIP LOCKED`. Arquivos ficam em `FIN_STORAGE_DIR`.
 
 Exemplo de upload de planilha com mapeamento:
 
@@ -119,6 +155,5 @@ curl -X POST "$API/clients/$CLIENT/bank-accounts/$ACCOUNT/imports" \
 
 ## Próximos passos sugeridos
 
-Alembic para migrações · autenticação JWT com vínculo usuário↔organização · armazenamento do
-arquivo original em S3/GCS · conciliação (casamento extrato × contas a pagar/receber) ·
-sugestão de regras a partir das categorizações manuais mais frequentes.
+Alembic para migrações · armazenamento em S3/GCS · sugestão de regras a partir das
+categorizações manuais mais frequentes · títulos a partir de CNAB de cobrança e XML de NF-e.

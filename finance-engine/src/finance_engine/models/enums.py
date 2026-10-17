@@ -61,3 +61,44 @@ class MatchType(StrEnum):
     CONTAINS = "CONTAINS"  # palavra/expressão inteira contida no histórico normalizado
     STARTS_WITH = "STARTS_WITH"
     REGEX = "REGEX"
+
+
+class TitleKind(StrEnum):
+    RECEIVABLE = "RECEIVABLE"  # contas a receber
+    PAYABLE = "PAYABLE"  # contas a pagar
+
+
+class TitleStatus(StrEnum):
+    OPEN = "OPEN"
+    PARTIAL = "PARTIAL"
+    PAID = "PAID"
+    CANCELLED = "CANCELLED"
+
+
+class MatchMethod(StrEnum):
+    AUTO = "AUTO"
+    MANUAL = "MANUAL"
+
+
+class StatementKind(StrEnum):
+    BALANCE_SHEET = "BALANCE_SHEET"  # balanço patrimonial
+    INCOME_STATEMENT = "INCOME_STATEMENT"  # DRE
+    TRIAL_BALANCE = "TRIAL_BALANCE"  # balancete
+
+
+class StatementStatus(StrEnum):
+    DRAFT = "DRAFT"  # extraído, aguardando revisão humana
+    VALIDATED = "VALIDATED"
+
+
+class Role(StrEnum):
+    MASTER = "MASTER"  # sócio/administrador da consultoria: tudo, inclusive usuários
+    CONSULTANT = "CONSULTANT"  # opera clientes da organização
+    CLIENT = "CLIENT"  # empresário: só o próprio cliente, leitura e envio de dados
+
+
+class JobStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    DONE = "DONE"
+    FAILED = "FAILED"

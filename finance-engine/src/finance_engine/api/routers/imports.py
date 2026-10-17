@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import uuid
 from enum import StrEnum
 from typing import Annotated
@@ -21,16 +20,16 @@ from fastapi import (
 )
 from pydantic import ValidationError
 from sqlalchemy import select
-from sqlalchemy.orm import Session, sessionmaker
 
-from finance_engine.api.deps import CurrentClient, CurrentOrg, DbSession, SessionFactory
+from finance_engine.api.deps import CurrentClient, CurrentPrincipal, DbSession, SessionFactory
 from finance_engine.api.schemas import ColumnMappingIn, ImportBatchRead
 from finance_engine.core.config import get_settings
+from finance_engine.core.storage import LocalStorage
 from finance_engine.ingestion import ParserOptions, TabularOptions
 from finance_engine.models import ImportBatch, SourceFormat
 from finance_engine.services.ingestion_service import ImportRequest, IngestionService
+from finance_engine.services.jobs import enqueue, run_job
 
-logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Importações"])
 
 _CHUNK = 1024 * 1024
@@ -57,7 +56,7 @@ async def _read_limited(upload: UploadFile, limit: int) -> bytes:
     return b"".join(chunks)
 
 
-def _build_options(
+def build_options(
     column_mapping: str | None,
     sheet_name: str | None,
     header_row: int | None,
@@ -85,19 +84,6 @@ def _build_options(
         ),
         max_invalid_ratio=get_settings().max_invalid_row_ratio,
     )
-
-
-def run_import_job(
-    factory: sessionmaker[Session], batch_id: uuid.UUID, content: bytes, options: ParserOptions
-) -> None:
-    """Executado fora do request: abre a própria sessão (a do request já foi fechada)."""
-    session = factory()
-    try:
-        IngestionService(session).process(batch_id, content, options, raise_on_error=False)
-    except Exception:  # o lote já foi marcado como FAILED; aqui só registramos
-        logger.exception("job de importação %s falhou", batch_id)
-    finally:
-        session.close()
 
 
 @router.post(
@@ -134,7 +120,7 @@ async def upload_statement(
     invert_sign: Annotated[bool, Form()] = False,
 ) -> ImportBatch:
     content = await _read_limited(file, get_settings().max_upload_bytes)
-    options = _build_options(column_mapping, sheet_name, header_row, date_format, invert_sign)
+    options = build_options(column_mapping, sheet_name, header_row, date_format, invert_sign)
     service = IngestionService(db)
     batch = service.register(
         ImportRequest(
@@ -150,9 +136,27 @@ async def upload_statement(
     db.commit()
 
     if mode is ProcessingMode.BACKGROUND:
-        # BackgroundTasks basta para volumes modestos; em escala, enfileire ``batch.id`` num
-        # worker (Celery/ARQ) com o arquivo em object storage (S3/GCS) — o service é o mesmo.
-        background_tasks.add_task(run_import_job, factory, batch.id, content, options)
+        # Arquivo vai para o armazenamento e o processamento para a fila (worker em produção).
+        key = LocalStorage().save(content, f"imports/{client.organization_id}")
+        job = enqueue(
+            db,
+            "import_statement_file",
+            {
+                "batch_id": str(batch.id),
+                "storage_key": key,
+                "options": {
+                    "column_mapping": column_mapping,
+                    "sheet_name": sheet_name,
+                    "header_row": header_row,
+                    "date_format": date_format,
+                    "invert_sign": invert_sign,
+                },
+            },
+            client.organization_id,
+        )
+        db.commit()
+        if get_settings().jobs_inline:
+            background_tasks.add_task(run_job, factory, job.id)
         response.status_code = status.HTTP_202_ACCEPTED
         return batch
 
@@ -160,9 +164,13 @@ async def upload_statement(
 
 
 @router.get("/imports/{batch_id}", response_model=ImportBatchRead)
-def get_import(batch_id: uuid.UUID, db: DbSession, org: CurrentOrg) -> ImportBatch:
+def get_import(batch_id: uuid.UUID, db: DbSession, principal: CurrentPrincipal) -> ImportBatch:
     batch = db.get(ImportBatch, batch_id)
-    if batch is None or batch.organization_id != org.id:
+    if (
+        batch is None
+        or batch.organization_id != principal.organization.id
+        or (principal.is_client and batch.client_id != principal.client_id)
+    ):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "importação não encontrada")
     return batch
 

@@ -8,13 +8,18 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+import finance_engine.services.job_handlers  # noqa: F401 - registra handlers da fila
 from finance_engine.api.errors import register_exception_handlers
 from finance_engine.api.routers import (
     analytics,
+    auth,
     classification,
     imports,
     lookup,
+    statements,
     tenancy,
+    titles,
+    tools,
     transactions,
 )
 from finance_engine.core.config import get_settings
@@ -41,7 +46,18 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
     register_exception_handlers(app)
-    for module in (tenancy, lookup, imports, transactions, classification, analytics):
+    for module in (
+        auth,
+        tenancy,
+        lookup,
+        imports,
+        transactions,
+        titles,
+        statements,
+        tools,
+        classification,
+        analytics,
+    ):
         app.include_router(module.router, prefix=API_PREFIX)
 
     @app.get("/health", tags=["Infra"])
