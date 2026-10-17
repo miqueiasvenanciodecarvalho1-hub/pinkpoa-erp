@@ -152,3 +152,25 @@ def test_cash_flow_statement_monthly() -> None:
     assert feb.unclassified == D("-300")
     assert feb.closing_balance == D("3650")
     assert feb.forecast_share == D("0.7692")
+
+
+def test_high_frequency_flow_becomes_business_daily_average() -> None:
+    start = date(2024, 4, 1)  # segunda-feira
+    history = [
+        CashMovement(
+            start + timedelta(days=i), D("1500.00") + D(i % 3) * 100, None, "CREDITO CIELO"
+        )
+        for i in range(84)
+        if (start + timedelta(days=i)).weekday() < 5
+    ]
+    (pattern,) = detect_recurring(history)
+    assert pattern.cadence is Cadence.BUSINESS_DAILY
+    assert D("1500") < pattern.amount < D("1800")
+    assert pattern.confidence == D("1.00")
+
+    last = history[-1].date  # sexta-feira 21/06/2024
+    existing = [CashMovement(date(2024, 6, 25), D("900"), None, "CREDITO CIELO")]
+    projected = project_recurring(
+        [pattern], after=last, until=last + timedelta(days=7), existing=existing
+    )
+    assert [m.date.weekday() for m in projected] == [0, 2, 3, 4]  # pula fim de semana e 25/06

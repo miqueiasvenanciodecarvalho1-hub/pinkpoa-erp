@@ -6,7 +6,7 @@ financeira multi-empresa (tenant = organização/consultoria) e multi-cliente (P
 ```bash
 pip install -e ".[dev]"
 uvicorn finance_engine.main:app --reload      # docs em http://localhost:8000/docs
-pytest && mypy src && ruff check src tests     # 47 testes, mypy --strict
+pytest && mypy src && ruff check src tests     # 48 testes, mypy --strict
 ```
 
 Configuração por ambiente (`FIN_DATABASE_URL=postgresql+psycopg://...`, `FIN_MAX_UPLOAD_BYTES`,

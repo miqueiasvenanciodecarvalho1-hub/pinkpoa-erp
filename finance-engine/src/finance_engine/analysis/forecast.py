@@ -6,7 +6,8 @@ fazem para gerar o "saldo projetado" sem lançamento manual:
 1. **Detecção de recorrência** — agrupa lançamentos históricos por "assinatura" do histórico
    (texto normalizado sem números/datas, ex.: ``"ALUGUEL"``, ``"PIX ENVIADO JOAO"``) e sinal;
    reconhece cadência semanal, quinzenal, mensal, bimestral, trimestral ou anual quando os
-   intervalos são regulares e o valor é estável (coeficiente de variação baixo).
+   intervalos são regulares e o valor é estável (coeficiente de variação baixo). Fluxos de alta
+   frequência (vendas no cartão todo dia útil) viram uma média por dia útil.
 2. **Projeção** — repete cada padrão até o horizonte pedido, pulando datas em que já existe um
    lançamento real/agendado equivalente (evita contar em dobro uma conta a pagar já importada).
 3. **Cenários** — fatores sobre entradas e saídas projetadas (realista, pessimista, otimista),
@@ -34,6 +35,7 @@ _STOPWORDS = frozenset({"DE", "DA", "DO", "DOS", "DAS", "E", "REF", "PARC", "PAR
 
 
 class Cadence(StrEnum):
+    BUSINESS_DAILY = "BUSINESS_DAILY"  # alta frequência: média por dia útil (ex.: vendas no cartão)
     WEEKLY = "WEEKLY"
     BIWEEKLY = "BIWEEKLY"
     MONTHLY = "MONTHLY"
@@ -108,6 +110,8 @@ def detect_recurring(
     *,
     min_occurrences: int = 3,
     max_amount_cv: float = 0.25,
+    daily_window_days: int = 56,
+    min_daily_occurrences: int = 8,
 ) -> list[RecurringPattern]:
     """Identifica lançamentos recorrentes no histórico.
 
@@ -132,6 +136,13 @@ def detect_recurring(
         if len(days) < min_occurrences:
             continue
         intervals = [(b - a).days for a, b in itertools.pairwise(days)]
+        if median(intervals) <= 4 and len(days) >= min_daily_occurrences:
+            daily = _business_daily_pattern(
+                signature, items, by_day, days, daily_window_days, min_daily_occurrences
+            )
+            if daily is not None:
+                patterns.append(daily)
+            continue
         cadence_info = _classify_cadence(intervals)
         if cadence_info is None:
             continue
@@ -162,7 +173,47 @@ def detect_recurring(
     return sorted(patterns, key=lambda p: abs(p.amount), reverse=True)
 
 
+def _business_daily_pattern(
+    signature: str,
+    items: Sequence[CashMovement],
+    by_day: dict[date, Decimal],
+    days: Sequence[date],
+    window_days: int,
+    min_occurrences: int,
+) -> RecurringPattern | None:
+    """Fluxos de alta frequência não têm cadência fixa; projeta a média por dia útil.
+
+    A média é o total das últimas ``window_days`` dividido pelos dias úteis da janela, o que
+    já embute os dias sem movimento.
+    """
+    window_start = days[-1] - timedelta(days=window_days)
+    recent = [d for d in days if d > window_start]
+    if len(recent) < min_occurrences:
+        return None
+    business_days = sum(
+        1 for i in range(1, window_days + 1) if (window_start + timedelta(days=i)).weekday() < 5
+    )
+    total = sum((by_day[d] for d in recent), Decimal("0"))
+    last = max(items, key=lambda m: m.date)
+    return RecurringPattern(
+        signature=signature,
+        description=last.description,
+        category=last.category,
+        group=last.group,
+        cadence=Cadence.BUSINESS_DAILY,
+        amount=(total / business_days).quantize(CENT, ROUND_HALF_UP),
+        occurrences=len(days),
+        last_date=days[-1],
+        confidence=min(Decimal("1"), Decimal(len(recent)) / Decimal(30)).quantize(Decimal("0.01")),
+    )
+
+
 def _next_date(current: date, cadence: Cadence, anchor_day: int) -> date:
+    if cadence is Cadence.BUSINESS_DAILY:
+        following = current + timedelta(days=1)
+        while following.weekday() >= 5:
+            following += timedelta(days=1)
+        return following
     if cadence is Cadence.WEEKLY:
         return current + timedelta(days=7)
     if cadence is Cadence.BIWEEKLY:
@@ -214,7 +265,11 @@ def project_recurring(
             current = _next_date(current, p.cadence, p.last_date.day)
             if current > until:
                 break
-            if current <= after or any(abs(d - current) <= window for d in known):
+            if current <= after:
+                continue
+            # Na média diária só o mesmo dia conta como "já lançado"; nas demais, ±window.
+            tolerance = timedelta(0) if p.cadence is Cadence.BUSINESS_DAILY else window
+            if any(abs(d - current) <= tolerance for d in known):
                 continue
             projected.append(
                 CashMovement(
