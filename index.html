@@ -363,7 +363,7 @@ License: MIT
         <label>Senha</label>
         <div style="position:relative">
           <input id="l-senha" class="form-control" type="password" placeholder="••••••••" autocomplete="current-password"
-            style="padding-right:40px" onkeydown="if(event.key==='Enter')doLogin()">
+            style="padding-right:40px;width:100%;box-sizing:border-box" onkeydown="if(event.key==='Enter')doLogin()">
           <button type="button" onclick="toggleSenha('l-senha','l-eye')" aria-label="Mostrar ou ocultar senha"
             style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--gray-4);font-size:16px" id="l-eye">👁</button>
         </div>
@@ -418,7 +418,7 @@ License: MIT
       <div class="form-group">
         <label>Senha *</label>
         <div style="position:relative">
-          <input id="c-senha" class="form-control" type="password" placeholder="Mínimo 6 caracteres" style="padding-right:40px"
+          <input id="c-senha" class="form-control" type="password" placeholder="Mínimo 6 caracteres" style="padding-right:40px;width:100%;box-sizing:border-box"
             autocomplete="new-password" oninput="medirSenha()">
           <button type="button" onclick="toggleSenha('c-senha','c-eye')" aria-label="Mostrar ou ocultar senha"
             style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--gray-4);font-size:16px" id="c-eye">👁</button>
@@ -542,7 +542,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.218</span>
+      ">v2.14.219</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
