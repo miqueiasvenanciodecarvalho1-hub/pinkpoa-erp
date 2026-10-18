@@ -465,6 +465,7 @@ License: MIT
     <div class="nav-item" onclick="navigate('comissoes')"><span class="nav-icon">💰</span> Comissões</div>
     <div class="nav-item" onclick="navigate('recebiveis')"><span class="nav-icon">📋</span> Recebíveis</div>
     <div class="nav-item" onclick="navigate('pagar')"><span class="nav-icon">🧾</span> Contas a Pagar</div>
+    <div class="nav-item" onclick="navigate('fluxo')"><span class="nav-icon">💵</span> Fluxo de Caixa</div>
   </div>
   <div class="nav-group">
     <div class="nav-label">Ferramentas</div>
@@ -542,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.220</span>
+      ">v2.14.221</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1415,7 +1416,7 @@ const PAGE_TITLES = {
   dashboard:'Dashboard', clientes:'Clientes', representantes:'Representantes',
   usuarios:'Usuários e Acessos', configuracoes:'Configurações',
   produtos:'Produtos', faturamento:'Faturamento', comissoes:'Comissões',
-  recebiveis:'Recebíveis', pagar:'Contas a Pagar (Fornecedores)', conciliacao:'Conciliação Bancária', vendas:'Análise de Vendas', estoques:'Gestão de Estoques', naturezas:'Naturezas de Operação', compras:'Compras', importacao:'Importação de Arquivos', automacao:'Automação'
+  recebiveis:'Recebíveis', pagar:'Contas a Pagar (Fornecedores)', fluxo:'Fluxo de Caixa Realizado', conciliacao:'Conciliação Bancária', vendas:'Análise de Vendas', estoques:'Gestão de Estoques', naturezas:'Naturezas de Operação', compras:'Compras', importacao:'Importação de Arquivos', automacao:'Automação'
 };
 
 const _NAV_ITEMS = Array.from(document.querySelectorAll('#sidebar .nav-item'));
@@ -1452,7 +1453,7 @@ function navigate(page) {
     dashboard: renderDashboard, clientes: renderClientes,
     representantes: renderRepresentantes, produtos: renderProdutos,
     faturamento: renderFaturamento, comissoes: renderComissoes,
-    recebiveis: renderRecebiveis, pagar: renderPagar, conciliacao: renderConciliacao, vendas: renderVendas, estoques: renderEstoques, naturezas: renderNaturezas,
+    recebiveis: renderRecebiveis, pagar: renderPagar, fluxo: renderFluxo, conciliacao: renderConciliacao, vendas: renderVendas, estoques: renderEstoques, naturezas: renderNaturezas,
     compras: renderCompras,
     importacao: renderImportacao,
     automacao: renderAutomacao,
@@ -7903,6 +7904,157 @@ const POS_PG_SECOES=[
   {k:'atras',   rot:'ATRASADOS'},
   {k:'bancos',  rot:'BANCOS'}
 ];
+// ---------- v221: FLUXO DE CAIXA REALIZADO ----------
+// Tudo o que entrou e saiu de verdade, lançamento a lançamento, SEM os filtros da posição de fechamento:
+//   SAÍDAS   = TODOS os títulos da base de pagamentos (ERP_PGTO) com data de pagamento (PGMTO), pelo valor pago.
+//   ENTRADAS = baixas de clientes do vpdpcl2 (DB.recebidos, mov. 92); sem elas, títulos com baixa (dtbx/vlbx).
+// Cada lançamento pertence a uma CIA: nas saídas é a SSIGLA (RMF, RK…); nas entradas, a filial do título,
+// ligada a uma CIA na configuração. O usuário escolhe quais CIAs participam (fica salvo e vai ao servidor).
+const FX_KEY='pinkpoa_fx_cfg';
+function _fxCfg(){ let c={}; try{ c=JSON.parse(localStorage.getItem(FX_KEY)||'{}')||{}; }catch(e){} c.cias=c.cias||{}; c.filiais=c.filiais||{}; return c; }
+function _fxGravar(c){ try{ localStorage.setItem(FX_KEY, JSON.stringify(c)); }catch(e){} }
+function _fxFiliais(){
+  const r=(DB.recebidos||[]).length ? DB.recebidos.map(x=>x.fil) : (DB.recebiveis||[]).filter(x=>x.dtbx).map(x=>x.f);
+  return [...new Set(r.map(f=>String(f==null?'':f).trim()||'?'))].sort();
+}
+function _fxCiaDaFilial(f, c){ return (c||_fxCfg()).filiais[f] || ('Filial '+f); }
+function _fxCias(){
+  const c=_fxCfg();
+  return [...new Set(_pgEmpresas().concat(_fxFiliais().map(f=>_fxCiaDaFilial(f,c))))].sort();
+}
+function _fxParticipa(cia, c){ c=c||_fxCfg(); return c.cias[cia]!==false; }   // nova CIA entra marcada
+function _fxLancamentos(){
+  const c=_fxCfg(), out=[];
+  (DB.pagar||[]).forEach(p=>{
+    if(!p || !p.pgmto) return;
+    const v=+(Number(p.pago)||Number(p.valor)||0).toFixed(2); if(!v) return;
+    out.push({ dt:p.pgmto, cia:p.emp||'—', tipo:'S', valor:-Math.abs(v), grupo:(p.planoDesc||p.plano||'SEM PLANO DE CONTAS'),
+      desc:p.forn||'', doc:[p.doc,p.nf].filter(Boolean).join(' / '), extra:p.cob||'' });
+  });
+  const nomeCli=cod=>{ const x=(DB.clientes||[]).find(k=>String(k.codigo)===String(cod)); return x?(x.razao_social||x.nome_fantasia||''):''; };
+  if((DB.recebidos||[]).length){
+    DB.recebidos.forEach(r=>{ const v=+(Number(r.valor)||0).toFixed(2); if(!r.dt || !v) return;
+      const f=String(r.fil==null?'':r.fil).trim()||'?';
+      out.push({ dt:r.dt, cia:_fxCiaDaFilial(f,c), tipo:'E', valor:v, grupo:'RECEBIMENTOS DE CLIENTES',
+        desc:nomeCli(r.cli)||('Cliente '+(r.cli||'—')), doc:`NF ${r.nf||'—'}${r.ser?' série '+r.ser:''}`, extra:'filial '+f }); });
+  } else {
+    (DB.recebiveis||[]).forEach(r=>{ if(!r.dtbx || r.sit==='devolvido') return; const v=+(Number(r.vlbx!=null?r.vlbx:r.v)||0).toFixed(2); if(!v) return;
+      const f=String(r.f==null?'':r.f).trim()||'?';
+      out.push({ dt:r.dtbx, cia:_fxCiaDaFilial(f,c), tipo:'E', valor:v, grupo:r.origem==='pagarme'?'RECEBIMENTOS CARTÃO':'RECEBIMENTOS DE CLIENTES',
+        desc:nomeCli(r.c)||('Cliente '+(r.c||'—')), doc:`Título ${r.t}/${r.d||''}`, extra:'filial '+f }); });
+  }
+  return out.filter(l=>/^\d{4}-\d{2}-\d{2}/.test(l.dt));
+}
+function _fxFiltrar(){ window._fxP=1; renderFluxo(); }
+function _fxCiaToggle(cia){ const c=_fxCfg(); c.cias[cia]=!_fxParticipa(cia,c); _fxGravar(c); renderFluxo(); }
+function _fxTodas(on){ const c=_fxCfg(); _fxCias().forEach(k=>c.cias[k]=!!on); _fxGravar(c); renderFluxo(); }
+function _fxFilialCia(f, cia){ const c=_fxCfg(); if(cia) c.filiais[f]=cia; else delete c.filiais[f]; _fxGravar(c); renderFluxo(); }
+function _fxDados(){
+  const c=_fxCfg(), todos=_fxLancamentos();
+  const meses=[...new Set(todos.map(l=>l.dt.slice(0,7)))].sort();
+  const de=document.getElementById('fx-de')?.value || window._fxDe || meses[Math.max(0,meses.length-12)] || '';
+  const ate=document.getElementById('fx-ate')?.value || window._fxAte || meses[meses.length-1] || '';
+  window._fxDe=de; window._fxAte=ate;
+  const sel=todos.filter(l=>_fxParticipa(l.cia,c) && l.dt.slice(0,7)>=de && l.dt.slice(0,7)<=ate);
+  return { c, todos, meses, de, ate, sel };
+}
+function renderFluxo(){
+  const el=document.getElementById('content');
+  if(!(DB.pagar||[]).length && !(DB.recebidos||[]).length && !(DB.recebiveis||[]).some(r=>r.dtbx)){
+    el.innerHTML=`<div class="card"><div class="card-body"><div class="empty-state" style="padding:40px"><div class="es-icon">💵</div>
+      <div class="es-text">Sem lançamentos realizados</div><div style="font-size:12px;color:var(--gray-5);margin-top:8px">
+      Importe a base de pagamentos (ERP_PGTO) e as baixas de clientes (vpdpcl2).</div></div></div></div>`; return;
+  }
+  const {c, todos, meses, de, ate, sel}=_fxDados();
+  const MES_L={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
+  const rotM=m=>`${MES_L[m.slice(5,7)]}/${m.slice(2,4)}`;
+  const cols=meses.filter(m=>m>=de && m<=ate);
+  const cias=_fxCias(), filiais=_fxFiliais(), ciasPg=_pgEmpresas();
+  const ent=sel.filter(l=>l.tipo==='E'), sai=sel.filter(l=>l.tipo==='S');
+  const soma=a=>+a.reduce((s,l)=>s+l.valor,0).toFixed(2);
+  // matriz grupo × mês
+  const linhas=(lista)=>{ const g={}; lista.forEach(l=>{ const k=l.grupo; g[k]=g[k]||{tot:0,m:{}}; g[k].tot+=l.valor; g[k].m[l.dt.slice(0,7)]=(g[k].m[l.dt.slice(0,7)]||0)+l.valor; });
+    return Object.entries(g).sort((a,b)=>Math.abs(b[1].tot)-Math.abs(a[1].tot)); };
+  const porMes=(lista)=>{ const m={}; lista.forEach(l=>{ const k=l.dt.slice(0,7); m[k]=(m[k]||0)+l.valor; }); return m; };
+  const mE=porMes(ent), mS=porMes(sai);
+  const cel=v=>`<td style="text-align:right;white-space:nowrap;${v<0?'color:var(--red)':''}">${v?fmt(v):'—'}</td>`;
+  const linhaHtml=(rot,mm,tot,estilo)=>`<tr style="${estilo||''}"><td style="white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis" title="${_nvEsc(rot)}">${_nvEsc(rot)}</td>${cols.map(m=>cel(+(mm[m]||0).toFixed(2))).join('')}${cel(+tot.toFixed(2))}</tr>`;
+  let acum=0; const mAc={}; cols.forEach(m=>{ acum+=(mE[m]||0)+(mS[m]||0); mAc[m]=acum; });
+  const mR={}; cols.forEach(m=>mR[m]=(mE[m]||0)+(mS[m]||0));
+  // lista de lançamentos
+  const bus=(document.getElementById('fx-bus')?.value||window._fxBus||'').toLowerCase(); window._fxBus=bus;
+  const fTipo=document.getElementById('fx-tipo')?.value ?? (window._fxTipo||''); window._fxTipo=fTipo;
+  let lista=sel.filter(l=>(!fTipo||l.tipo===fTipo) && (!bus || (l.desc+' '+l.doc+' '+l.grupo+' '+l.cia).toLowerCase().includes(bus)));
+  lista.sort((a,b)=>a.dt.localeCompare(b.dt)||a.tipo.localeCompare(b.tipo));
+  window._fxLista=lista;
+  const POR=50, tp=Math.ceil(lista.length/POR)||1, pg=Math.min(window._fxP||1,tp), pag=lista.slice((pg-1)*POR,pg*POR);
+  const fora=todos.filter(l=>!_fxParticipa(l.cia,c)).length;
+  const opcCia=cur=>['<option value="">própria (Filial)</option>'].concat(ciasPg.map(k=>`<option value="${_nvEsc(k)}" ${cur===k?'selected':''}>${_nvEsc(k)}</option>`)).join('');
+  el.innerHTML=`
+    <div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:12px 16px">
+      <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;justify-content:space-between">
+        <div>
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px">Empresas (CIAs) que participam do fluxo</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${cias.map(k=>{ const on=_fxParticipa(k,c); return `<label style="display:flex;align-items:center;gap:6px;padding:5px 10px;border-radius:16px;cursor:pointer;font-size:12px;font-weight:600;border:1px solid ${on?'var(--pink)':'var(--gray-2)'};background:${on?'var(--pink-light,#fde7f0)':'var(--white)'};color:${on?'var(--gray-6)':'var(--gray-4)'}">
+            <input type="checkbox" ${on?'checked':''} onchange="_fxCiaToggle('${_nvEsc(k).replace(/'/g,"\\'")}')"> ${_nvEsc(k)}</label>`; }).join('')}
+            <button class="btn btn-secondary btn-sm" onclick="_fxTodas(true)">todas</button><button class="btn btn-secondary btn-sm" onclick="_fxTodas(false)">nenhuma</button></div>
+          ${fora?`<div style="font-size:11px;color:var(--gray-5);margin-top:6px">${fora.toLocaleString('pt-BR')} lançamento(s) de CIAs desmarcadas ficaram fora.</div>`:''}
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:11px;color:var(--gray-5)">de <select id="fx-de" class="form-control" style="width:100px" onchange="_fxFiltrar()">${meses.map(m=>`<option value="${m}" ${m===de?'selected':''}>${rotM(m)}</option>`).join('')}</select></label>
+          <label style="font-size:11px;color:var(--gray-5)">até <select id="fx-ate" class="form-control" style="width:100px" onchange="_fxFiltrar()">${meses.map(m=>`<option value="${m}" ${m===ate?'selected':''}>${rotM(m)}</option>`).join('')}</select></label>
+          <button class="btn btn-secondary btn-sm" onclick="_fxExcel()">📊 Excel</button>
+        </div>
+      </div>
+      ${filiais.length?`<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--gray-5)">⚙ De qual CIA é cada filial dos recebimentos</summary>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">${filiais.map(f=>`<label style="font-size:12px;display:flex;align-items:center;gap:6px">Filial ${_nvEsc(f)} →
+          <select class="form-control" style="width:150px" onchange="_fxFilialCia('${_nvEsc(f)}',this.value)">${opcCia(c.filiais[f]||'')}</select></label>`).join('')}</div></details>`:''}
+    </div></div>
+
+    <div class="kpi-grid">
+      <div class="kpi-card green"><div class="kpi-label">Entradas realizadas</div><div class="kpi-value">${fmt(soma(ent))}</div><div class="kpi-sub">${ent.length.toLocaleString('pt-BR')} lançamentos</div></div>
+      <div class="kpi-card" style="border-left:3px solid var(--red)"><div class="kpi-label">Saídas realizadas</div><div class="kpi-value" style="color:var(--red)">${fmt(soma(sai))}</div><div class="kpi-sub">${sai.length.toLocaleString('pt-BR')} lançamentos</div></div>
+      <div class="kpi-card blue"><div class="kpi-label">Resultado do período</div><div class="kpi-value" style="${soma(sel)<0?'color:var(--red)':''}">${fmt(soma(sel))}</div><div class="kpi-sub">${rotM(de)} a ${rotM(ate)}</div></div>
+      <div class="kpi-card amber"><div class="kpi-label">Lançamentos no fluxo</div><div class="kpi-value">${sel.length.toLocaleString('pt-BR')}</div><div class="kpi-sub">de ${todos.length.toLocaleString('pt-BR')} na base</div></div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px"><div class="card-header"><h2>Fluxo de Caixa Realizado — mês a mês</h2></div>
+      <div class="table-wrap" style="overflow-x:auto"><table style="font-size:12px">
+        <thead><tr><th>Conta</th>${cols.map(m=>`<th style="text-align:right">${rotM(m)}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead>
+        <tbody>
+          ${linhaHtml('▲ ENTRADAS',mE,soma(ent),'font-weight:700;background:var(--gray-1)')}
+          ${linhas(ent).map(([k,g])=>linhaHtml('   '+k,g.m,g.tot)).join('')}
+          ${linhaHtml('▼ SAÍDAS',mS,soma(sai),'font-weight:700;background:var(--gray-1)')}
+          ${linhas(sai).map(([k,g])=>linhaHtml('   '+k,g.m,g.tot)).join('')}
+          ${linhaHtml('= RESULTADO DO MÊS',mR,soma(sel),'font-weight:800;border-top:2px solid var(--gray-3)')}
+          ${linhaHtml('Σ ACUMULADO',mAc,soma(sel),'font-weight:700;color:var(--gray-5)')}
+        </tbody></table></div></div>
+
+    <div class="card"><div class="card-header"><h2>Lançamentos (${lista.length.toLocaleString('pt-BR')})</h2>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <select id="fx-tipo" class="form-control" style="width:120px" onchange="_fxFiltrar()"><option value="">Entradas e saídas</option>
+            <option value="E" ${fTipo==='E'?'selected':''}>Só entradas</option><option value="S" ${fTipo==='S'?'selected':''}>Só saídas</option></select>
+          <input id="fx-bus" class="form-control" style="width:200px" placeholder="Fornecedor, cliente, doc. (Enter)" value="${_nvEsc(bus)}" onkeydown="if(event.key==='Enter'){event.preventDefault();_fxFiltrar();}">
+        </div></div>
+      <div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Data</th><th>CIA</th><th>Tipo</th><th>Conta</th><th>Fornecedor / Cliente</th><th>Documento</th><th style="text-align:right">Valor</th></tr></thead>
+        <tbody>${pag.map(l=>`<tr><td>${fmtDate(l.dt)}</td><td>${_nvEsc(l.cia)}</td><td>${l.tipo==='E'?'<span style="color:var(--green)">Entrada</span>':'<span style="color:var(--red)">Saída</span>'}</td>
+          <td>${_nvEsc(l.grupo)}</td><td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nvEsc(l.desc)}</td><td>${_nvEsc(l.doc)}</td>${cel(l.valor)}</tr>`).join('')
+          ||'<tr><td colspan="7" style="text-align:center;color:var(--gray-4);padding:18px">Nenhum lançamento</td></tr>'}</tbody></table></div>
+      ${tp>1?`<div style="display:flex;justify-content:center;gap:6px;padding:10px">
+        <button class="btn btn-secondary btn-sm" ${pg<=1?'disabled':''} onclick="window._fxP=${pg-1};renderFluxo()">‹</button>
+        <span style="font-size:12px;align-self:center">${pg} / ${tp}</span>
+        <button class="btn btn-secondary btn-sm" ${pg>=tp?'disabled':''} onclick="window._fxP=${pg+1};renderFluxo()">›</button></div>`:''}
+    </div>`;
+}
+function _fxExcel(){
+  const {sel, de, ate}=_fxDados();
+  const rows=[['Data','CIA','Tipo','Conta','Fornecedor / Cliente','Documento','Valor']].concat(
+    sel.slice().sort((a,b)=>a.dt.localeCompare(b.dt)).map(l=>[l.dt, l.cia, l.tipo==='E'?'Entrada':'Saída', l.grupo, l.desc, l.doc, l.valor]));
+  const nome=`fluxo_realizado_${de}_a_${ate}`;
+  if(typeof XLSX!=='undefined'){ const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Fluxo realizado'); XLSX.writeFile(wb, nome+'.xlsx'); return; }
+  const csv=rows.map(r=>r.map(v=>typeof v==='number'?String(v).replace('.',','):'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'})); a.download=nome+'.csv'; a.click();
+}
 function _pgSecoes(){
   const p={}; POS_PG_SECOES.forEach(x=>p[x.k]=true);
   try{ return {...p, ...(JSON.parse(localStorage.getItem(POS_PG_KEY)||'{}')||{})}; }catch(e){ return p; }

@@ -83,6 +83,14 @@ flowchart LR
 
 ---
 
+### Fluxo de Caixa Realizado (menu Financeiro → 💵 Fluxo de Caixa)
+- **Todos os lançamentos da base**, sem os filtros da posição de fechamento: saídas = todos os títulos do
+  ERP_PGTO com data de pagamento (valor pago); entradas = baixas de clientes do vpdpcl2 (sem elas, os títulos
+  com baixa dos recebíveis).
+- **Escolha das CIAs** que participam (RMF, RK…): marque/desmarque no topo. Em "⚙ De qual CIA é cada filial"
+  liga cada filial dos recebimentos a uma CIA. A escolha fica salva e vai para o servidor.
+- Quadro mês a mês por conta (plano de contas), resultado e acumulado; lista de lançamentos com busca e **📊 Excel**.
+
 ## 3. Usuários e acessos
 
 - Menu **👥 Usuários e Acessos** (só administrador): criar, alterar e desativar usuários e definir, **para cada
