@@ -542,7 +542,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.215</span>
+      ">v2.14.216</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5371,7 +5371,7 @@ function processarVendasCompleto(pedRows, prodRows, precRows) {
     const reg = ps(row['aw-codiregi']);
     if(!por_regiao[reg]) return;
     const raiz = ps(row['aw-raizprod']);
-    const pr   = precDict[raiz]||{atacado:0,varejo:0};
+    const pr   = precDict[raiz]||(DB.precos_vend||{})[raiz]||{atacado:0,varejo:0};   // v216: sem vpprod4 nesta importação, usa a tabela já guardada
     const pd_  = prodDict[raiz]||{};
     const tam_cols=[...Array(10)].map((_,i)=>`cg1-tamatabe-${String(i+1).padStart(2,'0')}`);
     const qtd_cols=[...Array(10)].map((_,i)=>`aw-tamapedv-${String(i+1).padStart(2,'0')}`);
@@ -5461,6 +5461,8 @@ function processarVendasCompleto(pedRows, prodRows, precRows) {
     `${DB.estoques_vend.length} SKUs em estoque`,
     prodRows.length?`${DB.produtos_vend.length} produtos cruzados`:'',
     precRows.length?`Preços cruzados`:'',
+    (()=>{ const sem=DB.estoques_vend.filter(e=>!(+e.pc)&&!(+e.pa)).length;
+      return sem?`⚠ ${sem} SKU(s) do estoque sem custo/preço — importe também a Tabela de Preços (vpprod4)`:''; })(),
   ].filter(Boolean);
 
   toast(`Vendas reprocessadas! ${sucesso} registros 🛍`);
@@ -9108,6 +9110,29 @@ function _montarBackup(){
     if(k && k.indexOf('pinkpoa_')===0 && !_LOCAL_FORA(k)){ backup.local[k]=localStorage.getItem(k); } }
   return backup;
 }
+// v216: estoque/vendas importados SEM a Tabela de Preços (vpprod4) ficavam com custo (pc = tabela 1, atacado) e
+// preço (pa = tabela 2, varejo) zerados, embora DB.precos_vend já tivesse os preços de importações anteriores.
+// Preenche só o que está zerado; não mexe em preço que veio do arquivo. Devolve quantos itens preencheu.
+function _precosPreencher(){
+  const pv=DB.precos_vend||{}; if(!Object.keys(pv).length) return 0;
+  const r2=v=>Math.round((+v||0)*100)/100;
+  const P=rz=>{ const p=pv[rz]; return p&&((+p.atacado)||(+p.varejo))?p:null; };
+  let n=0;
+  (DB.estoques_vend||[]).forEach(e=>{ if(+e.pc||+e.pa) return; const p=P(e.rz); if(!p) return;
+    e.pc=r2(p.atacado); e.pa=r2(p.varejo); e.vt=r2((+e.qt||0)*e.pc); e.va=r2((+e.qt||0)*e.pa); n++; });
+  (DB.vendas_linhas||[]).forEach(l=>{ if(+l.pc||+l.pa) return; const p=P(l.rz); if(!p) return;
+    l.pc=r2(p.atacado); l.pa=r2(p.varejo);
+    if(l.pc>0 && (+l.qt)>0) l.mg=Math.round((((+l.vl)/(+l.qt))-l.pc)/l.pc*10000)/100; n++; });
+  const agr=DB.vendas_agr;
+  if(agr && n){
+    (agr.top_prods||[]).forEach(t=>{ if(+t.pc||+t.pa) return; const p=P(t.rz); if(p){ t.pc=r2(p.atacado); t.pa=r2(p.varejo); } });
+    if(agr.est_grp){ const g={};
+      (DB.estoques_vend||[]).forEach(e=>{ const k=e.gr; g[k]=g[k]||{pc:0,pa:0}; g[k].pc+=(+e.qt||0)*(+e.pc||0); g[k].pa+=(+e.qt||0)*(+e.pa||0); });
+      Object.entries(agr.est_grp).forEach(([gr,o])=>{ if(g[gr] && !(+o.pc_tot) && !(+o.pa_tot)){ o.pc_tot=r2(g[gr].pc); o.pa_tot=r2(g[gr].pa); } }); }
+  }
+  if(n) console.info(`Preços preenchidos pela tabela guardada: ${n} item(ns) de estoque/vendas.`);
+  return n;
+}
 function _aplicarBackup(obj){
   // v212: listas que o app lê das configurações locais (Compras) recarregam a partir da cópia
   ['compras','compras_map','compras_grupos','compras_forn_grupos','compras_forn_excluidos'].forEach(k=>{ if(!(obj.db&&k in obj.db)) delete DB[k]; });
@@ -9116,6 +9141,7 @@ function _aplicarBackup(obj){
     if(_LOCAL_FORA(k)) return;
     try{ localStorage.setItem(k, obj.local[k]); }catch(e){} });
   if(typeof _aplicarGruposRep==='function'){ try{ _aplicarGruposRep(); }catch(e){} }
+  try{ _precosPreencher(); }catch(e){ console.warn('precos', e); }
   let _pmFix=0; try{ _pmFix=_pmAutoCorrigir(); }catch(e){}
   return _pmFix;
 }
