@@ -123,7 +123,9 @@ flowchart LR
 - O servidor entrega a cada usuário **só os dados dos módulos liberados**. Clientes, representantes e naturezas
   vão para todos como cadastro de referência (nomes nas telas).
 - Usuário desativado perde o acesso imediatamente. Sempre existe pelo menos um administrador ativo.
-- Cada usuário troca a própria senha em **🔑 Minha senha** (mínimo de 10 caracteres).
+- **Senha: de 6 a 10 números, somente números** (os campos de senha só aceitam números e abrem o teclado numérico no celular).
+  Cada usuário troca a própria senha em **🔑 Minha senha**.
+- **5 senhas erradas seguidas travam o login por 15 minutos.** Para destravar antes, o administrador envia um novo link (🔗 Convite).
 
 ---
 
