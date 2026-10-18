@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.224</span>
+      ">v2.14.225</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -7917,11 +7917,11 @@ function _fxFiliais(){
   const r=(DB.recebidos||[]).length ? DB.recebidos.map(x=>x.fil) : (DB.recebiveis||[]).filter(x=>x.dtbx).map(x=>x.f);
   return [...new Set(r.map(f=>String(f==null?'':f).trim()||'?'))].sort();
 }
-function _fxCiaDaFilial(f, c){ return (c||_fxCfg()).filiais[f] || ('Filial '+f); }
-function _fxCias(){
-  const c=_fxCfg();
-  return [...new Set(_pgEmpresas().concat(_fxFiliais().map(f=>_fxCiaDaFilial(f,c))))].sort();
-}
+// v225: a Pink Poá tem só DUAS CIAs — RMF e RK. Todos os recebimentos de clientes (todas as filiais do Audience,
+// inclusive o e-commerce) são da RMF; a RK só tem pagamentos.
+const FX_CIAS=['RMF','RK'];
+function _fxCiaDaFilial(f, c){ return 'RMF'; }
+function _fxCias(){ return FX_CIAS.concat(_pgEmpresas().map(e=>String(e).toLocaleUpperCase('pt-BR')).filter(e=>!FX_CIAS.includes(e))); }   // sigla fora dessas duas aparece para ser corrigida na base
 function _fxParticipa(cia, c){ c=c||_fxCfg(); return c.cias[cia]!==false; }   // nova CIA entra marcada
 function _fxLancamentos(){
   const c=_fxCfg(), out=[];
@@ -8063,9 +8063,7 @@ function renderFluxo(){
           <button class="btn btn-secondary btn-sm" onclick="_fxExcel()">📊 Excel</button>
         </div>
       </div>
-      ${filiais.length?`<details style="margin-top:10px"><summary style="cursor:pointer;font-size:12px;color:var(--gray-5)">⚙ De qual CIA é cada filial dos recebimentos</summary>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px">${filiais.map(f=>`<label style="font-size:12px;display:flex;align-items:center;gap:6px">Filial ${_nvEsc(f)} →
-          <select class="form-control" style="width:150px" onchange="_fxFilialCia('${_nvEsc(f)}',this.value)">${opcCia(c.filiais[f]||'')}</select></label>`).join('')}</div></details>`:''}
+      <div style="font-size:11px;color:var(--gray-5);margin-top:6px">Recebimentos de clientes (todas as filiais e o e-commerce) são da <b>RMF</b>; a <b>RK</b> entra só com os pagamentos dela.</div>
     </div></div>
 
     <div class="kpi-grid">
