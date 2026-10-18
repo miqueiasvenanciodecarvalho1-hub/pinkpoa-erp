@@ -86,6 +86,10 @@ flowchart LR
 
 Menu **⚙️ Configurações**:
 - **Servidor (Render):** tempo de resposta, há quanto tempo está acordado, MySQL, versão da API e memória.
+- **Histórico de versões:** cada "☁ Salvar no servidor" vira uma versão (ficam as 10 últimas), com quem
+  salvou, quando e o que mudou em cada lista (ex.: "Faturamento +120", "Clientes alterada"). O botão
+  **↩ Voltar para esta versão** devolve os dados do servidor a uma versão anterior — a volta também vira
+  uma versão, então dá para desfazer.
 - **Plano do servidor:** no plano **grátis** o Render "dorme" após 15 min sem uso (a primeira chamada
   espera até ~50 s). A tela traz o passo a passo e o botão para mudar para o plano **pago (Starter)**
   no site do Render, ou a alternativa grátis com o **UptimeRobot** chamando `/health` a cada 5 min.
