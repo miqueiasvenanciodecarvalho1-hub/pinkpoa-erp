@@ -89,7 +89,12 @@ flowchart LR
   com baixa dos recebíveis).
 - **Escolha das CIAs** que participam (RMF, RK…): marque/desmarque no topo. Em "⚙ De qual CIA é cada filial"
   liga cada filial dos recebimentos a uma CIA. A escolha fica salva e vai para o servidor.
-- Quadro mês a mês por conta (plano de contas), resultado e acumulado; lista de lançamentos com busca e **📊 Excel**.
+- **Agrupado por contas** pelo código do plano (CODPLA): grupo `11` › subgrupo `11.01` › conta `11.01.08`, com ▸/▾ para
+  abrir e fechar e os botões "abrir até o nível 1-2-3-4"; coluna **%** do total. Os grupos sem nome na base podem ser
+  nomeados no **✎** (fica salvo). Entradas: Recebimentos › tipo › CIA.
+- **🔎 Análise do período** (automática): cobertura das saídas pelas entradas, médias, meses negativos, concentração nas
+  5 maiores contas, para onde vai o dinheiro por grupo, contas fora do padrão no último mês e pagamentos sem plano.
+- Resultado e acumulado mês a mês; lista de lançamentos com busca e **📊 Excel** (com grupo, subgrupo e código da conta).
 
 ## 3. Usuários e acessos
 

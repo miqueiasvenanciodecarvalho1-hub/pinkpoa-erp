@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.221</span>
+      ">v2.14.222</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -7928,7 +7928,7 @@ function _fxLancamentos(){
   (DB.pagar||[]).forEach(p=>{
     if(!p || !p.pgmto) return;
     const v=+(Number(p.pago)||Number(p.valor)||0).toFixed(2); if(!v) return;
-    out.push({ dt:p.pgmto, cia:p.emp||'—', tipo:'S', valor:-Math.abs(v), grupo:(p.planoDesc||p.plano||'SEM PLANO DE CONTAS'),
+    out.push({ dt:p.pgmto, cia:p.emp||'—', tipo:'S', valor:-Math.abs(v), grupo:(p.planoDesc||p.plano||'SEM PLANO DE CONTAS'), cod:String(p.plano||'').trim(),
       desc:p.forn||'', doc:[p.doc,p.nf].filter(Boolean).join(' / '), extra:p.cob||'' });
   });
   const nomeCli=cod=>{ const x=(DB.clientes||[]).find(k=>String(k.codigo)===String(cod)); return x?(x.razao_social||x.nome_fantasia||''):''; };
@@ -7946,6 +7946,49 @@ function _fxLancamentos(){
   return out.filter(l=>/^\d{4}-\d{2}-\d{2}/.test(l.dt));
 }
 function _fxFiltrar(){ window._fxP=1; renderFluxo(); }
+// v222: AGRUPAMENTO POR CONTAS — o código do plano (CODPLA, ex. 11.01.08) vira níveis: 11 › 11.01 › 11.01.08.
+// O nome de cada grupo vem da própria base (título lançado direto no grupo) ou do que o usuário escrever (✎);
+// sem nome, mostra o código e a conta mais pesada dele.
+function _fxCaminho(l){
+  if(l.tipo==='E') return ['E', 'E|'+l.grupo, 'E|'+l.grupo+'|'+l.cia];
+  const c=l.cod; if(!c) return ['S?', 'S?|'+l.grupo];
+  const p=c.split(/[.\-\s]+/).filter(Boolean); const out=[];
+  for(let i=1;i<=p.length;i++) out.push(p.slice(0,i).join('.'));
+  return out;
+}
+function _fxArvore(lista){
+  const raiz={k:'', filhos:new Map(), tot:0, m:{}, n:0, desc:{}};
+  lista.forEach(l=>{ let no=raiz; const mes=l.dt.slice(0,7);
+    no.tot+=l.valor; no.m[mes]=(no.m[mes]||0)+l.valor; no.n++;
+    _fxCaminho(l).forEach((k,i,arr)=>{
+      if(!no.filhos.has(k)) no.filhos.set(k,{k, nivel:i+1, filhos:new Map(), tot:0, m:{}, n:0, desc:{}});
+      no=no.filhos.get(k); no.tot+=l.valor; no.m[mes]=(no.m[mes]||0)+l.valor; no.n++;
+      if(i===arr.length-1 && l.tipo==='S') no.desc[l.grupo]=(no.desc[l.grupo]||0)+Math.abs(l.valor);
+    });
+  });
+  return raiz;
+}
+function _fxNome(no, c){
+  const k=no.k, nomes=(c||_fxCfg()).nomes||{};
+  if(nomes[k]) return (/^[\d.]+$/.test(k)?k+' · ':'')+nomes[k];
+  if(k==='E') return 'RECEBIMENTOS';
+  if(k.startsWith('E|')){ const p=k.split('|'); return p.length===2 ? p[1] : 'CIA '+p[2]; }
+  if(k==='S?') return 'SEM PLANO DE CONTAS (código vazio)';
+  if(k.startsWith('S?|')) return k.slice(3);
+  const d=Object.entries(no.desc).sort((a,b)=>b[1]-a[1]);
+  if(d.length) return k+' · '+d[0][0];                       // conta (ou grupo com lançamento direto)
+  let f=no; while(f.filhos.size) f=[...f.filhos.values()].sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot))[0];   // conta mais pesada do grupo
+  const nf=Object.entries(f.desc||{}).sort((a,b)=>b[1]-a[1])[0];
+  return k+' · '+(nf?`grupo (maior: ${nf[0]})`:'grupo');
+}
+function _fxAbrir(k){ const A=window._fxAbertos=window._fxAbertos||{}; A[k]=!A[k]; renderFluxo(); }
+function _fxNivel(n){ window._fxNiv=n; window._fxAbertos={}; renderFluxo(); }
+function _fxRenomear(k){
+  const c=_fxCfg(); c.nomes=c.nomes||{};
+  const v=prompt(`Nome do grupo de contas ${k} (vazio = automático):`, c.nomes[k]||''); if(v===null) return;
+  if(v.trim()) c.nomes[k]=v.trim().toUpperCase(); else delete c.nomes[k];
+  _fxGravar(c); renderFluxo();
+}
 function _fxCiaToggle(cia){ const c=_fxCfg(); c.cias[cia]=!_fxParticipa(cia,c); _fxGravar(c); renderFluxo(); }
 function _fxTodas(on){ const c=_fxCfg(); _fxCias().forEach(k=>c.cias[k]=!!on); _fxGravar(c); renderFluxo(); }
 function _fxFilialCia(f, cia){ const c=_fxCfg(); if(cia) c.filiais[f]=cia; else delete c.filiais[f]; _fxGravar(c); renderFluxo(); }
@@ -7973,12 +8016,22 @@ function renderFluxo(){
   const ent=sel.filter(l=>l.tipo==='E'), sai=sel.filter(l=>l.tipo==='S');
   const soma=a=>+a.reduce((s,l)=>s+l.valor,0).toFixed(2);
   // matriz grupo × mês
-  const linhas=(lista)=>{ const g={}; lista.forEach(l=>{ const k=l.grupo; g[k]=g[k]||{tot:0,m:{}}; g[k].tot+=l.valor; g[k].m[l.dt.slice(0,7)]=(g[k].m[l.dt.slice(0,7)]||0)+l.valor; });
-    return Object.entries(g).sort((a,b)=>Math.abs(b[1].tot)-Math.abs(a[1].tot)); };
+  const niv=window._fxNiv||2, ab=window._fxAbertos=window._fxAbertos||{};
+  const totS=Math.abs(sai.reduce((s,l)=>s+l.valor,0))||1, totE=Math.abs(ent.reduce((s,l)=>s+l.valor,0))||1;
+  const ramo=(no, base)=>{ let h=''; const filhos=[...no.filhos.values()].sort((a,b)=>/^[\d.]+$/.test(a.k)&&/^[\d.]+$/.test(b.k)?a.k.localeCompare(b.k,undefined,{numeric:true}):Math.abs(b.tot)-Math.abs(a.tot));
+    filhos.forEach(f=>{ const tem=f.filhos.size>0, aberto=ab[f.k]!==undefined?ab[f.k]:f.nivel<niv;
+      const pct=Math.abs(f.tot)/base*100;
+      const rot=`<span style="display:inline-block;width:${(f.nivel-1)*16}px"></span>${tem?`<span style="cursor:pointer;display:inline-block;width:14px" onclick="_fxAbrir('${f.k.replace(/'/g,"\\'")}')">${aberto?'▾':'▸'}</span>`:'<span style="display:inline-block;width:14px"></span>'}`
+        +`<span title="${_nvEsc(f.k)} · ${f.n} lançamento(s)">${_nvEsc(_fxNome(f,c))}</span>`
+        +(/^[\d.]+$/.test(f.k)&&tem?` <span style="cursor:pointer;color:var(--gray-4);font-size:11px" title="Dar nome ao grupo" onclick="_fxRenomear('${f.k}')">✎</span>`:'');
+      h+=`<tr style="${f.nivel===1?'font-weight:700':f.nivel===2&&tem?'font-weight:600':''}"><td style="white-space:nowrap;max-width:380px;overflow:hidden;text-overflow:ellipsis">${rot}</td>${cols.map(m=>cel(+(f.m[m]||0).toFixed(2))).join('')}${cel(+f.tot.toFixed(2))}<td style="text-align:right;color:var(--gray-5)">${pct.toFixed(1).replace('.',',')}%</td></tr>`;
+      if(tem && aberto) h+=ramo(f, base); });
+    return h; };
+  const arvE=_fxArvore(ent), arvS=_fxArvore(sai);
   const porMes=(lista)=>{ const m={}; lista.forEach(l=>{ const k=l.dt.slice(0,7); m[k]=(m[k]||0)+l.valor; }); return m; };
   const mE=porMes(ent), mS=porMes(sai);
   const cel=v=>`<td style="text-align:right;white-space:nowrap;${v<0?'color:var(--red)':''}">${v?fmt(v):'—'}</td>`;
-  const linhaHtml=(rot,mm,tot,estilo)=>`<tr style="${estilo||''}"><td style="white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis" title="${_nvEsc(rot)}">${_nvEsc(rot)}</td>${cols.map(m=>cel(+(mm[m]||0).toFixed(2))).join('')}${cel(+tot.toFixed(2))}</tr>`;
+  const linhaHtml=(rot,mm,tot,estilo)=>`<tr style="${estilo||''}"><td style="white-space:nowrap;max-width:380px;overflow:hidden;text-overflow:ellipsis" title="${_nvEsc(rot)}">${_nvEsc(rot)}</td>${cols.map(m=>cel(+(mm[m]||0).toFixed(2))).join('')}${cel(+tot.toFixed(2))}<td></td></tr>`;
   let acum=0; const mAc={}; cols.forEach(m=>{ acum+=(mE[m]||0)+(mS[m]||0); mAc[m]=acum; });
   const mR={}; cols.forEach(m=>mR[m]=(mE[m]||0)+(mS[m]||0));
   // lista de lançamentos
@@ -8018,14 +8071,17 @@ function renderFluxo(){
       <div class="kpi-card amber"><div class="kpi-label">Lançamentos no fluxo</div><div class="kpi-value">${sel.length.toLocaleString('pt-BR')}</div><div class="kpi-sub">de ${todos.length.toLocaleString('pt-BR')} na base</div></div>
     </div>
 
-    <div class="card" style="margin-bottom:14px"><div class="card-header"><h2>Fluxo de Caixa Realizado — mês a mês</h2></div>
+    ${_fxAnalise(ent, sai, cols, arvS, c, rotM)}
+    <div class="card" style="margin-bottom:14px"><div class="card-header"><h2>Fluxo de Caixa Realizado — por contas, mês a mês</h2>
+      <div style="display:flex;gap:4px;align-items:center;font-size:11px;color:var(--gray-5)">abrir até o nível
+        ${[1,2,3,4].map(n=>`<button class="btn btn-sm ${niv===n?'btn-primary':'btn-secondary'}" onclick="_fxNivel(${n})">${n}</button>`).join('')}</div></div>
       <div class="table-wrap" style="overflow-x:auto"><table style="font-size:12px">
-        <thead><tr><th>Conta</th>${cols.map(m=>`<th style="text-align:right">${rotM(m)}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead>
+        <thead><tr><th>Conta</th>${cols.map(m=>`<th style="text-align:right">${rotM(m)}</th>`).join('')}<th style="text-align:right">Total</th><th style="text-align:right">%</th></tr></thead>
         <tbody>
           ${linhaHtml('▲ ENTRADAS',mE,soma(ent),'font-weight:700;background:var(--gray-1)')}
-          ${linhas(ent).map(([k,g])=>linhaHtml('   '+k,g.m,g.tot)).join('')}
+          ${ramo(arvE,totE)}
           ${linhaHtml('▼ SAÍDAS',mS,soma(sai),'font-weight:700;background:var(--gray-1)')}
-          ${linhas(sai).map(([k,g])=>linhaHtml('   '+k,g.m,g.tot)).join('')}
+          ${ramo(arvS,totS)}
           ${linhaHtml('= RESULTADO DO MÊS',mR,soma(sel),'font-weight:800;border-top:2px solid var(--gray-3)')}
           ${linhaHtml('Σ ACUMULADO',mAc,soma(sel),'font-weight:700;color:var(--gray-5)')}
         </tbody></table></div></div>
@@ -8046,10 +8102,50 @@ function renderFluxo(){
         <button class="btn btn-secondary btn-sm" ${pg>=tp?'disabled':''} onclick="window._fxP=${pg+1};renderFluxo()">›</button></div>`:''}
     </div>`;
 }
+// v222: ANÁLISE — leitura automática do período escolhido
+function _fxAnalise(ent, sai, cols, arvS, c, rotM){
+  if(!cols.length || (!ent.length && !sai.length)) return '';
+  const soma=a=>a.reduce((s,l)=>s+l.valor,0), tE=soma(ent), tS=Math.abs(soma(sai)), n=cols.length;
+  const pm=(lista)=>{ const m={}; cols.forEach(k=>m[k]=0); lista.forEach(l=>{ const k=l.dt.slice(0,7); if(k in m) m[k]+=l.valor; }); return m; };
+  const mE=pm(ent), mS=pm(sai), mR={}; cols.forEach(k=>mR[k]=mE[k]+mS[k]);
+  const neg=cols.filter(k=>mR[k]<0);
+  const maxS=cols.reduce((a,k)=>Math.abs(mS[k])>Math.abs(mS[a])?k:a, cols[0]);
+  const pct=(v,t)=>t?(v/t*100).toFixed(1).replace('.',',')+'%':'—';
+  // composição por grupo de 1º nível
+  const g1=[...arvS.filhos.values()].sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot));
+  // contas (folhas) mais pesadas
+  const folhas=[]; const anda=no=>no.filhos.forEach(f=>f.filhos.size?anda(f):folhas.push(f)); anda(arvS);
+  folhas.sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot));
+  // variação: último mês × média dos anteriores (contas com peso)
+  const ult=cols[n-1], ant=cols.slice(0,-1);
+  const varia=ant.length ? folhas.map(f=>{ const media=ant.reduce((s,k)=>s+Math.abs(f.m[k]||0),0)/ant.length, u=Math.abs(f.m[ult]||0);
+      return {f, media, u, d:u-media}; }).filter(x=>x.media>0 && Math.abs(x.d)>=Math.max(1000, x.media*0.3)).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d)).slice(0,5) : [];
+  const semPlano=sai.filter(l=>!l.cod), conc5=folhas.slice(0,5).reduce((s,f)=>s+Math.abs(f.tot),0);
+  const li=t=>`<li style="margin:3px 0">${t}</li>`;
+  const pontos=[];
+  pontos.push(`Entradas de <b>${fmt(tE)}</b> contra saídas de <b>${fmt(tS)}</b> → resultado <b style="color:${tE-tS<0?'var(--red)':'var(--green)'}">${fmt(tE-tS)}</b> (${tS?'cobertura '+pct(tE,tS)+' das saídas':''}).`);
+  pontos.push(`Média mensal: entradas ${fmt(tE/n)} · saídas ${fmt(tS/n)}. Maior saída em <b>${rotM(maxS)}</b> (${fmt(Math.abs(mS[maxS]))}).`);
+  if(neg.length) pontos.push(`<span style="color:var(--red)">${neg.length} mês(es) com resultado negativo</span>: ${neg.map(k=>`${rotM(k)} (${fmt(mR[k])})`).join(', ')}.`);
+  else pontos.push(`Nenhum mês com resultado negativo no período.`);
+  if(folhas.length) pontos.push(`As 5 maiores contas somam <b>${pct(conc5,tS)}</b> das saídas — ${folhas.slice(0,5).map(f=>`${_nvEsc(_fxNome(f,c))} (${pct(Math.abs(f.tot),tS)})`).join('; ')}.`);
+  if(semPlano.length) pontos.push(`<span style="color:#b45309">${semPlano.length} pagamento(s) sem plano de contas</span> (${fmt(Math.abs(soma(semPlano)))}) — classificar no ERP para entrarem no grupo certo.`);
+  return `<div class="card" style="margin-bottom:14px"><div class="card-header"><h2>🔎 Análise do período</h2></div><div class="card-body" style="padding:12px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;font-size:12.5px">
+    <div><div style="font-weight:700;margin-bottom:4px">Leitura</div><ul style="margin:0;padding-left:18px">${pontos.map(li).join('')}</ul></div>
+    <div><div style="font-weight:700;margin-bottom:6px">Para onde vai o dinheiro (grupos)</div>
+      ${g1.slice(0,8).map(g=>{ const p=Math.abs(g.tot)/(tS||1)*100; return `<div style="margin:4px 0"><div style="display:flex;justify-content:space-between;gap:8px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nvEsc(_fxNome(g,c))}</span><b>${p.toFixed(1).replace('.',',')}%</b></div>
+        <div style="height:6px;background:var(--gray-1);border-radius:3px"><div style="height:6px;width:${Math.min(100,p)}%;background:var(--pink);border-radius:3px"></div></div></div>`; }).join('')}
+    </div>
+    ${varia.length?`<div><div style="font-weight:700;margin-bottom:4px">Fora do padrão em ${rotM(ult)} (× média dos meses anteriores)</div><ul style="margin:0;padding-left:18px">${varia.map(x=>li(`${_nvEsc(_fxNome(x.f,c))}: ${fmt(x.u)} contra média ${fmt(x.media)} <b style="color:${x.d>0?'var(--red)':'var(--green)'}">${x.d>0?'▲':'▼'} ${fmt(Math.abs(x.d))}</b>`)).join('')}</ul></div>`:''}
+  </div></div>`;
+}
 function _fxExcel(){
   const {sel, de, ate}=_fxDados();
-  const rows=[['Data','CIA','Tipo','Conta','Fornecedor / Cliente','Documento','Valor']].concat(
-    sel.slice().sort((a,b)=>a.dt.localeCompare(b.dt)).map(l=>[l.dt, l.cia, l.tipo==='E'?'Entrada':'Saída', l.grupo, l.desc, l.doc, l.valor]));
+  const c=_fxCfg(), g1=k=>{ const x=String(k||'').split('.'); return x[0]||''; }, g2=k=>{ const x=String(k||'').split('.'); return x.length>1?x.slice(0,2).join('.'):''; };
+  const rows=[['Data','CIA','Tipo','Grupo','Subgrupo','Cód. conta','Conta','Fornecedor / Cliente','Documento','Valor']].concat(
+    sel.slice().sort((a,b)=>a.dt.localeCompare(b.dt)).map(l=>[l.dt, l.cia, l.tipo==='E'?'Entrada':'Saída',
+      l.tipo==='E'?'RECEBIMENTOS':(g1(l.cod)?g1(l.cod)+((c.nomes||{})[g1(l.cod)]?' · '+c.nomes[g1(l.cod)]:''):''),
+      l.tipo==='E'?'':(g2(l.cod)?g2(l.cod)+((c.nomes||{})[g2(l.cod)]?' · '+c.nomes[g2(l.cod)]:''):''),
+      l.cod||'', l.grupo, l.desc, l.doc, l.valor]));
   const nome=`fluxo_realizado_${de}_a_${ate}`;
   if(typeof XLSX!=='undefined'){ const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Fluxo realizado'); XLSX.writeFile(wb, nome+'.xlsx'); return; }
   const csv=rows.map(r=>r.map(v=>typeof v==='number'?String(v).replace('.',','):'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');
