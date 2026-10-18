@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.222</span>
+      ">v2.14.223</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -8022,7 +8022,7 @@ function renderFluxo(){
     filhos.forEach(f=>{ const tem=f.filhos.size>0, aberto=ab[f.k]!==undefined?ab[f.k]:f.nivel<niv;
       const pct=Math.abs(f.tot)/base*100;
       const rot=`<span style="display:inline-block;width:${(f.nivel-1)*16}px"></span>${tem?`<span style="cursor:pointer;display:inline-block;width:14px" onclick="_fxAbrir('${f.k.replace(/'/g,"\\'")}')">${aberto?'▾':'▸'}</span>`:'<span style="display:inline-block;width:14px"></span>'}`
-        +`<span title="${_nvEsc(f.k)} · ${f.n} lançamento(s)">${_nvEsc(_fxNome(f,c))}</span>`
+        +`<span style="cursor:pointer" title="${_nvEsc(f.k)} · ${f.n} lançamento(s) — clique para ver" onclick="_fxVerConta('${f.k.replace(/'/g,"\\'")}')">${_nvEsc(_fxNome(f,c))}</span>`
         +(/^[\d.]+$/.test(f.k)&&tem?` <span style="cursor:pointer;color:var(--gray-4);font-size:11px" title="Dar nome ao grupo" onclick="_fxRenomear('${f.k}')">✎</span>`:'');
       h+=`<tr style="${f.nivel===1?'font-weight:700':f.nivel===2&&tem?'font-weight:600':''}"><td style="white-space:nowrap;max-width:380px;overflow:hidden;text-overflow:ellipsis">${rot}</td>${cols.map(m=>cel(+(f.m[m]||0).toFixed(2))).join('')}${cel(+f.tot.toFixed(2))}<td style="text-align:right;color:var(--gray-5)">${pct.toFixed(1).replace('.',',')}%</td></tr>`;
       if(tem && aberto) h+=ramo(f, base); });
@@ -8037,7 +8037,8 @@ function renderFluxo(){
   // lista de lançamentos
   const bus=(document.getElementById('fx-bus')?.value||window._fxBus||'').toLowerCase(); window._fxBus=bus;
   const fTipo=document.getElementById('fx-tipo')?.value ?? (window._fxTipo||''); window._fxTipo=fTipo;
-  let lista=sel.filter(l=>(!fTipo||l.tipo===fTipo) && (!bus || (l.desc+' '+l.doc+' '+l.grupo+' '+l.cia).toLowerCase().includes(bus)));
+  const aba=window._fxAba_||'fluxo', conta=window._fxConta||'';
+  let lista=sel.filter(l=>(!fTipo||l.tipo===fTipo) && (!conta || _fxCaminho(l).includes(conta)) && (!bus || (l.desc+' '+l.doc+' '+l.grupo+' '+l.cia+' '+(l.cod||'')).toLowerCase().includes(bus)));
   lista.sort((a,b)=>a.dt.localeCompare(b.dt)||a.tipo.localeCompare(b.tipo));
   window._fxLista=lista;
   const POR=50, tp=Math.ceil(lista.length/POR)||1, pg=Math.min(window._fxP||1,tp), pag=lista.slice((pg-1)*POR,pg*POR);
@@ -8071,6 +8072,11 @@ function renderFluxo(){
       <div class="kpi-card amber"><div class="kpi-label">Lançamentos no fluxo</div><div class="kpi-value">${sel.length.toLocaleString('pt-BR')}</div><div class="kpi-sub">de ${todos.length.toLocaleString('pt-BR')} na base</div></div>
     </div>
 
+    <div style="display:flex;gap:6px;margin:4px 0 14px">
+      <button class="btn ${aba==='fluxo'?'btn-primary':'btn-secondary'}" onclick="_fxAba('fluxo')">📊 Fluxo de caixa</button>
+      <button class="btn ${aba==='lanc'?'btn-primary':'btn-secondary'}" onclick="_fxAba('lanc')">📄 Lançamentos (${sel.length.toLocaleString('pt-BR')})</button>
+    </div>
+    ${aba==='fluxo'?`
     ${_fxAnalise(ent, sai, cols, arvS, c, rotM)}
     <div class="card" style="margin-bottom:14px"><div class="card-header"><h2>Fluxo de Caixa Realizado — por contas, mês a mês</h2>
       <div style="display:flex;gap:4px;align-items:center;font-size:11px;color:var(--gray-5)">abrir até o nível
@@ -8084,9 +8090,9 @@ function renderFluxo(){
           ${ramo(arvS,totS)}
           ${linhaHtml('= RESULTADO DO MÊS',mR,soma(sel),'font-weight:800;border-top:2px solid var(--gray-3)')}
           ${linhaHtml('Σ ACUMULADO',mAc,soma(sel),'font-weight:700;color:var(--gray-5)')}
-        </tbody></table></div></div>
-
-    <div class="card"><div class="card-header"><h2>Lançamentos (${lista.length.toLocaleString('pt-BR')})</h2>
+        </tbody></table></div>
+      <div style="font-size:11px;color:var(--gray-5);padding:8px 14px">Clique no nome de uma conta para ver os lançamentos dela.</div></div>`:`
+    <div class="card"><div class="card-header"><h2>Lançamentos (${lista.length.toLocaleString('pt-BR')})${conta?` — conta <span style="color:var(--pink)">${_nvEsc(conta)}</span> <button class="btn btn-secondary btn-sm" onclick="_fxVerConta('')">✕ todas as contas</button>`:''}</h2>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <select id="fx-tipo" class="form-control" style="width:120px" onchange="_fxFiltrar()"><option value="">Entradas e saídas</option>
             <option value="E" ${fTipo==='E'?'selected':''}>Só entradas</option><option value="S" ${fTipo==='S'?'selected':''}>Só saídas</option></select>
@@ -8094,14 +8100,17 @@ function renderFluxo(){
         </div></div>
       <div class="table-wrap"><table style="font-size:12px"><thead><tr><th>Data</th><th>CIA</th><th>Tipo</th><th>Conta</th><th>Fornecedor / Cliente</th><th>Documento</th><th style="text-align:right">Valor</th></tr></thead>
         <tbody>${pag.map(l=>`<tr><td>${fmtDate(l.dt)}</td><td>${_nvEsc(l.cia)}</td><td>${l.tipo==='E'?'<span style="color:var(--green)">Entrada</span>':'<span style="color:var(--red)">Saída</span>'}</td>
-          <td>${_nvEsc(l.grupo)}</td><td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nvEsc(l.desc)}</td><td>${_nvEsc(l.doc)}</td>${cel(l.valor)}</tr>`).join('')
+          <td>${l.cod?`<span style="color:var(--gray-5)">${_nvEsc(l.cod)}</span> `:''}${_nvEsc(l.grupo)}</td><td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nvEsc(l.desc)}</td><td>${_nvEsc(l.doc)}</td>${cel(l.valor)}</tr>`).join('')
           ||'<tr><td colspan="7" style="text-align:center;color:var(--gray-4);padding:18px">Nenhum lançamento</td></tr>'}</tbody></table></div>
       ${tp>1?`<div style="display:flex;justify-content:center;gap:6px;padding:10px">
         <button class="btn btn-secondary btn-sm" ${pg<=1?'disabled':''} onclick="window._fxP=${pg-1};renderFluxo()">‹</button>
         <span style="font-size:12px;align-self:center">${pg} / ${tp}</span>
         <button class="btn btn-secondary btn-sm" ${pg>=tp?'disabled':''} onclick="window._fxP=${pg+1};renderFluxo()">›</button></div>`:''}
-    </div>`;
+    </div>`}`;
 }
+// v223: os lançamentos ficam numa aba separada do fluxo; clicar numa conta abre a aba já filtrada
+function _fxAba(a){ window._fxAba_=a; window._fxP=1; renderFluxo(); }
+function _fxVerConta(k){ window._fxConta=k; window._fxAba_='lanc'; window._fxP=1; renderFluxo(); }
 // v222: ANÁLISE — leitura automática do período escolhido
 function _fxAnalise(ent, sai, cols, arvS, c, rotM){
   if(!cols.length || (!ent.length && !sai.length)) return '';
