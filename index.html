@@ -542,7 +542,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.216</span>
+      ">v2.14.217</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1193,7 +1193,7 @@ const _HIST_NOMES={faturamento:'Faturamento',comissoes:'Comissões',recebiveis:'
   documentos_banc:'Documentos (banco)',conciliacao_banc:'Conciliação',vendas_agr:'Vendas (resumo)',vendas_linhas:'Vendas (linhas)',
   produtos_vend:'Produtos',estoques_vend:'Estoques',precos_vend:'Preços',pagar:'Contas a Pagar',extrato_banco:'Extrato bancário',
   supervisoes:'Supervisões',rateios:'Rateios',comissaoFat:'Comissão s/ faturamento',abat_repo:'Trocas (abatimentos)',erros_log:'Log de importação',
-  totais_import:'Totais da importação','local:compras':'Compras (NF-e)','local:supervisoes':'Supervisões','local:grupos_rep':'Grupos de representantes'};
+  totais_import:'Totais da importação',arquivos_importados:'Arquivos importados','local:compras':'Compras (NF-e)','local:supervisoes':'Supervisões','local:grupos_rep':'Grupos de representantes'};
 function _histDiff(atual, anterior){
   if(!atual) return '<span style="color:var(--gray-5)">sem detalhes (versão salva antes do histórico)</span>';
   if(!anterior) return '<span style="color:var(--gray-5)">primeira versão com detalhes</span>';
@@ -4800,6 +4800,85 @@ function varrerDaLista(fileList) {
   return _varrerEntradas(arquivos, raiz);
 }
 
+// ── v217: IMPORTAÇÃO INCREMENTAL ─────────────────────────────────
+// 1) Cada arquivo importado deixa uma "impressão digital" (SHA-256 do conteúdo) em DB.arquivos_importados.
+//    Na varredura, arquivo idêntico a um já importado aparece como "já importado" e não entra de novo.
+// 2) Slots que SOMAM pela chave (faturamento, cadastros, produtos/preços): entram TODOS os arquivos novos,
+//    do mais antigo ao mais novo; quando o mesmo documento aparece em mais de um, vale o do arquivo mais novo.
+//    Slots que são FOTO da posição (recebíveis vpdpcl1, banco vpbanc3, pedidos/estoque, pagar, cartão):
+//    continua valendo só o arquivo mais novo — os mais antigos ficam listados como ignorados.
+// 3) Cada importação registra novos / alterados / sem mudança / removidos (por chave) no histórico.
+const _SLOT_ACUMULA = {
+  'faturamento|cabecalho':   r => _colImp(r,'vup-filifatu') + '|' + _colImp(r,'vup-numrnota'),
+  'faturamento|itens':       r => _colImp(r,'vup-filifatu') + '|' + _colImp(r,'vup-numrnota'),
+  'clientes|principal':      r => _colImp(r,'vup-numrclie'),
+  'representantes|principal':r => _colImp(r,'vup-represen'),
+  'naturezas|principal':     r => _colImp(r,'vup-codinatu'),
+  'vendas|produtos':         r => _colImp(r,'vup-raizprod'),
+  'vendas|precos':           r => _colImp(r,'vup-raizprod') + '|' + _colImp(r,'vup-numrtabe'),
+};
+let _impForcar = false;   // "reimportar também os já importados"
+async function _hashArquivo(file){
+  try{ const h=await crypto.subtle.digest('SHA-256', await file.arrayBuffer());
+       return [...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
+  catch(e){ return 'n:'+file.name+'|'+file.size+'|'+file.lastModified; }
+}
+function _jaImportado(hash){ return (hash && DB.arquivos_importados && DB.arquivos_importados[hash]) || null; }
+function _ordemArq(a,b){ return String(a.carimbo||'').localeCompare(String(b.carimbo||'')) || ((a.lastMod||0)-(b.lastMod||0)); }
+// arquivos que vão de fato entrar num slot multi/acumula
+function _arquivosDoBucket(b){
+  const todos=[...(b.arquivos||[])].sort(_ordemArq);
+  const novos=todos.filter(a=>_impForcar || !a.ja);
+  return novos.length ? novos : todos.slice(-1);
+}
+function _tipoTemNovo(tipoKey){
+  if(!_scan) return false; if(_impForcar) return true;
+  const tipo=IMPORT_TIPOS.find(t=>t.key===tipoKey); if(!tipo) return false;
+  return tipo.slots.some(s=>{ const a=_scan.porSlot[tipoKey+'|'+s.key]; if(!a) return false;
+    return a.arquivos ? a.arquivos.some(x=>!x.ja) : !a.ja; });
+}
+function _registrarImportados(lista, tipoKey){
+  DB.arquivos_importados = DB.arquivos_importados || {};
+  const em=new Date().toISOString();
+  lista.forEach(a=>{ if(a && a.hash) DB.arquivos_importados[a.hash]={ nome:a.nome, tipo:tipoKey, slot:a.slot||'', em, tamanho:a.tamanho||0 }; });
+  const ks=Object.keys(DB.arquivos_importados);       // guarda os 1000 mais recentes
+  if(ks.length>1000) ks.sort((x,y)=>String(DB.arquivos_importados[x].em).localeCompare(String(DB.arquivos_importados[y].em)))
+    .slice(0,ks.length-1000).forEach(k=>delete DB.arquivos_importados[k]);
+}
+function _quandoBR(iso){ try{ return new Date(iso).toLocaleString('pt-BR'); }catch(e){ return iso||''; } }
+// novos / alterados / iguais / removidos por chave, para o histórico
+const _DIFF_LISTAS = {
+  clientes:[['clientes',c=>c.codigo]], representantes:[['representantes',r=>r.codigo]],
+  faturamento:[['faturamento',f=>f.fil+'|'+f.sr+'|'+f.nf]],
+  comissoes:[['comissoes',c=>c.manual?null:c.codigo_rep+'|'+c.competencia_raw]],
+  recebiveis:[['recebiveis',r=>r.origem==='pagarme'?null:r.f+'|'+r.t+'|'+r.s+'|'+r.d]],
+  conciliacao:[['movimentos_banc',m=>m.banco+'|'+m.agencia+'|'+m.conta+'|'+m.lancamento]],
+  naturezas:[['naturezas',n=>n.codigo]],
+  vendas:[['produtos_vend',p=>p.rz],['estoques_vend',e=>e.rz+'|'+e.cr]],
+  pagar_base:[['pagar',null]],
+  pagarme:[['recebiveis',r=>r.origem==='pagarme'?r.t+'|'+r.d:null]],
+  ecommerce_base:[['comissoes',c=>c.origem==='ecommerce'?c.competencia_raw:null]],
+};
+const _semId=(k,v)=>(k==='id'||k==='i')?undefined:v;
+function _diffFoto(tipoKey){
+  const out={};
+  (_DIFF_LISTAS[tipoKey]||[]).forEach(([lista,kf])=>{
+    const m=new Map();
+    (DB[lista]||[]).forEach(r=>{ if(!r||typeof r!=='object') return; const j=JSON.stringify(r,_semId);
+      const k=kf?kf(r):j; if(k==null) return; m.set(k,(m.has(k)?m.get(k)+'\n':'')+j); });
+    out[lista]=m;
+  });
+  return out;
+}
+function _diffComparar(tipoKey, antes){
+  const depois=_diffFoto(tipoKey), r={novos:0,alterados:0,iguais:0,removidos:0};
+  Object.keys(depois).forEach(l=>{ const A=antes[l]||new Map(), D=depois[l];
+    D.forEach((v,k)=>{ if(!A.has(k)) r.novos++; else if(A.get(k)!==v) r.alterados++; else r.iguais++; });
+    A.forEach((v,k)=>{ if(!D.has(k)) r.removidos++; }); });
+  return Object.keys(depois).length ? r : null;
+}
+function _diffTexto(d){ if(!d) return ''; return `${d.novos.toLocaleString('pt-BR')} novo(s) · ${d.alterados.toLocaleString('pt-BR')} alterado(s) · ${d.iguais.toLocaleString('pt-BR')} sem mudança`+(d.removidos?` · ${d.removidos.toLocaleString('pt-BR')} removido(s)`:''); }
+
 async function _varrerEntradas(brutos, nomePasta) {
   if (_scanning) return;
   _scanning = true;
@@ -4824,10 +4903,12 @@ async function _varrerEntradas(brutos, nomePasta) {
     for (let i = 0; i < candidatos.length; i++) {
       const c = candidatos[i];
       _progresso(`Analisando ${i + 1}/${candidatos.length} — ${c.nome}`);
-      let info = { cols: [], dados: false, tamanho: 0 };
-      try { info = await _lerColunas(await c.getFile()); } catch { /* ignora ilegível */ }
+      let info = { cols: [], dados: false, tamanho: 0 }, hash = '', lastMod = 0;
+      try { const _f = await c.getFile(); lastMod = _f.lastModified || 0;
+            info = await _lerColunas(_f); if ((info.cols || []).length) hash = await _hashArquivo(_f); } catch { /* ignora ilegível */ }
       const cols = info.cols || [];
       if (!cols.length) { lidos.push({ ...c, cols, slots: [] }); continue; }
+      const ja = _jaImportado(hash);   // v217
 
       const casou = [];
       SLOT_INDEX.forEach(entrada => {
@@ -4837,8 +4918,8 @@ async function _varrerEntradas(brutos, nomePasta) {
         const chave = entrada.tipoKey + '|' + entrada.slotKey;
         const atual = porSlot[chave];
         const carimbo = _carimboDoNome(c.caminho) || _carimboDoNome(c.nome);
-        const novo = { ...c, pontos: p, carimbo, colunas: cols.length, dados: info.dados, tamanho: info.tamanho };
-        if (entrada.slot.multi) {
+        const novo = { ...c, pontos: p, carimbo, colunas: cols.length, dados: info.dados, tamanho: info.tamanho, hash, ja, lastMod, slot: entrada.slotKey };
+        if (entrada.slot.multi || _SLOT_ACUMULA[chave]) {
           // slot multi-arquivo (ex.: vp42541a + vp42541b, colunas idênticas): junta todos
           const bucket = (atual && atual.multi) ? atual : { multi: true, arquivos: [] };
           bucket.arquivos.push(novo);
@@ -4848,12 +4929,13 @@ async function _varrerEntradas(brutos, nomePasta) {
             bucket.pontos = p; bucket.carimbo = carimbo; bucket.colunas = novo.colunas; bucket.tamanho = novo.tamanho;
           }
           porSlot[chave] = bucket;
-        } else if (_melhorCandidato(novo, atual)) {
-          // arquivo com linhas vence o "só cabeçalho"; depois pontuação; empate, o mais recente
-          porSlot[chave] = novo;
+        } else {
+          // foto da posição: vale o melhor/mais novo; os demais ficam listados como ignorados (v217)
+          if (_melhorCandidato(novo, atual)) { porSlot[chave] = Object.assign(novo, { ignorados: [...((atual && atual.ignorados) || []), ...(atual ? [atual.nome] : [])] }); }
+          else if (atual) { atual.ignorados = [...(atual.ignorados || []), novo.nome]; }
         }
       });
-      lidos.push({ ...c, cols, slots: casou, dados: info.dados, tamanho: info.tamanho });
+      lidos.push({ ...c, cols, slots: casou, dados: info.dados, tamanho: info.tamanho, hash, ja });
     }
 
     _scan = { pasta: nomePasta, quando: new Date().toLocaleString('pt-BR'),
@@ -4974,6 +5056,7 @@ async function importarTipoAuto(tipoKey, silencioso) {
   // parsed LOCAL: duas importações disparadas quase juntas não zeram mais o resultado uma da outra
   const parsed = {};
   const _usados = new Set();
+  const _registrar = [];   // v217: arquivos lidos nesta importação → impressão digital ao concluir
   const problemas = [];
   const _nSlots = tipo.slots.length || 1;
   let _iSlot = 0;
@@ -4984,20 +5067,30 @@ async function importarTipoAuto(tipoKey, silencioso) {
     const achado = _scan.porSlot[tipoKey + '|' + slot.key];
     if (!achado) { if (slot.required) problemas.push(`${slot.label}: arquivo não encontrado na varredura`); continue; }
     try {
-      if (slot.multi && achado.arquivos) {
+      if (achado.arquivos) {
         let allRows = [], cols = [], nomes = [], diag = null;
-        for (const af of achado.arquivos) {
+        const docKey = _SLOT_ACUMULA[tipoKey + '|' + slot.key];
+        const porArq = [];
+        for (const af of _arquivosDoBucket(achado)) {   // v217: só os novos, do mais antigo ao mais novo
+          if (_usados.has(af.caminho || af.nome)) continue;   // já lido em outro slot deste tipo (ex.: vpfatu1 também "serve" de itens)
           _usados.add(af.caminho || af.nome);
           _progresso(`Importando ${tipo.title} — ${af.nome}`);
           const r = await lerArqImport(await af.getFile(), _prog(af.nome));
-          allRows.push(...r.rows);
+          porArq.push(r.rows);
           if (r.cols && r.cols.length > cols.length) cols = r.cols;
-          diag = r.diag; nomes.push(af.nome);
+          diag = r.diag; nomes.push(af.nome); _registrar.push(af);
         }
+        if (!nomes.length) continue;
+        if (docKey && porArq.length > 1) {
+          // o mesmo documento em mais de um arquivo: ficam só as linhas do arquivo mais novo que o contém
+          const dono = {}; porArq.forEach((rows, i) => rows.forEach(r => { const k = docKey(r); if (k && k.replace(/\|/g,'')) dono[k] = i; }));
+          porArq.forEach((rows, i) => rows.forEach(r => { const k = docKey(r); if (!k || !k.replace(/\|/g,'') || dono[k] === i) allRows.push(r); }));
+        } else porArq.forEach(rows => allRows.push(...rows));
         const faltando = slot.cols_req.filter(c => !cols.includes(c));
         parsed[slot.key] = { rows: allRows, cols, faltando, diag, file: nomes.join(' + '), ok: faltando.length === 0 };
       } else {
         if (_usados.has(achado.caminho || achado.nome)) continue;
+        _registrar.push(achado);
         _progresso(`Importando ${tipo.title} — ${achado.nome}`);
         const file = await achado.getFile();
         const { rows, cols, diag } = await lerArqImport(file, _prog(achado.nome));
@@ -5037,15 +5130,21 @@ async function importarTipoAuto(tipoKey, silencioso) {
   window._ultimoErroImport = null;
   _impSet(tipoKey, 'lendo', 100, 'processando…');
   const _linhas = Object.values(parsed).reduce((a, p) => a + p.rows.length, 0);
+  _registrarImportados(_registrar, tipoKey);   // v217: antes do confirmarImport (que re-renderiza a tela)
   confirmarImport(tipoKey);   // grava erros_log e re-renderiza
-  _impSet(tipoKey, 'ok', 100, `${_linhas.toLocaleString('pt-BR')} linha(s) · ${new Date().toLocaleTimeString('pt-BR')}`);
+  const _ult = (DB.erros_log || []).slice(-1)[0] || {};
+  _impSet(tipoKey, 'ok', 100, (_ult.dif ? _diffTexto(_ult.dif) : `${_linhas.toLocaleString('pt-BR')} linha(s)`) + ` · ${new Date().toLocaleTimeString('pt-BR')}`);
   return true;
 }
 
 async function importarTudoAuto() {
   if (!_scan) return;
-  const prontos = IMPORT_TIPOS.filter(t => _tipoPronto(t.key));
-  if (!prontos.length) return toast('Nenhum tipo está completo', 'error');
+  const completos = IMPORT_TIPOS.filter(t => _tipoPronto(t.key));
+  if (!completos.length) return toast('Nenhum tipo está completo', 'error');
+  const prontos = completos.filter(t => _tipoTemNovo(t.key));   // v217: nada novo = não reimporta
+  if (!prontos.length) { toast('Nenhum arquivo novo: tudo o que está na pasta já foi importado ✅'); renderImportacao(); return; }
+  const _semNovo = completos.length - prontos.length;
+  if (_semNovo) toast(`${_semNovo} tipo(s) sem arquivo novo — pulados`);
   let ok = 0;
   for (const t of prontos) { if (await importarTipoAuto(t.key, true)) ok++; }
   // Fallback da TROCA: garante o vpdpcl2 processado mesmo se o tipo dele não ficou pronto
@@ -5141,10 +5240,19 @@ function _scanCardHtml() {
     const slots = tipo.slots.map(s => {
       const a = _scan.porSlot[tipo.key + '|' + s.key];
       const soCab = a && a.dados === false;
-      const cor = soCab ? 'var(--amber)' : a ? 'var(--green)' : (s.required ? 'var(--red)' : 'var(--gray-3)');
-      const ico = soCab ? '⚠' : a ? '✅' : (s.required ? '✗' : '—');
+      // v217: já importado / quantos novos / ignorados
+      const _arqs = a && a.arquivos ? a.arquivos : null;
+      const _novos = _arqs ? _arqs.filter(x => !x.ja).length : (a && !a.ja ? 1 : 0);
+      const _todosJa = a && !_impForcar && !_novos;
+      const cor = soCab ? 'var(--amber)' : _todosJa ? 'var(--gray-5)' : a ? 'var(--green)' : (s.required ? 'var(--red)' : 'var(--gray-3)');
+      const ico = soCab ? '⚠' : _todosJa ? '✓' : a ? '✅' : (s.required ? '✗' : '—');
+      const _jaTxt = x => x && x.ja ? ` — já importado em ${_quandoBR(x.ja.em)}` : '';
       const txt = a
-        ? a.nome + (soCab ? ` — só cabeçalho, sem linhas (${(a.tamanho || 0).toLocaleString('pt-BR')} bytes)` : '')
+        ? (_arqs && _arqs.length > 1
+            ? `${_arqs.length} arquivos: ${_novos} novo(s)${_arqs.length - _novos ? `, ${_arqs.length - _novos} já importado(s)` : ''} — ${_arquivosDoBucket(a).map(x => x.nome).join(', ')}`
+            : (_arqs ? _arqs[0].nome + _jaTxt(_arqs[0]) : a.nome + _jaTxt(a)))
+          + (soCab ? ` — só cabeçalho, sem linhas (${(a.tamanho || 0).toLocaleString('pt-BR')} bytes)` : '')
+          + (a.ignorados && a.ignorados.length ? ` · ${a.ignorados.length} mais antigo(s) ignorado(s): vale o mais novo` : '')
         : (s.required ? 'não encontrado' : 'opcional, ausente');
       return `<div style="display:flex;gap:6px;align-items:baseline;font-size:12px;color:${cor}">
         <span>${ico}</span>
@@ -5160,7 +5268,10 @@ function _scanCardHtml() {
       <td style="text-align:right;vertical-align:middle;white-space:nowrap">
         <span id="imp-st-${tipo.key}" style="margin-right:8px">${_impHtml(tipo.key)}</span>
         ${pronto
-          ? `<button class="btn btn-primary btn-sm" onclick="importarTipoAuto('${tipo.key}')">Importar</button>`
+          ? (_tipoTemNovo(tipo.key)
+              ? `<button class="btn btn-primary btn-sm" onclick="importarTipoAuto('${tipo.key}')">Importar</button>`
+              : `<span class="badge badge-gray" title="Os arquivos desta varredura já foram importados">sem arquivo novo</span>
+                 <button class="btn btn-secondary btn-sm" onclick="importarTipoAuto('${tipo.key}')" title="Importa de novo os mesmos arquivos">Reimportar</button>`)
           : `<span class="badge badge-gray">incompleto</span>`}
       </td>
     </tr>`;
@@ -5184,7 +5295,11 @@ function _scanCardHtml() {
         <strong>${_scan.pasta}</strong> · ${_scan.analisados} planilhas em ${_scan.zips} compactado(s) · ${_scan.quando}
       </span>
     </div>
-    <div class="card-body">${cabecalho}</div>
+    <div class="card-body">${cabecalho}
+      <label style="display:flex;gap:6px;align-items:center;margin-top:10px;font-size:12px;color:var(--gray-5);text-transform:none">
+        <input type="checkbox" ${_impForcar?'checked':''} onchange="_impForcar=this.checked;renderImportacao()">
+        Reimportar também os arquivos que já foram importados (normalmente deixe desmarcado: só entram arquivos novos ou alterados)
+      </label></div>
     ${painelErro}
     <div class="card-table">
       <table>
@@ -5228,17 +5343,18 @@ function renderImportacao() {
       <div class="card-header"><h2>Histórico de Importações</h2></div>
       <div class="card-table">
         <table>
-          <thead><tr><th>Arquivo(s)</th><th>Tipo</th><th>Total</th><th>Sucesso</th><th>Erros</th><th>Data</th><th>Status</th></tr></thead>
+          <thead><tr><th>Arquivo(s)</th><th>Tipo</th><th>Total</th><th>Sucesso</th><th>O que mudou</th><th>Erros</th><th>Data</th><th>Status</th></tr></thead>
           <tbody>
             ${(DB.erros_log||[]).length
               ? (DB.erros_log||[]).slice(-10).reverse().map(l=>`<tr>
                   <td>${l.arquivos||'—'}</td><td>${l.tipo||'—'}</td>
                   <td>${l.total||0}</td><td style="color:var(--green)">${l.sucesso||0}</td>
+                  <td style="font-size:11px;white-space:normal">${l.dif?_diffTexto(l.dif):'—'}</td>
                   <td style="color:var(--red)">${l.erros||0}</td>
                   <td style="font-size:11px">${l.data||''}</td>
                   <td><span class="badge ${l.status==='ok'?'badge-green':'badge-red'}">${l.status||''}</span></td>
                 </tr>`).join('')
-              : '<tr><td colspan="7" style="text-align:center;color:var(--gray-3);padding:20px">Nenhuma importação realizada</td></tr>'}
+              : '<tr><td colspan="8" style="text-align:center;color:var(--gray-3);padding:20px">Nenhuma importação realizada</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -5479,6 +5595,7 @@ function zerarBase(){
   DB.precos_vend = {};
   DB.produtos_vend = [];
   DB.erros_log = [];
+  DB.arquivos_importados = {};   // v217: base zerada → os arquivos podem entrar de novo
   toast('Base de movimento zerada 🗑');
   try{ renderImportacao(); }catch(e){}
 }
@@ -5527,6 +5644,7 @@ function processarEcommerceBase(rows){
 function confirmarImport(tipoKey) {
   let totalLinhas=0, sucesso=0, erros=0, avisos=[];
   const parsed = _importParsed;
+  const _antes = _diffFoto(tipoKey);   // v217
 
   if(tipoKey==='clientes') {
     const rows=parsed['principal']?.rows||[];
@@ -5668,13 +5786,15 @@ function confirmarImport(tipoKey) {
   }
 
   DB.erros_log = DB.erros_log||[];
+  const _dif = _diffComparar(tipoKey, _antes);
   DB.erros_log.push({
     arquivos: Object.values(parsed).map(p=>p.file).filter(Boolean).join(', '),
     tipo: tipoKey, total:totalLinhas, sucesso, erros,
-    data: new Date().toLocaleString('pt-BR'), status: erros===0?'ok':'parcial'
+    data: new Date().toLocaleString('pt-BR'), status: erros===0?'ok':'parcial', dif: _dif || undefined
   });
 
-  const msg = `✅ Importação concluída!\n${sucesso} registros importados.${erros?`\n⚠️ ${erros} erros.`:''}`;
+  const msg = _dif ? `✅ ${tipoKey}: ${_diffTexto(_dif)}${erros?` · ⚠️ ${erros} erro(s)`:''}`
+    : `✅ Importação concluída!\n${sucesso} registros importados.${erros?`\n⚠️ ${erros} erros.`:''}`;
   toast(msg.split('\n')[0]);
   if(avisos.length) console.log('Avisos:', avisos);
   renderImportacao();
@@ -6092,7 +6212,10 @@ function processarFaturamento(cabRows, itensRows) {
 
     const chave = fil+'|'+sr+'|'+nf;
     if(idx[chave] !== undefined){
-      reg.id = DB.faturamento[idx[chave]].id;
+      const _ant = DB.faturamento[idx[chave]];
+      reg.id = _ant.id;
+      // v217: nota reimportada SEM os itens (vpfatu2 já importado antes) e sem ft1-qtdenota → mantém a quantidade que já tinha
+      if(!reg.qtd && _ant.qtd && !pNum(_colImp(row,'ft1-qtdenota')) && !qtdItens[fil+'|'+nf]) reg.qtd = _ant.qtd;
       DB.faturamento[idx[chave]] = reg;
       atualizados++;
     } else {

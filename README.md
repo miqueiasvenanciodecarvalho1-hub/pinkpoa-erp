@@ -53,6 +53,20 @@ flowchart LR
 3. Clique na bolinha **⬤ API** → **☁ Salvar no servidor**. A partir daí todos os usuários recebem
    a cópia nova ao abrir o app.
 
+### Varredura da pasta: só entra o que é novo
+- Cada arquivo importado deixa uma "impressão digital" do conteúdo. Na próxima varredura, um arquivo
+  **idêntico** aparece como **"já importado em dd/mm"** e não entra de novo; o botão
+  **⚡ Importar tudo** só importa os tipos que têm arquivo novo.
+- **Faturamento, clientes, representantes, naturezas, produtos e preços** somam pela chave: entram todos
+  os arquivos novos, do mais antigo ao mais novo — se a mesma nota/cadastro aparece em mais de um, vale o
+  arquivo mais novo.
+- **Recebíveis (vpdpcl1), banco (vpbanc3), pedidos/estoque, Contas a Pagar e cartão** são a foto da posição
+  atual: vale o arquivo mais novo (os mais antigos aparecem como ignorados).
+- O **Histórico de Importações** mostra, em cada importação, quantos registros foram **novos, alterados,
+  sem mudança e removidos**.
+- Para forçar, marque "Reimportar também os arquivos que já foram importados". **Zerar base** também
+  esquece as impressões digitais.
+
 ### O que acontece no servidor ao salvar
 - A cópia completa é guardada (o servidor mantém as **10 últimas** versões).
 - Em seguida o servidor **preenche as tabelas do MySQL** (clientes, representantes, faturamento,
