@@ -110,6 +110,9 @@ flowchart LR
   **WhatsApp** e **E-mail**. A pessoa abre o link, vê o próprio nome, cria a senha e já entra com os acessos
   liberados. O link vale **48 horas** e só funciona uma vez. Para quem esqueceu a senha ou perdeu o link, use
   **🔗 Convite** na linha do usuário (o link anterior deixa de valer). A lista mostra "convite pendente".
+- **🔎 Buscar no cadastro** (topo da tela do usuário): digite nome, código, e-mail ou CNPJ. Escolhendo um **representante**,
+  o app preenche nome, e-mail e cargo, marca Faturamento/Comissões/Recebíveis/Clientes/Vendas em consulta + relatórios e
+  libera só os dados dele. Escolhendo um **usuário**, copia os acessos dele (módulos e representantes). Tudo pode ser ajustado antes de salvar.
 - **Acesso por representante:** no cadastro do usuário, em "Representantes que este usuário enxerga", escolha **Todos** ou
   **Somente os marcados** (com busca). Ele passa a ver só o faturamento, as comissões, os recebíveis, as vendas e os
   clientes desses representantes — os totais da empresa não aparecem — e o servidor recusa gravar registros de outros

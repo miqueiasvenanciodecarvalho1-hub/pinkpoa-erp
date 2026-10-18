@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.227</span>
+      ">v2.14.228</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1166,8 +1166,14 @@ function _usuEditar(id){
     return `<tr><td style="padding:4px 10px 4px 0;font-weight:600;white-space:nowrap">${_nvEsc(m.nome)}</td>${_ACOES.map(x=>cel(m,x,a[x])).join('')}
       <td style="white-space:nowrap"><button class="btn btn-secondary" title="Marcar tudo neste módulo" style="padding:0 6px;font-size:11px;min-height:0" onclick="_usuLinha('${m.id}',1)">✓</button><button class="btn btn-secondary" title="Desmarcar tudo neste módulo" style="padding:0 6px;font-size:11px;min-height:0;margin-left:2px" onclick="_usuLinha('${m.id}',0)">✕</button></td></tr>`; };
   openModal(novo?'Novo usuário':'Alterar usuário', `
+    <div style="position:relative;margin-bottom:12px;padding:10px;border:1px dashed var(--gray-3);border-radius:var(--radius);background:var(--gray-1)">
+      <label style="font-size:12px;font-weight:700;display:block;margin-bottom:4px">🔎 Buscar no cadastro ${novo?'(representante ou usuário)':'(copiar acessos de outro usuário ou representante)'}</label>
+      <input id="uu-busca" class="form-control no-up" autocomplete="off" placeholder="Digite nome, código, e-mail ou CNPJ…" oninput="_usuBuscar()" onfocus="_usuBuscar()">
+      <div id="uu-busca-res" style="display:none;position:absolute;left:10px;right:10px;z-index:20;max-height:260px;overflow:auto;background:var(--white);border:1px solid var(--gray-2);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.15)"></div>
+      <div style="font-size:11px;color:var(--gray-5);margin-top:4px">Representante: preenche nome, e-mail e cargo e libera só os dados dele. Usuário: copia os acessos (módulos e representantes).</div>
+    </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="form-group"><label>Nome *</label><input id="uu-nome" class="form-control no-up" value="${_nvEsc(u.nome||'')}"></div>
+      <div class="form-group"><label>Nome *</label><input id="uu-nome" class="form-control no-up" value="${_nvEsc(u.nome||'')}" ${novo?'':'data-existente="1"'}></div>
       <div class="form-group"><label>E-mail (login) *</label><input id="uu-email" type="email" class="form-control no-up" value="${_nvEsc(u.email||'')}"></div>
       <div class="form-group"><label>Cargo</label><input id="uu-cargo" class="form-control no-up" value="${_nvEsc(u.cargo||'')}"></div>
       <div class="form-group"><label>${novo?'Senha (opcional — vazio = enviar link de convite)':'Nova senha (vazio = manter; ou use 🔗 Convite)'}</label><input id="uu-senha" type="password" class="form-control no-up" autocomplete="new-password"></div>
@@ -1211,6 +1217,54 @@ function _usuRepsHtml(u){
       </div>
       <div style="font-size:11px;color:var(--gray-5);margin-top:4px">Ele verá só o faturamento, as comissões, os recebíveis, as vendas e os clientes desses representantes. Totais da empresa não aparecem para ele.</div>
     </div></div>`;
+}
+// v228: busca no cadastro (representantes do banco + usuários já criados) para preencher o novo acesso
+function _usuBuscar(){
+  const box=document.getElementById('uu-busca-res'); if(!box) return;
+  const t=(document.getElementById('uu-busca')?.value||'').toLowerCase().trim();
+  if(t.length<1){ box.style.display='none'; return; }
+  const dig=t.replace(/\D/g,'');
+  const reps=(DB.representantes||[]).filter(r=>[r.codigo,r.nome,r.fantasia,r.email,r.documento].some(v=>String(v||'').toLowerCase().includes(t)) || (dig.length>=4 && String(r.documento||'').replace(/\D/g,'').includes(dig))).slice(0,15);
+  const usus=(_usuCache.usuarios||[]).filter(u=>[u.nome,u.email,u.cargo].some(v=>String(v||'').toLowerCase().includes(t))).slice(0,10);
+  const item=(tipo,id,tit,sub)=>`<div onmousedown="event.preventDefault();_usuEscolher('${tipo}','${String(id).replace(/'/g,"\\'")}')" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--gray-1);font-size:12.5px" onmouseover="this.style.background='var(--gray-1)'" onmouseout="this.style.background=''">
+      <div style="font-weight:600">${tit}</div><div style="font-size:11px;color:var(--gray-5)">${sub}</div></div>`;
+  box.innerHTML=(reps.length?`<div style="padding:4px 10px;font-size:10.5px;font-weight:700;color:var(--gray-5);background:var(--gray-1)">REPRESENTANTES</div>`+reps.map(r=>item('rep',r.codigo,`${_nvEsc(r.codigo)} · ${_nvEsc(r.fantasia&&r.fantasia!==r.nome?r.fantasia:r.nome)}`,`${_nvEsc(r.nome||'')}${r.email?' · '+_nvEsc(r.email):' · sem e-mail no cadastro'}${r.cidade?' · '+_nvEsc(r.cidade)+'/'+_nvEsc(r.estado||''):''}`)).join(''):'')
+    +(usus.length?`<div style="padding:4px 10px;font-size:10.5px;font-weight:700;color:var(--gray-5);background:var(--gray-1)">USUÁRIOS (copiar acessos)</div>`+usus.map(u=>item('usu',u.id,_nvEsc(u.nome),`${_nvEsc(u.email)} · ${u.perfil==='admin'?'administrador':Object.keys(u.permissoes||{}).filter(k=>k!=='_reps').length+' módulo(s)'}${(u.permissoes||{})._reps?' · '+u.permissoes._reps.length+' representante(s)':''}`)).join(''):'')
+    ||'<div style="padding:10px;font-size:12px;color:var(--gray-5)">Nada encontrado no cadastro.</div>';
+  box.style.display='';
+}
+document.addEventListener('click',e=>{ const b=document.getElementById('uu-busca-res'); if(b && !e.target.closest('#uu-busca') && !e.target.closest('#uu-busca-res')) b.style.display='none'; });
+// módulos que um representante costuma ver (só consulta + relatórios); dá para ajustar depois
+const _USU_MODS_REP=['faturamento','comissoes','recebiveis','clientes','vendas'];
+function _usuMarcarMods(perms){
+  document.querySelectorAll('#uu-perms input[data-acao]').forEach(c=>{ const a=_normAcoes((perms||{})[c.dataset.mod]); c.checked=!!(a&&a[c.dataset.acao]); });
+}
+function _usuMarcarReps(lista){
+  const sel=new Set((lista||[]).map(String)), l=sel.size>0;
+  const r=document.querySelector(`input[name="uu-repmodo"][value="${l?'lista':'todos'}"]`); if(r) r.checked=true;
+  document.querySelectorAll('.uu-rep').forEach(c=>{ c.checked=sel.has(c.value); });
+  _usuRepModo();
+}
+function _usuEscolher(tipo,id){
+  const box=document.getElementById('uu-busca-res'); if(box) box.style.display='none';
+  const set=(i,v)=>{ const el=document.getElementById(i); if(el && v!=null && (!el.value || tipo==='rep')) el.value=v; };
+  const novo=!!document.getElementById('uu-nome') && !document.getElementById('uu-nome').dataset.existente;
+  if(tipo==='rep'){
+    const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(id)); if(!r) return;
+    if(novo){ set('uu-nome', r.fantasia&&r.fantasia!==r.nome ? r.fantasia : r.nome); if(r.email) set('uu-email', String(r.email).toLowerCase()); set('uu-cargo','REPRESENTANTE'); }
+    const pf=document.getElementById('uu-perfil'); if(pf){ pf.value='user'; document.getElementById('uu-perms').style.display=''; }
+    const perms={}; _USU_MODS_REP.forEach(m=>perms[m]={ver:true,relatorios:true}); _usuMarcarMods(perms);
+    _usuMarcarReps([r.codigo]);
+    document.getElementById('uu-busca').value=`${r.codigo} · ${r.fantasia||r.nome}`;
+    toast(`Representante ${r.codigo} carregado: ${r.email?'':'sem e-mail no cadastro — preencha o e-mail; '}acesso só aos dados dele (ajuste se precisar)`);
+  } else {
+    const u=(_usuCache.usuarios||[]).find(x=>String(x.id)===String(id)); if(!u) return;
+    const pf=document.getElementById('uu-perfil');
+    if(u.perfil==='admin'){ if(pf){ pf.value='admin'; document.getElementById('uu-perms').style.display='none'; } }
+    else { if(pf){ pf.value='user'; document.getElementById('uu-perms').style.display=''; } _usuMarcarMods(u.permissoes); _usuMarcarReps((u.permissoes||{})._reps); }
+    document.getElementById('uu-busca').value='';
+    toast(`Acessos copiados de ${u.nome}`);
+  }
 }
 function _usuRepModo(){ const l=document.querySelector('input[name="uu-repmodo"]:checked')?.value==='lista'; const b=document.getElementById('uu-repbox'); if(b) b.style.display=l?'':'none'; _usuRepConta(); }
 function _usuRepFiltrar(){ const t=(document.getElementById('uu-repbusca')?.value||'').toLowerCase().trim();
