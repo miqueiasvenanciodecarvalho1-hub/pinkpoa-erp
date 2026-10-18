@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.225</span>
+      ">v2.14.226</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1135,7 +1135,9 @@ function _usuResumo(u, mods){
   const ls=mods.map(m=>{ const a=_normAcoes((u.permissoes||{})[m.id]); if(!a) return '';
     const tudo=_ACOES.every(x=>a[x]); const letras=_ACOES.filter(x=>a[x]&&x!=='ver').map(x=>_ACOES_NOME[x][0]).join('');
     return `<span title="${_ACOES.filter(x=>a[x]).map(x=>_ACOES_NOME[x]).join(', ')}" style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:${tudo?'#DCFCE7':letras.replace('R','')?'#FEF9C3':'#E0F2FE'};color:#1f2937">${_nvEsc(m.nome)}${tudo?' ✎':letras?' · '+letras:''}</span>`; }).join('');
-  return ls||'<span style="color:var(--red)">nenhum módulo</span>';
+  const R=(u.permissoes||{})._reps||[];
+  const rp=R.length?`<span title="${_nvEsc(R.map(c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(c)); return c+' '+(r?(r.fantasia||r.nome):''); }).join(', '))}" style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#FCE7F3;color:#9d174d">👤 ${R.length} representante(s)</span>`:'';
+  return (ls||'<span style="color:var(--red)">nenhum módulo</span>')+rp;
 }
 async function renderUsuarios(){
   const c=document.getElementById('content');
@@ -1181,10 +1183,42 @@ function _usuEditar(id){
       <div style="overflow-x:auto"><table style="font-size:12.5px;border-collapse:collapse">
         <tr style="font-size:11px;color:var(--gray-5)"><th></th>${_ACOES.map(a=>`<th style="padding:0 6px">${_ACOES_NOME[a]}</th>`).join('')}<th></th></tr>
         ${mods.map(linha).join('')}</table></div>
+      ${_usuRepsHtml(u)}
       <div style="font-size:11px;color:var(--gray-5);margin-top:6px"><b>Incluir</b> = registros novos e importações · <b>Alterar</b> = mudar o que já existe · <b>Excluir</b> = apagar/zerar · <b>Relatórios</b> = PDF, Excel e exportações. Para importar arquivos, libere também <b>Importação</b>. O servidor confere cada registro ao salvar. Clientes, representantes e naturezas são enviados a todos como cadastro de referência.</div>
     </div>`,
     `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_usuSalvar(${id||0})">${novo?'Criar e gerar convite':'Salvar'}</button>`);
+  setTimeout(_usuRepConta,0);
 }
+// v226: ESCOPO POR REPRESENTANTE — o usuário só enxerga (e só grava) os dados dos representantes marcados:
+// faturamento, comissões, recebíveis, vendas e os clientes deles. "Todos" = sem restrição. Quem filtra é o servidor.
+function _usuRepsHtml(u){
+  const sel=new Set(((u.permissoes||{})._reps||[]).map(String)), restrito=sel.size>0;
+  const reps=(DB.representantes||[]).slice().sort((a,b)=>String(a.fantasia||a.nome).localeCompare(String(b.fantasia||b.nome)));
+  const nome=r=>`${r.codigo} · ${(r.fantasia&&r.fantasia!==r.nome)?r.fantasia+' — ':''}${r.nome||''}`;
+  return `<div style="margin-top:12px;border-top:1px solid var(--gray-2);padding-top:10px">
+    <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12.5px"><b>Representantes que este usuário enxerga</b>
+      <label style="display:flex;gap:5px;align-items:center"><input type="radio" name="uu-repmodo" value="todos" ${restrito?'':'checked'} onchange="_usuRepModo()"> Todos</label>
+      <label style="display:flex;gap:5px;align-items:center"><input type="radio" name="uu-repmodo" value="lista" ${restrito?'checked':''} onchange="_usuRepModo()"> Somente os marcados</label>
+      <span id="uu-repcont" style="color:var(--gray-5);font-size:11px"></span></div>
+    <div id="uu-repbox" style="${restrito?'':'display:none'};margin-top:6px">
+      <div style="display:flex;gap:6px;margin-bottom:6px"><input id="uu-repbusca" class="form-control" style="flex:1" placeholder="Buscar representante (nome ou código)" oninput="_usuRepFiltrar()">
+        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuRepTodos(1)">Marcar visíveis</button>
+        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuRepTodos(0)">Limpar</button></div>
+      <div id="uu-replista" style="max-height:220px;overflow:auto;border:1px solid var(--gray-2);border-radius:var(--radius);padding:6px 8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:2px 10px">
+        ${reps.map(r=>`<label data-busca="${_nvEsc((r.codigo+' '+(r.nome||'')+' '+(r.fantasia||'')).toLowerCase())}" style="display:flex;gap:6px;align-items:center;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          <input type="checkbox" class="uu-rep" value="${_nvEsc(r.codigo)}" ${sel.has(String(r.codigo))?'checked':''} onchange="_usuRepConta()"> ${_nvEsc(nome(r))}</label>`).join('')
+          ||'<div style="color:var(--gray-5);font-size:12px">Nenhum representante carregado.</div>'}
+      </div>
+      <div style="font-size:11px;color:var(--gray-5);margin-top:4px">Ele verá só o faturamento, as comissões, os recebíveis, as vendas e os clientes desses representantes. Totais da empresa não aparecem para ele.</div>
+    </div></div>`;
+}
+function _usuRepModo(){ const l=document.querySelector('input[name="uu-repmodo"]:checked')?.value==='lista'; const b=document.getElementById('uu-repbox'); if(b) b.style.display=l?'':'none'; _usuRepConta(); }
+function _usuRepFiltrar(){ const t=(document.getElementById('uu-repbusca')?.value||'').toLowerCase().trim();
+  document.querySelectorAll('#uu-replista label').forEach(l=>{ l.style.display=!t||l.dataset.busca.includes(t)?'':'none'; }); }
+function _usuRepTodos(on){ document.querySelectorAll('#uu-replista label').forEach(l=>{ if(l.style.display!=='none') l.querySelector('input').checked=!!on; }); _usuRepConta(); }
+function _usuRepConta(){ const el=document.getElementById('uu-repcont'); if(!el) return;
+  const l=document.querySelector('input[name="uu-repmodo"]:checked')?.value==='lista';
+  el.textContent=l?`${document.querySelectorAll('.uu-rep:checked').length} marcado(s)`:'sem restrição'; }
 function _usuMarcou(el){
   const m=el.dataset.mod, a=el.dataset.acao, cx=x=>document.querySelector(`input[data-mod="${m}"][data-acao="${x}"]`);
   if(a!=='ver' && el.checked) cx('ver').checked=true;                       // quem age também vê
@@ -1197,6 +1231,11 @@ async function _usuSalvar(id){
   const permissoes={};
   document.querySelectorAll('#uu-perms input[data-acao]').forEach(c=>{ const m=c.dataset.mod; permissoes[m]=permissoes[m]||{}; permissoes[m][c.dataset.acao]=c.checked; });
   Object.keys(permissoes).forEach(m=>{ if(!_ACOES.some(a=>permissoes[m][a])) delete permissoes[m]; });
+  if(document.querySelector('input[name="uu-repmodo"]:checked')?.value==='lista'){   // v226
+    const reps=[...document.querySelectorAll('.uu-rep:checked')].map(c=>c.value);
+    if(!reps.length) return toast('Marque pelo menos um representante (ou escolha "Todos")','error');
+    permissoes._reps=reps;
+  }
   const corpo={nome:g('uu-nome').trim(),email:g('uu-email').trim(),cargo:g('uu-cargo').trim(),perfil:g('uu-perfil'),ativo:!!(document.getElementById('uu-ativo')||{}).checked,permissoes};
   const senha=g('uu-senha'); if(senha) corpo.senha=senha;
   if(!corpo.nome||!corpo.email) return toast('Preencha nome e e-mail','error');
