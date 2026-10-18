@@ -542,7 +542,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.219</span>
+      ">v2.14.220</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -822,6 +822,7 @@ function _entrarSistema(user) {
   navigate(_primeiraPagina() || 'dashboard');
   toast(`Bem-vinda, ${user.nome||user.email}! 🌸`);
   _avisoSemDados();
+  if(!_appSemDados() && _asBase===null) _asMarcarBase();   // v220: já tinha dados → ponto de partida do salvamento automático
 }
 // v208: o HTML não traz mais dados — se o app abriu vazio, oferecer carregar do servidor ou do backup.
 function _appSemDados(){ return !['faturamento','recebiveis','clientes','comissoes'].some(k=>Array.isArray(DB[k]) && DB[k].length); }
@@ -966,7 +967,10 @@ window.addEventListener('resize', () => {
 // Fechar sidebar ao navegar (mobile) — integrado no navigate original
 
 
-function doLogout() {
+async function doLogout() {
+  // v220: mudanças ainda não enviadas vão para o servidor antes de sair
+  try{ if(_asBase!==null && !_asRodando && USER && _nvLer(NV_TOKEN) && _podeEditarAlgo() && !_appSemDados() && _asHashDe(_montarBackup())!==_asBase){
+    toast('Salvando no servidor antes de sair…'); await _nvEnviar(true); } }catch(e){}
   // v212: sai do servidor também e recarrega a página — os dados ficam só em memória, então somem junto
   ['pinkpoa_token','pinkpoa_user','pinkpoa_nuvem_token','pinkpoa_nuvem_usuario'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
   TOKEN=''; USER=null;
@@ -9608,27 +9612,87 @@ async function _nvSalvar(){
     if(!confirm('Salvar no servidor SÓ os módulos que você pode editar:\n\n'+ed.join(', ')+'\n\nO restante da cópia do servidor não muda. Continuar?')) return; }
   // v208: o app abre vazio — salvar assim apagaria (como última versão) a cópia boa do servidor.
   if(_appSemDados() && !confirm('ATENÇÃO: este computador está SEM DADOS (faturamento, recebíveis, clientes e comissões vazios).\n\nSalvar agora grava uma cópia VAZIA como a mais recente do servidor.\nNormalmente o certo é primeiro ⬇ Carregar do servidor.\n\nSalvar mesmo assim?')) return;
+  if(_asRodando) return toast('Já está salvando no servidor — aguarde','error');
   _nvBotoes(false);
+  try{ await _nvEnviar(false); abrirNuvem(); }
+  catch(e){ _nvProg(''); _nvBotoes(true); toast('Não salvou: '+e.message,'error'); if(e.auth) abrirNuvem(); }
+}
+// v220: compacta a cópia (gzip) antes de enviar — ~6× menos dados. Só quando a API entende (v6+).
+let _nvApiGz=null;
+async function _nvPodeGz(){
+  if(_nvApiGz!==null) return _nvApiGz;
+  try{ const h=await _nvFetch('/health'); _nvApiGz=typeof CompressionStream!=='undefined' && (parseInt(String(h.versao_api||'').replace(/^v/,''))||0)>=6; }
+  catch(e){ return false; }
+  return _nvApiGz;
+}
+async function _nvGzip(txt){
+  const z=await new Response(new Blob([txt]).stream().pipeThrough(new CompressionStream('gzip'))).blob();
+  const b64=await new Promise((ok,er)=>{ const r=new FileReader(); r.onload=()=>ok(String(r.result).split(',')[1]||''); r.onerror=er; r.readAsDataURL(z); });
+  return 'GZ1:'+b64;
+}
+// envia a cópia ao servidor (manual ou automático). Devolve o hash do que foi enviado.
+async function _nvEnviar(auto){
+  _asRodando=true; _asIndicador('salvando…');
   try{
     _nvProg('Preparando os dados…');
-    const b=_montarBackup(), txt=JSON.stringify(b), total=Math.max(1,Math.ceil(txt.length/NV_PARTE));
+    const b=_montarBackup(), txt=JSON.stringify(b), hash=_asHashDe(b);
+    const env=(await _nvPodeGz()) ? await _nvGzip(txt) : txt;
+    const total=Math.max(1,Math.ceil(env.length/NV_PARTE));
     const lote='L'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
     for(let i=0;i<total;i++){
       _nvProg(`Enviando parte ${i+1} de ${total}…`);
-      const pedaco=txt.slice(i*NV_PARTE,(i+1)*NV_PARTE);
+      const pedaco=env.slice(i*NV_PARTE,(i+1)*NV_PARTE);
       let ok=false, ult=null;
       for(let t=0;t<3 && !ok;t++){ try{ await _nvFetch('/dados/parte',{method:'POST',body:{lote,parte:i,texto:pedaco}}); ok=true; }catch(e){ ult=e; if(e.auth) throw e; } }
       if(!ok) throw ult;
     }
     _nvProg('Finalizando…');
-    const rc=await _nvFetch('/dados/concluir',{method:'POST',body:{lote,partes:total,bytes:txt.length,resumo:_montarResumo(b),versao_app:_versaoApp()}});
+    const rc=await _nvFetch('/dados/concluir',{method:'POST',body:{lote,partes:total,bytes:txt.length,resumo:_montarResumo(b),versao_app:_versaoApp()+(auto?' auto':'')}});
     const _rec=rc.recusadas||{}, _nRec=(_rec.incluir||0)+(_rec.alterar||0)+(_rec.excluir||0);
-    toast(rc.mesclado?`Salvo no servidor: ${(rc.listas||[]).join(', ')||'nada a gravar'}`:`Dados salvos no servidor (${_nvTam(txt.length)})`);
+    if(!auto) toast(rc.mesclado?`Salvo no servidor: ${(rc.listas||[]).join(', ')||'nada a gravar'}`:`Dados salvos no servidor (${_nvTam(env.length)})`);
     if(_nRec) toast(`${_nRec} mudança(s) recusada(s) por falta de permissão: ${['incluir','alterar','excluir'].filter(x=>_rec[x]).map(x=>`${_rec[x]} de ${x==='incluir'?'inclusão':x==='alterar'?'alteração':'exclusão'}`).join(', ')}`,'error');
-    if(!rc.mesclado) _cacheGravar({ ref: lote, criado_em: new Date().toISOString(), txt });
-    abrirNuvem();
-  }catch(e){ _nvProg(''); _nvBotoes(true); toast('Não salvou: '+e.message,'error'); if(e.auth) abrirNuvem(); }
+    if(!rc.mesclado){ _cacheGravar({ ref: lote, criado_em: new Date().toISOString(), txt }); _asRef=lote; }
+    _asBase=hash; _asPausa='';
+    _asIndicador('salvo '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}));
+    return hash;
+  }catch(e){ _asIndicador('não salvou'); throw e; }
+  finally{ _asRodando=false; }
 }
+// ---------- v220: SALVAMENTO AUTOMÁTICO ----------
+// Toda mudança nos dados (importação, edição, exclusão, configuração) vai sozinha para o servidor/MySQL:
+// 15 s depois da última ação na tela (e a cada 1 min) o app compara uma "impressão digital" dos dados com a
+// do último envio; se mudou, envia. Preferências de tela (menu recolhido, abas, filtros) não contam.
+let _asBase=null, _asRef=null, _asRodando=false, _asPausa='', _asTimer=null;
+const _AS_IGNORA=/^pinkpoa_(sidebar_|rec_cards|pos_|nfs_modo|fs$|cfg_render|nuvem_|cache|envio_log)/;
+function _asHashDe(b){
+  const loc={}; Object.keys(b.local||{}).sort().forEach(k=>{ if(!_AS_IGNORA.test(k)) loc[k]=b.local[k]; });
+  const t=JSON.stringify(b.db)+'\u0001'+JSON.stringify(loc);
+  let h=0x811c9dc5; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); }
+  return (h>>>0).toString(36)+':'+t.length;
+}
+function _asMarcarBase(ref){ if(ref!==undefined) _asRef=ref; setTimeout(()=>{ try{ _asBase=_asHashDe(_montarBackup()); _asPausa=''; _asIndicador('em dia'); }catch(e){} }, 1500); }
+function _asIndicador(t){ const el=document.getElementById('api-status'); if(el){ el.dataset.auto=t; el.title='Salvamento automático: '+t; } }
+function _asAgendar(){ clearTimeout(_asTimer); _asTimer=setTimeout(_asConferir, 15000); }
+async function _asConferir(){
+  if(_asRodando || _asBase===null || _nvAutoRodando || !USER || !_nvLer(NV_TOKEN) || !_podeEditarAlgo() || _appSemDados()) return;
+  let h; try{ h=_asHashDe(_montarBackup()); }catch(e){ return; }
+  if(h===_asBase) return;
+  try{
+    if(_ehAdmin()){   // alguém salvou depois que estes dados foram carregados? não sobrescreve sem perguntar
+      const v=await _nvUltima();
+      if(v && _asRef && v.lote!==_asRef){
+        if(_asPausa!==v.lote){ _asPausa=v.lote; _asIndicador('pausado — o servidor tem cópia mais nova');
+          toast(`Salvamento automático pausado: ${v.criado_por} salvou no servidor em ${new Date(v.criado_em).toLocaleString('pt-BR')}. Use ☁ Salvar no servidor (substitui) ou ⬇ Carregar do servidor.`,'error'); }
+        return;
+      }
+    }
+    await _nvEnviar(true);
+  }catch(e){ if(e && e.auth){ toast('Sessão expirada — entre de novo para salvar','error'); } }
+}
+['click','change','keyup'].forEach(ev=>document.addEventListener(ev,()=>{ if(_asBase!==null) _asAgendar(); },true));
+setInterval(_asConferir, 60000);
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') _asConferir(); });
+window.addEventListener('beforeunload',e=>{ if(_asRodando){ e.preventDefault(); e.returnValue='Salvando no servidor…'; } });
 // v212: admin baixa a cópia completa; usuário comum, a cópia filtrada pelos módulos liberados (o servidor monta)
 async function _nvUltima(){
   if(_ehAdmin()) return (await _nvFetch('/dados/ultima')).versao;
@@ -9649,6 +9713,7 @@ async function _nvBaixarAplicar(v){
   const obj=JSON.parse(txt);
   if(!obj || obj._tipo!=='PINKPOA_BACKUP') throw new Error('Cópia do servidor com formato inesperado');
   const fix=_aplicarBackup(obj);
+  _asMarcarBase(v.lote||null);
   try{ if(typeof navigate==='function' && typeof CURRENT_PAGE!=='undefined') navigate(CURRENT_PAGE); }catch(e){}
   return fix;
 }
@@ -9663,6 +9728,7 @@ async function _nvAutoCarregar(){
   if(c && c.txt && c.dono===((USER&&USER.email)||'')){
     try{
       const fix=_aplicarBackup(JSON.parse(c.txt));
+      _asMarcarBase(c.ref||null);
       try{ navigate(CURRENT_PAGE||_primeiraPagina()); }catch(e){}
       toast(`Dados do aparelho (cópia de ${c.criado_em?new Date(c.criado_em).toLocaleString('pt-BR'):'?'}) — conferindo se há atualização…`);
       _nvAutoRodando=false;
@@ -9695,6 +9761,8 @@ async function _nvConferirAtualizacao(refAtual){
     await _sessaoAtualizar();
     const v=await _nvUltima();
     if(!v || (v.chave||v.lote)===refAtual){ _nvStatusDados('em dia'); return; }
+    // v220: há mudanças locais ainda não enviadas? não troca por cima delas
+    if(_asBase!==null && _asHashDe(_montarBackup())!==_asBase){ _nvStatusDados('servidor tem cópia mais nova — há mudanças locais'); return; }
     _nvStatusDados('baixando atualização…');
     const fix=await _nvBaixarAplicar(v);
     toast(`Dados atualizados (cópia de ${new Date(v.criado_em).toLocaleString('pt-BR')})`);

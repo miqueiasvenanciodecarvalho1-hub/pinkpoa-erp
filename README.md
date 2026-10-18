@@ -49,9 +49,12 @@ flowchart LR
 
 ### Atualizar os dados (quem tem permissão de editar)
 1. **Importação** → selecione a pasta/arquivos exportados do Audience (CSV), planilhas e extratos.
-2. Confira as telas.
-3. Clique na bolinha **⬤ API** → **☁ Salvar no servidor**. A partir daí todos os usuários recebem
-   a cópia nova ao abrir o app.
+2. Pronto: **o app salva sozinho no servidor** (salvamento automático). Toda mudança — importação, edição,
+   exclusão, configuração — vai para o banco cerca de 15 segundos depois da última ação na tela, e também ao **Sair**.
+   A bolinha **⬤ API** mostra "salvo hh:mm" ao passar o mouse.
+3. Se outra pessoa salvou no servidor depois que você abriu o app, o automático **pausa e avisa** (para não apagar
+   o trabalho dela): use **☁ Salvar no servidor** (substitui) ou **⬇ Carregar do servidor**.
+- A cópia vai **compactada** (≈ 6× menor) e o servidor guarda as **30** últimas versões.
 
 ### Varredura da pasta: só entra o que é novo
 - Cada arquivo importado deixa uma "impressão digital" do conteúdo. Na próxima varredura, um arquivo
@@ -70,8 +73,9 @@ flowchart LR
 ### O que acontece no servidor ao salvar
 - A cópia completa é guardada (o servidor mantém as **10 últimas** versões).
 - Em seguida o servidor **preenche as tabelas do MySQL** (clientes, representantes, faturamento,
-  comissões, recebíveis, duplicatas e movimentos bancários, naturezas, produtos, estoques, itens de
-  venda, log de importação) para consulta direta no banco (Navicat etc.).
+  comissões, recebíveis e cartão, duplicatas e movimentos bancários, naturezas, produtos, estoques, itens de
+  venda, **contas a pagar, recebidos, extrato bancário, documentos e conciliação bancária, compras (NF-e) com
+  itens e vencimentos, supervisões** e log de importação) para consulta direta no banco (Navicat etc.).
 - **Duplicidade não entra no banco:** se uma chave se repete (ex.: o mesmo título/parcela duas
   vezes), nenhuma das ocorrências é gravada. A lista volta para o app em
   **☁ Servidor → Tabelas do MySQL → Ver duplicidades** (com botão **⬇ Baixar CSV**) para ser
