@@ -81,16 +81,23 @@ flowchart LR
 
 ## 3. Usuários e acessos
 
-- Menu **👥 Usuários e Acessos** (só administrador): criar, alterar, desativar usuários e definir,
-  **para cada módulo**, *Sem acesso*, *Ver* ou *Editar*.
-  - **Ver** — consulta, filtros, relatórios, PDF e Excel. Os botões de alterar/importar ficam
-    travados e aparece a faixa "👁 Somente leitura".
-  - **Editar** — também importa e altera; ao salvar no servidor, grava **apenas os módulos que pode
-    editar** (o restante da cópia do servidor não muda).
-- Módulos: Dashboard, Clientes, Representantes, Produtos, Faturamento, Comissões, Recebíveis,
-  Contas a Pagar, Conciliação, Vendas, Estoques, Naturezas, Compras, Importação, Automação.
-- O servidor entrega a cada usuário **só os dados dos módulos liberados**. Clientes, representantes
-  e naturezas vão para todos como cadastro de referência (nomes nas telas).
+- Menu **👥 Usuários e Acessos** (só administrador): criar, alterar e desativar usuários e definir, **para cada
+  módulo**, o que a pessoa pode fazer:
+  - **Ver** — consultar e filtrar;
+  - **Incluir** — registros novos e importações;
+  - **Alterar** — mudar o que já existe;
+  - **Excluir** — apagar/zerar;
+  - **Relatórios** — PDF, Excel e exportações.
+  Atalhos: "Nada", "Tudo: só consulta", "Tudo: completo" e ✓/✕ por módulo.
+- **Convite por link:** ao criar o usuário **sem senha**, aparece o link de acesso com botões **Copiar**,
+  **WhatsApp** e **E-mail**. A pessoa abre o link, vê o próprio nome, cria a senha e já entra com os acessos
+  liberados. O link vale **48 horas** e só funciona uma vez. Para quem esqueceu a senha ou perdeu o link, use
+  **🔗 Convite** na linha do usuário (o link anterior deixa de valer). A lista mostra "convite pendente".
+- No app, os botões de cada ação que a pessoa não tem ficam travados e uma faixa mostra o que ela pode fazer
+  naquele módulo. **No servidor**, cada registro é conferido ao salvar: o que ela não pode fazer é recusado
+  (e o app avisa quantas mudanças foram recusadas).
+- O servidor entrega a cada usuário **só os dados dos módulos liberados**. Clientes, representantes e naturezas
+  vão para todos como cadastro de referência (nomes nas telas).
 - Usuário desativado perde o acesso imediatamente. Sempre existe pelo menos um administrador ativo.
 - Cada usuário troca a própria senha em **🔑 Minha senha** (mínimo de 10 caracteres).
 

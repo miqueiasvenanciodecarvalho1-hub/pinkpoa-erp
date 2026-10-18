@@ -542,7 +542,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.217</span>
+      ">v2.14.218</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -974,6 +974,12 @@ function doLogout() {
 }
 
 // Auto-login se já logado
+// v218: link de convite (#convite=<código>) — sai de qualquer sessão aberta e mostra "Criar sua senha"
+const _CONVITE_TOK=(location.hash.match(/convite=([A-Za-z0-9_-]+)/)||[])[1]||'';
+if(_CONVITE_TOK){ ['pinkpoa_token','pinkpoa_user','pinkpoa_nuvem_token','pinkpoa_nuvem_usuario'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} }); TOKEN=''; USER=null;
+  setTimeout(()=>_abrirConvite(_CONVITE_TOK),0); }
+// link de convite colado numa aba que já estava com o app aberto: recarrega para abrir a tela de senha
+window.addEventListener('hashchange',()=>{ if(/convite=/.test(location.hash)) location.reload(); });
 // v212: sessão antiga (login local) sem a do servidor não vale mais
 if (TOKEN && !localStorage.getItem('pinkpoa_nuvem_token')) { localStorage.removeItem('pinkpoa_token'); localStorage.removeItem('pinkpoa_user'); TOKEN=''; USER=null; }
 if (TOKEN && USER && USER.email) {
@@ -1036,8 +1042,18 @@ checkApiStatus();
 // (o usuário só recebe as listas dos módulos liberados) e só aceita gravar os módulos com "editar".
 const _PAGINAS_ADMIN=['usuarios','configuracoes'];   // só administrador
 function _ehAdmin(){ return !!USER && USER.perfil==='admin'; }
-function _perm(mod){ if(!USER) return ''; if(_ehAdmin()) return 'editar'; return (USER.permissoes||{})[mod]||''; }
-function _podeEditarAlgo(){ return _ehAdmin() || Object.values((USER&&USER.permissoes)||{}).includes('editar'); }
+// v218: por módulo {ver, incluir, alterar, excluir, relatorios} (aceita o formato antigo 'ver'/'editar')
+const _ACOES=['ver','incluir','alterar','excluir','relatorios'];
+const _ACOES_NOME={ver:'Ver',incluir:'Incluir',alterar:'Alterar',excluir:'Excluir',relatorios:'Relatórios'};
+function _normAcoes(v){
+  if(v==='editar') return {ver:true,incluir:true,alterar:true,excluir:true,relatorios:true};
+  if(v==='ver') return {ver:true,incluir:false,alterar:false,excluir:false,relatorios:true};
+  if(!v||typeof v!=='object') return null;
+  const o={}; _ACOES.forEach(a=>o[a]=!!v[a]); if(o.incluir||o.alterar||o.excluir||o.relatorios) o.ver=true; return o.ver?o:null;
+}
+function _acoes(mod){ if(!USER) return null; if(_ehAdmin()) return _normAcoes('editar'); return _normAcoes((USER.permissoes||{})[mod]); }
+function _perm(mod){ const a=_acoes(mod); return !a?'':(a.incluir||a.alterar||a.excluir)?'editar':'ver'; }   // compatível com o código antigo
+function _podeEditarAlgo(){ return _ehAdmin() || Object.keys((USER&&USER.permissoes)||{}).some(m=>_perm(m)==='editar'); }
 function _primeiraPagina(){
   for(const el of document.querySelectorAll('#sidebar .nav-item')){ const m=(el.getAttribute('onclick')||'').match(/navigate\('(\w+)'\)/);
     if(m && !_PAGINAS_ADMIN.includes(m[1]) && _perm(m[1])) return m[1]; }
@@ -1053,32 +1069,43 @@ function _aplicarPermissoes(){
     lb.style.display=vis?'':'none'; });
 }
 // "Ver" = somente leitura: botões de gravar/importar/excluir ficam desativados (o servidor também recusa)
-const _RE_EDITA=/(importar|import\w*\(|excluir|remov|delet|apagar|salvar|novo|nova\b|editar|adicionar|incluir|zerar|lan[çc]ar|upload|cadastr|reprocess|processar|conciliar|desconciliar|baixar t[ií]tulo|_pmAuto|modalFechar|fechar per[ií]odo|_puxarCanais|gerenciarFornecedores|escolherPasta|escolherArquivos|conectarPasta|repararTextos|_cmpLote)/i;
+// v218: cada botão cai numa ação; o que o usuário não tem fica desativado (o servidor também recusa ao salvar)
+const _RE_ACAO={
+  excluir:/(excluir|remov|delet|apagar|zerar|desconciliar)/i,
+  incluir:/(importar|import\w*\(|\bnovo|\bnova\b|adicionar|incluir|lan[çc]ar|upload|cadastr|escolherPasta|escolherArquivos|conectarPasta|_cmpLote|restaurar backup)/i,
+  alterar:/(salvar|editar|alterar|reprocess|processar|conciliar|baixar t[ií]tulo|_pmAuto|modalFechar|fechar per[ií]odo|_puxarCanais|gerenciarFornecedores|repararTextos)/i,
+  relatorios:/(pdf|excel|xlsx|\bcsv|imprimir|print\(|exportar|relat[óo]rio|_baixar|download)/i,
+};
 // botão que abre um seletor de arquivo = importação (menos o "Comparar", que só lê um arquivo para comparar)
 const _RE_ARQUIVO=/getElementById\('([^']+)'\)\.click\(\)/;
 let _leituraObs=null;
-function _travarEdicao(){
-  const c=document.getElementById('content'); if(!c) return;
-  c.querySelectorAll('button, .btn, input[type=file], [onclick]').forEach(el=>{
+function _acaoDoBotao(el){
+  const oc=el.getAttribute('onclick')||'', txt=oc+' '+(el.textContent||'')+' '+(el.title||'');
+  const arq=oc.match(_RE_ARQUIVO);
+  if(el.matches('input[type=file]')) return /snap/i.test(el.id||'')?null:'incluir';
+  if(arq && !/snap/i.test(arq[1])) return 'incluir';
+  for(const k of ['excluir','incluir','alterar','relatorios']) if(_RE_ACAO[k].test(txt)) return k;
+  return null;
+}
+function _travarEdicao(ac){
+  const c=document.getElementById('content'); if(!c||!ac) return;
+  c.querySelectorAll('button, .btn, input[type=file]').forEach(el=>{
     if(el.dataset.ro) return;
-    const txt=(el.getAttribute('onclick')||'')+' '+(el.textContent||'')+' '+(el.title||'');
-    const arq=(el.getAttribute('onclick')||'').match(_RE_ARQUIVO);
-    const ehImport = arq && !/snap/i.test(arq[1]);
-    if((el.matches('input[type=file]') && !/snap/i.test(el.id||'')) || (el.matches('button,.btn') && (_RE_EDITA.test(txt) || ehImport))){
-      el.dataset.ro='1'; el.disabled=true; el.style.opacity='.4'; el.style.pointerEvents='none'; el.title='Somente leitura — seu usuário pode só ver este módulo';
-    }
+    const k=_acaoDoBotao(el); if(!k || ac[k]) return;
+    el.dataset.ro='1'; el.disabled=true; el.style.opacity='.4'; el.style.pointerEvents='none';
+    el.title=`Sem permissão de ${_ACOES_NOME[k].toLowerCase()} neste módulo`;
   });
 }
 function _modoLeitura(){
   const c=document.getElementById('content'); if(!c) return;
-  const so = CURRENT_PAGE && !_PAGINAS_ADMIN.includes(CURRENT_PAGE) && _perm(CURRENT_PAGE)==='ver';
   if(_leituraObs){ _leituraObs.disconnect(); _leituraObs=null; }
-  if(!so) return;
-  if(!document.getElementById('aviso-leitura')) c.insertAdjacentHTML('afterbegin','<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600">👁 Somente leitura — seu usuário pode ver este módulo, mas não alterar.</div>');
-  _travarEdicao();
-  _leituraObs=new MutationObserver(()=>{ clearTimeout(_leituraObs._t); _leituraObs._t=setTimeout(()=>{
-    if(!document.getElementById('aviso-leitura')) c.insertAdjacentHTML('afterbegin','<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600">👁 Somente leitura — seu usuário pode ver este módulo, mas não alterar.</div>');
-    _travarEdicao(); },60); });
+  const ac = CURRENT_PAGE && !_PAGINAS_ADMIN.includes(CURRENT_PAGE) ? _acoes(CURRENT_PAGE) : null;
+  if(!ac || _ACOES.every(a=>ac[a])) return;
+  const pode=_ACOES.filter(a=>ac[a]).map(a=>_ACOES_NOME[a].toLowerCase()), nao=_ACOES.filter(a=>!ac[a]).map(a=>_ACOES_NOME[a].toLowerCase());
+  const faixa=`<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600;text-transform:none">👁 Neste módulo você pode: ${pode.join(', ')}${nao.length?` — sem permissão para: ${nao.join(', ')}`:''}.</div>`;
+  const aplica=()=>{ if(!document.getElementById('aviso-leitura')) c.insertAdjacentHTML('afterbegin',faixa); _travarEdicao(ac); };
+  aplica();
+  _leituraObs=new MutationObserver(()=>{ clearTimeout(_leituraObs._t); _leituraObs._t=setTimeout(aplica,60); });
   _leituraObs.observe(c,{childList:true,subtree:true});
 }
 // reconfere usuário e permissões no servidor (o admin pode ter mudado algo)
@@ -1095,63 +1122,143 @@ async function _sessaoAtualizar(){
   }catch(e){ if(e.auth){ toast('Sessão expirada — entre de novo','error'); setTimeout(doLogout,1200); } return false; }
 }
 
-// ── v212: USUÁRIOS E ACESSOS (só administrador) ─────────────────
+// ── v212/v218: USUÁRIOS E ACESSOS (só administrador) ────────────
+// v218: Ver / Incluir / Alterar / Excluir / Relatórios por módulo; criar sem senha = link de convite (48 h)
 let _usuCache={usuarios:[],modulos:[]};
+function _usuResumo(u, mods){
+  if(u.perfil==='admin') return '<b>Administrador — tudo</b>';
+  const ls=mods.map(m=>{ const a=_normAcoes((u.permissoes||{})[m.id]); if(!a) return '';
+    const tudo=_ACOES.every(x=>a[x]); const letras=_ACOES.filter(x=>a[x]&&x!=='ver').map(x=>_ACOES_NOME[x][0]).join('');
+    return `<span title="${_ACOES.filter(x=>a[x]).map(x=>_ACOES_NOME[x]).join(', ')}" style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:${tudo?'#DCFCE7':letras.replace('R','')?'#FEF9C3':'#E0F2FE'};color:#1f2937">${_nvEsc(m.nome)}${tudo?' ✎':letras?' · '+letras:''}</span>`; }).join('');
+  return ls||'<span style="color:var(--red)">nenhum módulo</span>';
+}
 async function renderUsuarios(){
   const c=document.getElementById('content');
   c.innerHTML='<div class="card" style="padding:20px;text-transform:none">Carregando usuários…</div>';
   try{ _usuCache=await _nvFetch('/usuarios'); }catch(e){ c.innerHTML=`<div class="card" style="padding:20px;color:var(--red);text-transform:none">${_nvEsc(e.message)}</div>`; return; }
   const mods=_usuCache.modulos||[];
-  const resumo=u=>u.perfil==='admin'?'<b>Administrador — tudo</b>':(mods.map(m=>{ const v=(u.permissoes||{})[m.id]; return v?`<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:${v==='editar'?'#DCFCE7':'#E0F2FE'};color:${v==='editar'?'#166534':'#075985'}">${_nvEsc(m.nome)}${v==='editar'?' ✎':''}</span>`:''; }).join('')||'<span style="color:var(--red)">nenhum módulo</span>');
   c.innerHTML=`<div style="text-transform:none">
     <div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
-      <div><h2 style="margin:0">Usuários e Acessos</h2><div style="font-size:12px;color:var(--gray-5)">Cada usuário vê só os módulos liberados. <b>Ver</b> = consulta e relatórios · <b>Editar</b> = também importa/altera e salva no servidor.</div></div>
+      <div><h2 style="margin:0">Usuários e Acessos</h2><div style="font-size:12px;color:var(--gray-5)">Por módulo: <b>V</b>er · <b>I</b>ncluir · <b>A</b>lterar · <b>E</b>xcluir · <b>R</b>elatórios (✎ = tudo). Usuário novo recebe um <b>link de convite</b> (vale 48 h) para criar a própria senha.</div></div>
       <button class="btn btn-primary" onclick="_usuEditar(0)">+ Novo usuário</button></div>
       <div class="card-table" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="text-align:left;border-bottom:1px solid var(--gray-2)"><th style="padding:8px">Nome</th><th>E-mail</th><th>Cargo</th><th>Acessos</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead>
         <tbody>${(_usuCache.usuarios||[]).map(u=>`<tr style="border-bottom:1px solid var(--gray-1)">
           <td style="padding:8px"><b>${_nvEsc(u.nome)}</b></td><td>${_nvEsc(u.email)}</td><td>${_nvEsc(u.cargo||'')}</td>
-          <td style="max-width:420px">${resumo(u)}</td>
-          <td>${u.ativo?'<span style="color:var(--green)">ativo</span>':'<span style="color:var(--red)">desativado</span>'}</td>
+          <td style="max-width:420px">${_usuResumo(u,mods)}</td>
+          <td style="font-size:12px">${!u.ativo?'<span style="color:var(--red)">desativado</span>':u.convite_expira?`<span style="color:#B45309">convite pendente</span><div style="font-size:10.5px;color:var(--gray-5)">vale até ${new Date(u.convite_expira).toLocaleString('pt-BR')}</div>`:'<span style="color:var(--green)">ativo</span>'}</td>
           <td style="font-size:11px">${u.ultimo_login?new Date(u.ultimo_login).toLocaleString('pt-BR'):'—'}</td>
-          <td><button class="btn btn-secondary" style="padding:4px 10px" onclick="_usuEditar(${u.id})">Alterar</button></td></tr>`).join('')}</tbody></table></div></div></div>`;
+          <td style="white-space:nowrap"><button class="btn btn-secondary" style="padding:4px 10px" onclick="_usuEditar(${u.id})">Alterar</button>
+            ${u.ativo?`<button class="btn btn-secondary" style="padding:4px 10px" title="Gera um link novo (primeiro acesso ou esqueceu a senha)" onclick="_usuNovoConvite(${u.id})">🔗 Convite</button>`:''}</td></tr>`).join('')}</tbody></table></div></div></div>`;
 }
 function _usuEditar(id){
   const u=(_usuCache.usuarios||[]).find(x=>x.id===id)||{perfil:'user',ativo:true,permissoes:{}};
   const mods=_usuCache.modulos||[], novo=!id;
-  const linha=m=>{ const v=(u.permissoes||{})[m.id]||''; const r=(val,txt)=>`<label style="margin-right:10px;white-space:nowrap"><input type="radio" name="up-${m.id}" value="${val}" ${v===val?'checked':''}> ${txt}</label>`;
-    return `<tr><td style="padding:4px 8px 4px 0;font-weight:600">${_nvEsc(m.nome)}</td><td>${r('','Sem acesso')}${r('ver','Ver')}${r('editar','Editar')}</td></tr>`; };
+  const cel=(m,a,on)=>`<td style="text-align:center"><input type="checkbox" data-mod="${m.id}" data-acao="${a}" ${on?'checked':''} onchange="_usuMarcou(this)"></td>`;
+  const linha=m=>{ const a=_normAcoes((u.permissoes||{})[m.id])||{};
+    return `<tr><td style="padding:4px 10px 4px 0;font-weight:600;white-space:nowrap">${_nvEsc(m.nome)}</td>${_ACOES.map(x=>cel(m,x,a[x])).join('')}
+      <td style="white-space:nowrap"><button class="btn btn-secondary" title="Marcar tudo neste módulo" style="padding:0 6px;font-size:11px;min-height:0" onclick="_usuLinha('${m.id}',1)">✓</button><button class="btn btn-secondary" title="Desmarcar tudo neste módulo" style="padding:0 6px;font-size:11px;min-height:0;margin-left:2px" onclick="_usuLinha('${m.id}',0)">✕</button></td></tr>`; };
   openModal(novo?'Novo usuário':'Alterar usuário', `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
       <div class="form-group"><label>Nome *</label><input id="uu-nome" class="form-control no-up" value="${_nvEsc(u.nome||'')}"></div>
       <div class="form-group"><label>E-mail (login) *</label><input id="uu-email" type="email" class="form-control no-up" value="${_nvEsc(u.email||'')}"></div>
       <div class="form-group"><label>Cargo</label><input id="uu-cargo" class="form-control no-up" value="${_nvEsc(u.cargo||'')}"></div>
-      <div class="form-group"><label>${novo?'Senha * (mín. 10)':'Nova senha (deixe vazio para manter)'}</label><input id="uu-senha" type="password" class="form-control no-up" autocomplete="new-password"></div>
+      <div class="form-group"><label>${novo?'Senha (opcional — vazio = enviar link de convite)':'Nova senha (vazio = manter; ou use 🔗 Convite)'}</label><input id="uu-senha" type="password" class="form-control no-up" autocomplete="new-password"></div>
       <div class="form-group"><label>Perfil</label><select id="uu-perfil" class="form-control" onchange="document.getElementById('uu-perms').style.display=this.value==='admin'?'none':''">
         <option value="user" ${u.perfil!=='admin'?'selected':''}>Usuário (acessos abaixo)</option><option value="admin" ${u.perfil==='admin'?'selected':''}>Administrador (tudo + usuários)</option></select></div>
       <div class="form-group" style="display:flex;align-items:flex-end"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="uu-ativo" ${u.ativo!==false?'checked':''}> Usuário ativo</label></div>
     </div>
     <div id="uu-perms" style="${u.perfil==='admin'?'display:none':''};margin-top:6px">
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;font-size:12px"><b style="margin-right:6px">Acessos por módulo</b>
-        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('')">Nada</button>
-        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('ver')">Tudo: ver</button>
-        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('editar')">Tudo: editar</button></div>
-      <div style="overflow-x:auto"><table style="font-size:13px">${mods.map(linha).join('')}</table></div>
-      <div style="font-size:11px;color:var(--gray-5);margin-top:6px">Relatórios, PDF e Excel seguem o módulo. Para importar arquivos, libere também <b>Importação</b> e marque <b>Editar</b> nos módulos que o usuário vai atualizar. Clientes, representantes e naturezas são enviados a todos como cadastro de referência (nomes nas telas).</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;align-items:center"><b style="margin-right:6px">Acessos por módulo</b>
+        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('nada')">Nada</button>
+        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('consulta')">Tudo: só consulta</button>
+        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('tudo')">Tudo: completo</button></div>
+      <div style="overflow-x:auto"><table style="font-size:12.5px;border-collapse:collapse">
+        <tr style="font-size:11px;color:var(--gray-5)"><th></th>${_ACOES.map(a=>`<th style="padding:0 6px">${_ACOES_NOME[a]}</th>`).join('')}<th></th></tr>
+        ${mods.map(linha).join('')}</table></div>
+      <div style="font-size:11px;color:var(--gray-5);margin-top:6px"><b>Incluir</b> = registros novos e importações · <b>Alterar</b> = mudar o que já existe · <b>Excluir</b> = apagar/zerar · <b>Relatórios</b> = PDF, Excel e exportações. Para importar arquivos, libere também <b>Importação</b>. O servidor confere cada registro ao salvar. Clientes, representantes e naturezas são enviados a todos como cadastro de referência.</div>
     </div>`,
-    `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_usuSalvar(${id||0})">Salvar</button>`);
+    `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_usuSalvar(${id||0})">${novo?'Criar e gerar convite':'Salvar'}</button>`);
 }
-function _usuTodos(v){ (_usuCache.modulos||[]).forEach(m=>{ const r=document.querySelector(`input[name="up-${m.id}"][value="${v}"]`); if(r) r.checked=true; }); }
+function _usuMarcou(el){
+  const m=el.dataset.mod, a=el.dataset.acao, cx=x=>document.querySelector(`input[data-mod="${m}"][data-acao="${x}"]`);
+  if(a!=='ver' && el.checked) cx('ver').checked=true;                       // quem age também vê
+  if(a==='ver' && !el.checked) _ACOES.forEach(x=>{ const c=cx(x); if(c) c.checked=false; });
+}
+function _usuLinha(m,on){ _ACOES.forEach(x=>{ const c=document.querySelector(`input[data-mod="${m}"][data-acao="${x}"]`); if(c) c.checked=!!on; }); }
+function _usuTodos(modo){ document.querySelectorAll('#uu-perms input[data-acao]').forEach(c=>{ c.checked = modo==='tudo' || (modo==='consulta' && (c.dataset.acao==='ver'||c.dataset.acao==='relatorios')); }); }
 async function _usuSalvar(id){
   const g=x=>(document.getElementById(x)||{}).value||'';
-  const permissoes={}; (_usuCache.modulos||[]).forEach(m=>{ const r=document.querySelector(`input[name="up-${m.id}"]:checked`); if(r&&r.value) permissoes[m.id]=r.value; });
+  const permissoes={};
+  document.querySelectorAll('#uu-perms input[data-acao]').forEach(c=>{ const m=c.dataset.mod; permissoes[m]=permissoes[m]||{}; permissoes[m][c.dataset.acao]=c.checked; });
+  Object.keys(permissoes).forEach(m=>{ if(!_ACOES.some(a=>permissoes[m][a])) delete permissoes[m]; });
   const corpo={nome:g('uu-nome').trim(),email:g('uu-email').trim(),cargo:g('uu-cargo').trim(),perfil:g('uu-perfil'),ativo:!!(document.getElementById('uu-ativo')||{}).checked,permissoes};
   const senha=g('uu-senha'); if(senha) corpo.senha=senha;
   if(!corpo.nome||!corpo.email) return toast('Preencha nome e e-mail','error');
-  if(!id && senha.length<10) return toast('A senha precisa ter pelo menos 10 caracteres','error');
-  try{ await _nvFetch(id?'/usuarios/'+id:'/usuarios',{method:'POST',body:corpo}); closeModal(); toast(id?'Usuário alterado':'Usuário criado'); renderUsuarios();
+  if(senha && senha.length<10) return toast('A senha precisa ter pelo menos 10 caracteres','error');
+  try{ const r=await _nvFetch(id?'/usuarios/'+id:'/usuarios',{method:'POST',body:corpo});
+       toast(id?'Usuário alterado':'Usuário criado'); renderUsuarios();
+       if(r && r.convite) _usuMostrarConvite(corpo.nome, corpo.email, r.convite); else closeModal();
        if(USER && id===USER.id) _sessaoAtualizar(); }
   catch(e){ toast(e.message,'error'); }
+}
+async function _usuNovoConvite(id){
+  const u=(_usuCache.usuarios||[]).find(x=>x.id===id)||{};
+  if(!confirm(`Gerar um link novo para ${u.nome}? O link anterior, se houver, deixa de valer. A senha atual continua valendo até ${u.nome} criar a nova.`)) return;
+  try{ const r=await _nvFetch('/usuarios/'+id+'/convite',{method:'POST'}); _usuMostrarConvite(u.nome,u.email,r.convite); renderUsuarios(); }
+  catch(e){ toast(e.message,'error'); }
+}
+function _usuMostrarConvite(nome, email, cv){
+  const link=location.origin+location.pathname+'#convite='+encodeURIComponent(cv.token);
+  const vence=new Date(cv.expira_em).toLocaleString('pt-BR');
+  const texto=`Olá, ${nome}! Seu acesso ao sistema Pink Poá foi liberado. Crie sua senha neste link (vale até ${vence}, uso único): ${link}`;
+  window._convTexto=texto; window._convLink=link;
+  openModal('🔗 Link de acesso', `<div style="font-size:13px;text-transform:none">
+      <div style="margin-bottom:8px">Envie este link para <b>${_nvEsc(nome)}</b>. Ele abre a tela para criar a senha, já com os acessos liberados. Vale até <b>${vence}</b> e só pode ser usado uma vez.</div>
+      <textarea readonly style="width:100%;height:84px;font-size:12px;padding:8px;border:1px solid var(--gray-2);border-radius:var(--radius)" onclick="this.select()">${_nvEsc(texto)}</textarea>
+      <div style="font-size:11px;color:var(--gray-5);margin-top:6px">Por segurança o link não fica guardado: se fechar sem enviar, gere outro em 🔗 Convite.</div></div>`,
+    `<button class="btn btn-secondary" onclick="navigator.clipboard.writeText(window._convTexto).then(()=>toast('Mensagem copiada'))">📋 Copiar</button>
+     <a class="btn btn-secondary" target="_blank" rel="noopener" href="https://wa.me/?text=${encodeURIComponent(texto)}">WhatsApp</a>
+     <a class="btn btn-secondary" href="mailto:${encodeURIComponent(email||'')}?subject=${encodeURIComponent('Acesso ao sistema Pink Poá')}&body=${encodeURIComponent(texto)}">E-mail</a>
+     <button class="btn btn-primary" onclick="closeModal()">Concluir</button>`);
+}
+// tela "Criar sua senha" — aberta pelo link #convite=<código>
+async function _abrirConvite(tok){
+  const card=document.querySelector('#login-screen .login-card'); if(!card) return;
+  document.getElementById('login-screen').style.display='flex';
+  ['form-login','form-cadastro'].forEach(i=>{ const el=document.getElementById(i); if(el) el.style.display='none'; });
+  let box=document.getElementById('form-convite');
+  if(!box){ box=document.createElement('div'); box.id='form-convite'; box.style.cssText='display:flex;flex-direction:column;gap:12px'; card.appendChild(box); }
+  box.innerHTML='<div style="text-align:center;color:var(--gray-5);font-size:13px">Conferindo o link… (o servidor pode levar até 1 minuto para acordar)</div>';
+  try{
+    const r=await fetch(API+'/convite/'+encodeURIComponent(tok),{cache:'no-store'}); const j=await r.json();
+    if(!r.ok) throw new Error(j.error||'Link inválido');
+    box.innerHTML=`<div style="font-size:14px;text-align:center">Olá, <b>${_nvEsc(j.nome)}</b>! Crie sua senha de acesso.</div>
+      <div style="font-size:12px;color:var(--gray-5);text-align:center">Login: <b>${_nvEsc(j.email)}</b> · link válido até ${new Date(j.expira_em).toLocaleString('pt-BR')}</div>
+      <div class="form-group"><label>Nova senha (mín. 10 caracteres)</label><input id="cv-s1" type="password" class="form-control" autocomplete="new-password"></div>
+      <div class="form-group"><label>Repita a senha</label><input id="cv-s2" type="password" class="form-control" autocomplete="new-password" onkeydown="if(event.key==='Enter')_conviteSalvar()"></div>
+      <button class="btn btn-primary" style="justify-content:center;padding:11px" onclick="_conviteSalvar()">Criar senha e entrar →</button>`;
+    window._convTok=tok;
+  }catch(e){
+    box.innerHTML=`<div style="color:var(--red);text-align:center;font-size:13px">${_nvEsc(e.message)}</div>
+      <button class="btn btn-secondary" style="justify-content:center" onclick="history.replaceState(null,'',location.pathname);location.reload()">Ir para o login</button>`;
+  }
+}
+async function _conviteSalvar(){
+  const s1=(document.getElementById('cv-s1')||{}).value||'', s2=(document.getElementById('cv-s2')||{}).value||'';
+  if(s1.length<10) return toast('A senha precisa ter pelo menos 10 caracteres','error');
+  if(s1!==s2) return toast('As duas senhas não são iguais','error');
+  try{
+    const r=await fetch(API+'/convite/'+encodeURIComponent(window._convTok),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({senha:s1})});
+    const j=await r.json(); if(!r.ok) throw new Error(j.error||'Não foi possível criar a senha');
+    _nvGravar(NV_TOKEN,j.token);
+    _nvGravar(NV_USER,JSON.stringify(Object.assign({},j.usuario,{permissoes:j.permissoes||{},modulos:j.modulos||[]})));
+    history.replaceState(null,'',location.pathname);
+    const box=document.getElementById('form-convite'); if(box) box.remove();
+    document.getElementById('form-login').style.display='flex';
+    toast('Senha criada! Bem-vinda(o) 🌸');
+    _entrarSistema(_nvUsuario());
+  }catch(e){ toast(e.message,'error'); }
 }
 // ── v214: CONFIGURAÇÕES (só administrador) — servidor no Render: situação e opção de plano pago ──
 const _CFG_PLANO='pinkpoa_cfg_render_plano';   // 'gratis' | 'pago' (escolha do admin; vai na cópia como preferência)
@@ -9497,7 +9604,7 @@ function _nvBotoes(on){ ['nv-b-salvar','nv-b-carregar'].forEach(id=>{ const b=do
 function _nvProg(t){ const el=document.getElementById('nv-prog'); if(el) el.textContent=t; }
 async function _nvSalvar(){
   if(!_podeEditarAlgo()) return toast('Seu usuário só pode ver os dados','error');
-  if(!_ehAdmin()){ const ed=((USER&&USER.modulos)||[]).filter(m=>_perm(m.id)==='editar').map(m=>m.nome);
+  if(!_ehAdmin()){ const ed=((USER&&USER.modulos)||[]).filter(m=>_perm(m.id)==='editar').map(m=>{ const a=_acoes(m.id); return m.nome+' ('+['incluir','alterar','excluir'].filter(x=>a[x]).join('/')+')'; });
     if(!confirm('Salvar no servidor SÓ os módulos que você pode editar:\n\n'+ed.join(', ')+'\n\nO restante da cópia do servidor não muda. Continuar?')) return; }
   // v208: o app abre vazio — salvar assim apagaria (como última versão) a cópia boa do servidor.
   if(_appSemDados() && !confirm('ATENÇÃO: este computador está SEM DADOS (faturamento, recebíveis, clientes e comissões vazios).\n\nSalvar agora grava uma cópia VAZIA como a mais recente do servidor.\nNormalmente o certo é primeiro ⬇ Carregar do servidor.\n\nSalvar mesmo assim?')) return;
@@ -9515,7 +9622,9 @@ async function _nvSalvar(){
     }
     _nvProg('Finalizando…');
     const rc=await _nvFetch('/dados/concluir',{method:'POST',body:{lote,partes:total,bytes:txt.length,resumo:_montarResumo(b),versao_app:_versaoApp()}});
+    const _rec=rc.recusadas||{}, _nRec=(_rec.incluir||0)+(_rec.alterar||0)+(_rec.excluir||0);
     toast(rc.mesclado?`Salvo no servidor: ${(rc.listas||[]).join(', ')||'nada a gravar'}`:`Dados salvos no servidor (${_nvTam(txt.length)})`);
+    if(_nRec) toast(`${_nRec} mudança(s) recusada(s) por falta de permissão: ${['incluir','alterar','excluir'].filter(x=>_rec[x]).map(x=>`${_rec[x]} de ${x==='incluir'?'inclusão':x==='alterar'?'alteração':'exclusão'}`).join(', ')}`,'error');
     if(!rc.mesclado) _cacheGravar({ ref: lote, criado_em: new Date().toISOString(), txt });
     abrirNuvem();
   }catch(e){ _nvProg(''); _nvBotoes(true); toast('Não salvou: '+e.message,'error'); if(e.auth) abrirNuvem(); }
