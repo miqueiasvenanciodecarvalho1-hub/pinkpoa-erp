@@ -542,7 +542,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.214</span>
+      ">v2.14.215</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1177,9 +1177,61 @@ async function renderConfiguracoes(){
       </div>
       <div id="cfg-passos" style="margin-top:14px"></div>
     </div>
+    <div class="card" style="padding:18px">
+      <h2 style="margin:0 0 4px">🕘 Histórico de versões</h2>
+      <div style="font-size:12px;color:var(--gray-5);margin-bottom:12px">Cada <b>☁ Salvar no servidor</b> gera uma versão (ficam as 10 últimas). Veja quem salvou, quando e o que mudou — e volte uma versão se algo foi importado errado. Voltar cria uma versão nova: dá para desfazer.</div>
+      <div id="cfg-hist" style="font-size:13px">Carregando…</div>
+    </div>
   </div>`;
   _cfgPassos(plano);
   _cfgServidor();
+  _cfgHistorico();
+}
+// v215: histórico de versões (API v4.3) — compara cada versão com a anterior, lista a lista
+const _HIST_NOMES={faturamento:'Faturamento',comissoes:'Comissões',recebiveis:'Recebíveis',recebidos:'Recebidos (baixas)',clientes:'Clientes',
+  representantes:'Representantes',naturezas:'Naturezas',movimentos_banc:'Movimentos bancários',duplicatas_banc:'Duplicatas (banco)',
+  documentos_banc:'Documentos (banco)',conciliacao_banc:'Conciliação',vendas_agr:'Vendas (resumo)',vendas_linhas:'Vendas (linhas)',
+  produtos_vend:'Produtos',estoques_vend:'Estoques',precos_vend:'Preços',pagar:'Contas a Pagar',extrato_banco:'Extrato bancário',
+  supervisoes:'Supervisões',rateios:'Rateios',comissaoFat:'Comissão s/ faturamento',abat_repo:'Trocas (abatimentos)',erros_log:'Log de importação',
+  totais_import:'Totais da importação','local:compras':'Compras (NF-e)','local:supervisoes':'Supervisões','local:grupos_rep':'Grupos de representantes'};
+function _histDiff(atual, anterior){
+  if(!atual) return '<span style="color:var(--gray-5)">sem detalhes (versão salva antes do histórico)</span>';
+  if(!anterior) return '<span style="color:var(--gray-5)">primeira versão com detalhes</span>';
+  const out=[];
+  for(const k of new Set([...Object.keys(atual),...Object.keys(anterior)])){
+    const a=atual[k], b=anterior[k], nome=_HIST_NOMES[k]||k.replace(/^local:/,'');
+    if(!b){ out.push(`<b>${_nvEsc(nome)}</b> nova (${a[0].toLocaleString('pt-BR')})`); continue; }
+    if(!a){ out.push(`<b>${_nvEsc(nome)}</b> <span style="color:var(--red)">removida</span>`); continue; }
+    if(a[1]===b[1]) continue;
+    const d=a[0]-b[0];
+    out.push(`<b>${_nvEsc(nome)}</b> ${d>0?`<span style="color:var(--green)">+${d.toLocaleString('pt-BR')}</span>`:d<0?`<span style="color:var(--red)">${d.toLocaleString('pt-BR')}</span>`:'alterada'} <span style="color:var(--gray-5)">(${a[0].toLocaleString('pt-BR')})</span>`);
+  }
+  return out.length?out.join(' · '):'<span style="color:var(--gray-5)">nenhuma mudança nos dados</span>';
+}
+async function _cfgHistorico(){
+  const el=document.getElementById('cfg-hist'); if(!el) return;
+  let j; try{ j=await _nvFetch('/dados/historico'); }
+  catch(e){ el.innerHTML=`<span style="color:var(--red)">${_nvEsc(/Rota não encontrada/.test(e.message)?'A API ainda não tem o histórico (atualize a API).':e.message)}</span>`; return; }
+  const vs=j.versoes||[];
+  if(!vs.length){ el.innerHTML='<span style="color:var(--gray-5)">Nenhuma versão salva ainda.</span>'; return; }
+  el.innerHTML=`<div style="display:flex;flex-direction:column;gap:8px">${vs.map((v,i)=>`
+    <div style="border:1px solid ${i===0?'var(--pink)':'var(--gray-2)'};border-radius:var(--radius);padding:10px 12px">
+      <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:center">
+        <div><b>${new Date(v.criado_em).toLocaleString('pt-BR')}</b> ${i===0?'<span style="font-size:11px;background:var(--pink-lt);color:var(--pink);border-radius:8px;padding:1px 8px;margin-left:4px">em uso</span>':''}
+          <div style="font-size:12px;color:var(--gray-5)">${_nvEsc(v.criado_por||'?')} · app ${_nvEsc(v.versao_app||'?')} · ${_nvTam(v.bytes)}</div></div>
+        ${i===0?'':`<button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="_cfgRestaurar('${_nvEsc(v.lote)}','${_nvEsc(new Date(v.criado_em).toLocaleString('pt-BR'))}')">↩ Voltar para esta versão</button>`}
+      </div>
+      <div style="font-size:12px;margin-top:6px;line-height:1.6">${_histDiff(v.detalhes,(vs[i+1]||{}).detalhes)}</div>
+    </div>`).join('')}</div>`;
+}
+async function _cfgRestaurar(lote, quando){
+  if(!confirm(`Voltar os dados do servidor para a versão de ${quando}?\n\nTodos os usuários passam a receber essa versão. A versão atual continua no histórico — dá para desfazer.`)) return;
+  try{
+    await _nvFetch('/dados/restaurar',{method:'POST',body:{lote}});
+    toast('Versão restaurada no servidor — carregando neste aparelho…');
+    _cfgHistorico();
+    await _nvConferirAtualizacao('');
+  }catch(e){ toast('Não restaurou: '+e.message,'error'); }
 }
 async function _cfgServidor(){
   const el=document.getElementById('cfg-srv'); if(!el) return;
