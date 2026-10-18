@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.223</span>
+      ">v2.14.224</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -7943,6 +7943,9 @@ function _fxLancamentos(){
       out.push({ dt:r.dtbx, cia:_fxCiaDaFilial(f,c), tipo:'E', valor:v, grupo:r.origem==='pagarme'?'RECEBIMENTOS CARTÃO':'RECEBIMENTOS DE CLIENTES',
         desc:nomeCli(r.c)||('Cliente '+(r.c||'—')), doc:`Título ${r.t}/${r.d||''}`, extra:'filial '+f }); });
   }
+  // v224: textos sempre em MAIÚSCULAS (contas, fornecedores, clientes, CIAs) — a base mistura "Despesas de Manutenção" e "DESPESAS DE MANUTENÇÃO"
+  const UP=t=>String(t==null?'':t).toLocaleUpperCase('pt-BR').replace(/\s+/g,' ').trim();
+  out.forEach(l=>{ l.grupo=UP(l.grupo); l.desc=UP(l.desc); l.cia=UP(l.cia); l.doc=UP(l.doc); });
   return out.filter(l=>/^\d{4}-\d{2}-\d{2}/.test(l.dt));
 }
 function _fxFiltrar(){ window._fxP=1; renderFluxo(); }
