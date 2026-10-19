@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.233</span>
+      ">v2.14.234</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1172,6 +1172,7 @@ async function renderUsuarios(){
           <td style="font-size:12px">${!u.ativo?'<span style="color:var(--red)">desativado</span>':u.convite_expira?`<span style="color:#B45309">convite pendente</span><div style="font-size:10.5px;color:var(--gray-5)">vale até ${new Date(u.convite_expira).toLocaleString('pt-BR')}</div>`:'<span style="color:var(--green)">ativo</span>'}</td>
           <td style="font-size:11px">${u.ultimo_login?new Date(u.ultimo_login).toLocaleString('pt-BR'):'—'}</td>
           <td style="white-space:nowrap"><button class="btn btn-secondary" style="padding:4px 10px" onclick="_usuEditar(${u.id})">Alterar</button>
+            <button class="btn btn-secondary" style="padding:4px 10px" title="PDF com as telas exatamente como este usuário vê (módulos e representantes liberados)" onclick="_usuPrevia(${u.id})">👁 Prévia</button>
             ${u.ativo?`<button class="btn btn-secondary" style="padding:4px 10px" title="Gera um link novo (primeiro acesso ou esqueceu a senha)" onclick="_usuNovoConvite(${u.id})">🔗 Convite</button>`:''}</td></tr>`).join('')}</tbody></table></div></div></div>`;
 }
 function _usuEditar(id){
@@ -1316,6 +1317,62 @@ async function _usuSalvar(id){
        if(r && r.convite) _usuMostrarConvite(corpo.nome, corpo.email, r.convite); else closeModal();
        if(USER && id===USER.id) _sessaoAtualizar(); }
   catch(e){ toast(e.message,'error'); }
+}
+// v234: PRÉVIA EM PDF — "como este usuário vê". O servidor devolve a mesma cópia filtrada que ele receberia; o app troca
+// os dados e o usuário por alguns segundos, desenha cada módulo liberado, fotografa a tela e volta tudo como estava.
+// Nada é gravado (o salvamento automático fica parado durante a prévia).
+function _previaCapturar(){
+  const vivo=document.getElementById('content'); const cl=vivo.cloneNode(true);
+  const cv1=vivo.querySelectorAll('canvas'), cv2=cl.querySelectorAll('canvas');
+  cv1.forEach((c,i)=>{ try{ const img=document.createElement('img'); img.src=c.toDataURL('image/png'); img.style.cssText='max-width:100%;height:auto'; cv2[i].replaceWith(img); }catch(e){} });
+  cl.querySelectorAll('input,select,textarea').forEach(e=>{ if(e.tagName==='SELECT'){ const o=e.options[e.selectedIndex]; if(o) o.setAttribute('selected',''); } else e.setAttribute('value',e.value||''); });
+  return cl.innerHTML;
+}
+async function _usuPrevia(id){
+  const u=(_usuCache.usuarios||[]).find(x=>x.id===id); if(!u) return;
+  if(_asRodando) return toast('Aguarde terminar de salvar no servidor','error');
+  toast(`Montando a prévia de ${u.nome}… (alguns segundos)`);
+  let obj;
+  try{ obj=JSON.parse(await _nvFetchTexto('/usuarios/'+id+'/previa')); }catch(e){ return toast('Prévia: '+e.message,'error'); }
+  const mods=(_usuCache.modulos||[]).filter(m=>!_PAGINAS_ADMIN.includes(m.id) && (u.perfil==='admin' || _normAcoes((u.permissoes||{})[m.id])));
+  if(!mods.length) return toast(`${u.nome} não tem nenhum módulo liberado`,'error');
+  window._previaAtiva=true;
+  const bakDB={}; Object.keys(DB).forEach(k=>bakDB[k]=DB[k]);
+  const bakUser=USER, bakPage=CURRENT_PAGE, paginas=[];
+  try{
+    Object.keys(DB).forEach(k=>{ const v=bakDB[k]; DB[k]=(obj.db&&k in obj.db)?obj.db[k]:(Array.isArray(v)?[]:(v&&typeof v==='object')?{}:v); });
+    Object.keys(obj.db||{}).forEach(k=>{ if(!(k in bakDB)) DB[k]=obj.db[k]; });
+    USER=Object.assign({},bakUser,{id:u.id,nome:u.nome,email:u.email,cargo:u.cargo,perfil:u.perfil,permissoes:u.permissoes||{},modulos:_usuCache.modulos});
+    for(const m of mods){
+      try{ navigate(m.id); await new Promise(r=>setTimeout(r,500)); paginas.push({nome:m.nome, id:m.id, html:_previaCapturar()}); }
+      catch(e){ paginas.push({nome:m.nome, id:m.id, html:`<div style="color:#c0392b">Não foi possível montar esta tela: ${_nvEsc(e.message)}</div>`}); }
+    }
+  } finally {
+    Object.keys(DB).forEach(k=>{ if(!(k in bakDB)) delete DB[k]; });
+    Object.keys(bakDB).forEach(k=>{ DB[k]=bakDB[k]; });
+    USER=bakUser; window._previaAtiva=false; _aplicarPermissoes();
+    try{ navigate(bakPage||'usuarios'); }catch(e){}
+  }
+  const R=(u.permissoes||{})._reps||[];
+  const nomeRep=c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(c)); return c+' · '+(r?(r.fantasia||r.nome):''); };
+  const acoes=m=>{ if(u.perfil==='admin') return 'tudo'; const a=_normAcoes((u.permissoes||{})[m.id])||{}; return _ACOES.filter(x=>a[x]).map(x=>_ACOES_NOME[x]).join(', '); };
+  const estilos=[...document.querySelectorAll('style')].map(x=>x.outerHTML).join('');
+  const quando=new Date().toLocaleString('pt-BR');
+  const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Prévia de acesso — ${_nvEsc(u.nome)}</title>${estilos}
+    <style>@page{size:A4 landscape;margin:8mm}html,body{background:#525659!important;overflow:auto!important;height:auto!important}body{display:block!important;padding:16px 0!important;margin:0!important}
+    .pv{width:277mm;max-width:100%;background:#fff;margin:0 auto 16px;padding:10mm;box-shadow:0 3px 14px rgba(0,0,0,.45)}
+    .pv-h{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #C85E8A;padding-bottom:6px;margin-bottom:10px}
+    .pv-h img{height:30px}.pv-t{font-weight:700;color:#C85E8A;font-size:15px}.pv-c{zoom:.72}
+    .pv-c .btn,.pv-c button{pointer-events:none}.pv-cap{font-size:12px;line-height:1.6}
+    @media print{html,body{background:#fff!important}.pv{box-shadow:none;margin:0;width:auto;page-break-after:always}.pv:last-child{page-break-after:auto}}</style></head><body>
+    <div class="pv"><div class="pv-h">${_logoRel()?`<img src="${_logoRel()}">`:'<b>Pink Poá</b>'}<div class="pv-t">Prévia de acesso — como ${_nvEsc(u.nome)} vê o sistema</div><div style="font-size:10px;color:#888">${quando}</div></div>
+      <div class="pv-cap"><b>Usuário:</b> ${_nvEsc(u.nome)} · ${_nvEsc(u.email)}${u.cargo?' · '+_nvEsc(u.cargo):''} · ${u.perfil==='admin'?'<b>Administrador</b>':'Usuário'}<br>
+      <b>Módulos liberados:</b><br>${mods.map(m=>`&nbsp;&nbsp;• <b>${_nvEsc(m.nome)}</b>: ${_nvEsc(acoes(m))}`).join('<br>')}<br>
+      <b>Representantes:</b> ${R.length?R.map(c=>_nvEsc(nomeRep(c))).join(' · '):'todos (sem restrição)'}<br>
+      <span style="color:#888">As páginas a seguir são as telas montadas com os mesmos dados que o servidor entrega a este usuário.</span></div></div>
+    ${paginas.map(pg=>`<div class="pv"><div class="pv-h">${_logoRel()?`<img src="${_logoRel()}">`:''}<div class="pv-t">${_nvEsc(pg.nome)}</div><div style="font-size:10px;color:#888">${_nvEsc(u.nome)}</div></div><div class="pv-c">${pg.html}</div></div>`).join('')}
+    </body></html>`;
+  abrirPDFOverlay(html);
 }
 async function _usuNovoConvite(id){
   const u=(_usuCache.usuarios||[]).find(x=>x.id===id)||{};
@@ -10058,7 +10115,7 @@ function _asMarcarBase(ref){ if(ref!==undefined) _asRef=ref; setTimeout(()=>{ tr
 function _asIndicador(t){ const el=document.getElementById('api-status'); if(el){ el.dataset.auto=t; el.title='Salvamento automático: '+t; } }
 function _asAgendar(){ clearTimeout(_asTimer); _asTimer=setTimeout(_asConferir, 15000); }
 async function _asConferir(){
-  if(_asRodando || _asBase===null || _nvAutoRodando || !USER || !_nvLer(NV_TOKEN) || !_podeEditarAlgo() || _appSemDados()) return;
+  if(window._previaAtiva || _asRodando || _asBase===null || _nvAutoRodando || !USER || !_nvLer(NV_TOKEN) || !_podeEditarAlgo() || _appSemDados()) return;
   let h; try{ h=_asHashDe(_montarBackup()); }catch(e){ return; }
   if(h===_asBase) return;
   try{
@@ -10145,6 +10202,7 @@ async function _nvAutoCarregar(){
 }
 // v213: em segundo plano — se o servidor tem cópia mais nova (ou as permissões mudaram), baixa e troca
 async function _nvConferirAtualizacao(refAtual){
+  if(window._previaAtiva) return;
   try{
     await _sessaoAtualizar();
     const v=await _nvUltima();

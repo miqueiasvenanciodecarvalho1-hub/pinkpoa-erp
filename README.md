@@ -113,6 +113,9 @@ flowchart LR
 - **🔎 Buscar no cadastro** (topo da tela do usuário): digite nome, código, e-mail ou CNPJ. Escolhendo um **representante**,
   o app preenche nome, e-mail e cargo, marca Faturamento/Comissões/Recebíveis/Clientes/Vendas em consulta + relatórios e
   libera só os dados dele. Escolhendo um **usuário**, copia os acessos dele (módulos e representantes). Tudo pode ser ajustado antes de salvar.
+- **👁 Prévia** (na linha de cada usuário): gera um PDF com as telas de cada módulo liberado exatamente como essa pessoa
+  vê — mesmos dados que o servidor entrega a ela (módulos, ações e representantes) — com uma capa resumindo os acessos.
+  Serve para conferir antes de enviar o convite. Nada é gravado.
 - **Acesso por representante:** no cadastro do usuário, em "Representantes que este usuário enxerga", escolha **Todos** ou
   **Somente os marcados** (com busca). Ele passa a ver só o faturamento, as comissões, os recebíveis, as vendas e os
   clientes desses representantes — os totais da empresa não aparecem — e o servidor recusa gravar registros de outros
