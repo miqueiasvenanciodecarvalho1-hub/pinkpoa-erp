@@ -549,7 +549,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.243</span>
+      ">v2.14.244</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -11258,12 +11258,12 @@ function _resumoComiDados(){
     }
     return gr;
   };
+  // v244: o recorte por representante/grupo é feito só no FIM (_sel). Aqui entram todos do período, senão a comissão
+  // compartilhada de uma origem fora do filtro (ex.: TT - TAINA/TATIANA → TAINA) não chegava ao destino.
   let dados = (DB.comissoes||[]).slice();
-  if(filtReps.length) dados = dados.filter(c=>filtReps.includes(String(c.codigo_rep)));
   if(filtComp) dados = dados.filter(c=>c.competencia===filtComp);
   if(filtMes)  dados = dados.filter(c=>(c.competencia_raw||'').slice(5,7)===filtMes);
   if(filtAno)  dados = dados.filter(c=>(c.competencia_raw||'').slice(0,4)===filtAno);
-  if(_resumoGrupoSel) dados = dados.filter(c=>_grpDe(c.codigo_rep)===_resumoGrupoSel);
   const g = {};
   dados.forEach(c=>{
     const cod = String(c.codigo_rep);
@@ -11335,8 +11335,8 @@ function _resumoComiDados(){
   // aparecendo DENTRO do bloco do selecionado (linha 'TT - TAINA/TATIANA' na hierarquia da TAINA).
   let _arr = Object.values(g);
   let _sel = filtReps.slice();
-  if(!_sel.length && _resumoGrupoSel)
-    _sel = Object.values(g).filter(r=>_grpDe(r.cod)===_resumoGrupoSel).map(r=>String(r.cod));
+  if(_resumoGrupoSel){ const _sg=Object.values(g).filter(r=>_grpDe(r.cod)===_resumoGrupoSel).map(r=>String(r.cod));
+    _sel = _sel.length ? _sel.filter(c=>_sg.includes(c)) : _sg; if(!_sel.length) _sel=['@nenhum']; }
   if(_sel.length) _arr = _arr.filter(r=>_sel.includes(String(r.cod)));
   if(typeof resumoAgruparGrupo!=='undefined' && resumoAgruparGrupo){
     const gg = {};
@@ -11504,14 +11504,25 @@ function _hierarquiaResumoHTML(compRaw, topo){
   const cobre=(t,r)=>{ const k=String(t.key||''); if(r.cod!=null && (k==='rep:'+r.cod || (t.membrosArr||[]).some(m=>String(m.cod)===String(r.cod)))) return true; return _nm(t.nome)===_nm(r.nome); };
   const soltos=(topo||[]).filter(r=>Math.abs(r.comi||0)>=0.005 && !comTeams.some(t=>cobre(t,r)));
   if(!comTeams.length && !soltos.length) return '';
+  // v244: supervisionado aparece só como SUPERVISÃO (a comissão própria dele não é do supervisor e não está no total
+  // de cima); cada bloco tem subtotal de vendas próprias, supervisão e compartilhada.
+  comTeams.forEach(t=>{ const sc=new Set(t.superv.map(x=>String(x.rep)));
+    t._memb=t.membrosArr.filter(m=>(m.liq||m.fat) && !sc.has(String(m.cod)));
+    t._prop=t._memb.reduce((s,m)=>s+(m.liq||0),0); t._tot=t._prop+(t.totalSuperv||0)+(t.totalCompart||0); });
+  const _sub=(rot,base,v)=>`<tr><td style="text-align:right;font-size:10px;font-weight:700;color:#555">${rot}</td><td class="r" style="font-size:10px;font-weight:700;color:#555">${base!=null?_fmt(base):''}</td><td></td><td class="r" style="font-size:10px;font-weight:700;color:#555;border-top:1px solid #ccc">${_fmt(v)}</td></tr>`;
   const rows=comTeams.map(t=>{
     const sup=t.superv.filter(_supVisivel).map(it=>`<tr><td style="padding-left:18px">↳ ${it.nome} <span style="color:#E8368F;font-size:9px;font-weight:700">SUPERVISÃO</span></td><td class="r">${_fmt(it.base)}</td><td class="r">${it.taxa.toFixed(2).replace('.',',')}%</td><td class="r">${_fmt(it.valor)}</td></tr>`).join('');
     const comp=(t.compart||[]).map(it=>`<tr><td style="padding-left:18px">↳ recebe de ${it.de} <span style="color:#0d9488;font-size:9px;font-weight:700">COMPARTILHADA</span></td><td class="r">${it.base?_fmt(it.base):'—'}</td><td class="r">${it.pct}%</td><td class="r">${_fmt(it.valor)}</td></tr>`).join('');
-    const membros=t.membrosArr.filter(m=>m.liq||m.fat).map(m=>`<tr><td style="padding-left:18px">↳ ${m.nome} <span style="color:#888;font-size:9px">própria</span></td><td class="r">${_fmt((m.fat||0)-(m.abat||0))}</td><td class="r">${m.taxa?m.taxa.toFixed(2).replace('.',',')+'%':'—'}</td><td class="r">${_fmt(m.liq)}</td></tr>`).join('');
-    return `<tr class="team"><td colspan="4" style="font-weight:800;background:#f0f0f5">${t.nome}</td></tr>${membros}${sup}${comp}<tr class="tot"><td style="text-align:right;font-weight:700">Total ${t.nome} (própria ${_fmt(t.totalProprio)} + supervisão ${_fmt(t.totalSuperv)} + compartilhada ${_fmt(t.totalCompart||0)})</td><td></td><td></td><td class="r" style="font-weight:800">${_fmt(t.total)}</td></tr>`;
+    const membros=t._memb.map(m=>`<tr><td style="padding-left:18px">↳ ${m.nome} <span style="color:#888;font-size:9px">própria</span></td><td class="r">${_fmt((m.fat||0)-(m.abat||0))}</td><td class="r">${m.taxa?m.taxa.toFixed(2).replace('.',',')+'%':'—'}</td><td class="r">${_fmt(m.liq)}</td></tr>`).join('');
+    const nS=t.superv.length, nC=(t.compart||[]).length;
+    return `<tr class="team"><td colspan="4" style="font-weight:800;background:#f0f0f5">${t.nome}</td></tr>`
+      +(membros?membros+_sub('Subtotal vendas próprias', t._memb.reduce((s,m)=>s+(m.fat||0)-(m.abat||0),0), t._prop):'')
+      +(nS?sup+_sub('Subtotal supervisão', t.superv.reduce((s,x)=>s+(x.base||0),0), t.totalSuperv||0):'')
+      +(nC?comp+_sub('Subtotal compartilhada', t.compart.reduce((s,x)=>s+(x.base||0),0), t.totalCompart||0):'')
+      +`<tr class="tot"><td style="text-align:right;font-weight:700">Total ${t.nome}</td><td></td><td></td><td class="r" style="font-weight:800">${_fmt(t._tot)}</td></tr>`;
   }).join('') + soltos.map(r=>{ const tx=r._tipo==='gestor'?r.pct:(r.fat?r.comi/r.fat*100:0);
     return `<tr class="team"><td colspan="4" style="font-weight:800;background:#f0f0f5">${r.nome}</td></tr><tr><td style="padding-left:18px">↳ ${r.nome} <span style="color:#888;font-size:9px">${r._tipo==='gestor'?'sobre o faturamento':'própria'}</span></td><td class="r">${_fmt(r.fat)}</td><td class="r">${tx?(+tx).toFixed(2).replace('.',',')+'%':'—'}</td><td class="r">${_fmt(r.comi)}</td></tr><tr class="tot"><td style="text-align:right;font-weight:700">Total ${r.nome}</td><td></td><td></td><td class="r" style="font-weight:800">${_fmt(r.comi)}</td></tr>`; }).join('');
-  const tHier=comTeams.reduce((s,t)=>s+(t.total||0),0)+soltos.reduce((s,r)=>s+(r.comi||0),0);
+  const tHier=comTeams.reduce((s,t)=>s+(t._tot||0),0)+soltos.reduce((s,r)=>s+(r.comi||0),0);
   const tTopo=(topo||[]).reduce((s,r)=>s+(r.comi||0),0), dif=+(tHier-tTopo).toFixed(2);
   const rodape=`<tr style="border-top:2px solid #1F3864;background:#eee"><td style="font-weight:800;font-size:12px;padding:9px 8px">TOTAL GERAL DA HIERARQUIA</td><td></td><td></td><td class="r" style="font-weight:800;font-size:12px">${_fmt(tHier)}</td></tr>`
     +(topo && Math.abs(dif)>=0.01?`<tr><td colspan="3" style="font-size:10px;color:#b45309">Diferença para o total do resumo (${_fmt(tTopo)}): membros de equipe que não estão na tabela de cima</td><td class="r" style="font-size:10px;color:#b45309">${_fmt(dif)}</td></tr>`:'');
