@@ -549,7 +549,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.244</span>
+      ">v2.14.245</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -11273,6 +11273,7 @@ function _resumoComiDados(){
     const comi = _n(c.total_comissao)+_n(c.comi_liquida)-(_n(c.val_devolucoes)*(Number(c.taxa)||7)/100);
     if(!g[cod]) g[cod] = {cod, nome, grupo: _grpDe(cod), fat:0, comi:0};
     g[cod].fat += fat; g[cod].comi += comi;
+    g[cod].prop=(g[cod].prop||0)+comi; g[cod].fatP=(g[cod].fatP||0)+fat;   // v245: venda própria (para o detalhamento)
   });
   // Supervisão: soma a comissão de supervisão de cada supervisor já presente no resumo
   // (ex.: Taina Pink recebe % sobre o BOLAO). Consolidável por grupo abaixo.
@@ -11310,7 +11311,7 @@ function _resumoComiDados(){
       // (fatComp), separado da venda própria dele — não soma no faturamento do representante.
       const fatMov=_fecha ? +(fatOrig[o]-(_jaF[o]||0)).toFixed(2) : +(fatOrig[o]*pct/100).toFixed(2);
       _jaF[o]=(_jaF[o]||0)+fatMov;
-      if(g[o]){ g[o].comi-=valor; g[o].fat-=fatMov; g[o].rateado=(g[o].rateado||0)+valor; g[o].rateadoItens=(g[o].rateadoItens||[]).concat([{nome:(_ordRepNome(dst)||('Rep '+dst)), pct, valor, fat:fatMov}]); g[o]._vinc=(g[o]._vinc||[]).concat([dst]); }
+      if(g[o]){ g[o].comi-=valor; g[o].fat-=fatMov; g[o].prop=(g[o].prop||0)-valor; g[o].fatP=(g[o].fatP||0)-fatMov; g[o].rateado=(g[o].rateado||0)+valor; g[o].rateadoItens=(g[o].rateadoItens||[]).concat([{nome:(_ordRepNome(dst)||('Rep '+dst)), pct, valor, fat:fatMov}]); g[o]._vinc=(g[o]._vinc||[]).concat([dst]); }
       if(!g[dst]) g[dst]={cod:dst, nome:(_ordRepNome(dst)||('Rep '+dst)), grupo:'', fat:0, comi:0};
       g[dst].comi+=valor; g[dst].fatComp=(g[dst].fatComp||0)+fatMov; g[dst].rateio=(g[dst].rateio||0)+valor; g[dst].rateioItens=(g[dst].rateioItens||[]).concat([{nome:(_ordRepNome(o)||('Rep '+o)), pct, valor, fat:fatMov}]);
       g[dst]._vinc=(g[dst]._vinc||[]).concat([o]);
@@ -11342,7 +11343,8 @@ function _resumoComiDados(){
     const gg = {};
     _arr.forEach(r=>{
       const key = r.grupo ? 'g:'+r.grupo : r.cod;
-      if(!gg[key]) gg[key] = {cod:key, nome:(r.grupo||r.nome), grupo:r.grupo||'', fat:0, comi:0, superv:0, supervItens:[]};
+      if(!gg[key]) gg[key] = {cod:key, nome:(r.grupo||r.nome), grupo:r.grupo||'', fat:0, comi:0, superv:0, supervItens:[], membros:[]};
+      if(r.prop || r.fatP) gg[key].membros.push({nome:r.nome, fat:r.fatP||0, comi:r.prop||0, div:r.rateadoItens||[]});
       gg[key].fat += r.fat; gg[key].comi += r.comi; gg[key].superv += (r.superv||0);
       if(r.supervItens) gg[key].supervItens = (gg[key].supervItens||[]).concat(r.supervItens);
       // v236: a comissão compartilhada (e o faturamento que veio com ela) continua visível no grupo
@@ -11353,6 +11355,7 @@ function _resumoComiDados(){
     });
     _arr = Object.values(gg);
   }
+  _arr.forEach(r=>{ if(!r.membros) r.membros=(r.prop||r.fatP)?[{nome:r.nome, fat:r.fatP||0, comi:r.prop||0, div:r.rateadoItens||[]}]:[]; });
   return _arr.sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
 }
 
@@ -11400,6 +11403,27 @@ function _rzCompLinhas(r, fmt, cols){
     return cols==='modal'
       ? `<tr style="background:#f0fbf9"><td></td><td style="padding-left:18px;font-size:11.5px;color:#0d9488">↳ compartilhada de ${it.nome} (${it.pct}%)</td><td style="text-align:right;font-size:11.5px">${fmt(it.fat)}</td><td style="text-align:right;font-size:11.5px;font-weight:600">${fmt(it.valor)}</td><td style="text-align:right;font-size:11.5px">${med.toFixed(2).replace('.',',')}%</td></tr>`
       : `<tr style="background:#f0fbf9"><td class="nm" style="padding-left:20px;color:#0d9488;font-weight:600">↳ compartilhada de ${it.nome} (${it.pct}%)</td><td class="r pk">${fmt(it.fat)}</td><td class="r nv">${fmt(it.valor)}</td><td class="r nv">${med.toFixed(2).replace('.',',')}%</td></tr>`; }).join('');
+}
+// v245: DETALHAMENTO embaixo da linha cheia do resumo — quem forma o valor (vendas próprias de cada membro,
+// supervisão sobre cada supervisionado, compartilhada recebida). Sai dos mesmos números da linha, então fecha com ela.
+function _rzDetalhe(r, fmt){
+  const mb=(r.membros||[]).filter(m=>Math.abs(m.comi)>=0.005||Math.abs(m.fat)>=0.005), sv=(r.supervItens||[]), cp=(r.rateioItens||[]);
+  if(!sv.length && !cp.length && mb.length<=1 && !(mb[0]&&(mb[0].div||[]).length)) return '';
+  const pc=v=>(+v||0).toFixed(2).replace('.',',')+'%';
+  const f=(window._comiReps||[]).map(String), noFiltro=nome=>!f.length || f.some(c=>(_ordRepNome(c)||'')===nome);
+  const cab=(t,cor,base,v)=>`<tr class="det"><td style="padding:4px 8px 2px 18px;font-size:9.5px;font-weight:700;color:${cor};text-transform:uppercase">${t}</td><td class="r" style="font-size:9.5px;color:#777">${fmt(base)}</td><td class="r" style="font-size:9.5px;font-weight:700;color:${cor}">${fmt(v)}</td><td></td></tr>`;
+  const it=(nome,base,tx,v,nota)=>`<tr class="det"><td style="padding:2px 8px 2px 30px;font-size:10px">↳ ${nome}${nota?`<span style="font-size:9px;color:#0d9488"> ${nota}</span>`:''}</td><td class="r" style="font-size:10px;color:#555">${fmt(base)}</td><td class="r" style="font-size:10px">${fmt(v)}</td><td class="r" style="font-size:10px;color:#777">${tx}</td></tr>`;
+  let h='';
+  if(mb.length){ h+=cab('Vendas próprias','#555', mb.reduce((s,m)=>s+m.fat,0), mb.reduce((s,m)=>s+m.comi,0));
+    h+=mb.slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR')).map(m=>{ const d=(m.div||[]); const vis=d.filter(x=>noFiltro(x.nome)), out=d.filter(x=>!noFiltro(x.nome));
+      const nota=d.length?'(após dividir '+vis.map(x=>x.pct+'% com '+x.nome).concat(out.length?[out.reduce((s,x)=>s+x.pct,0)+'% com outros']:[]).join(', ')+')':'';
+      return it(m.nome, m.fat, m.fat?pc(m.comi/m.fat*100):'—', m.comi, nota); }).join(''); }
+  if(sv.length){ const by={}; sv.forEach(x=>{ const k=x.nome; if(!by[k]) by[k]={nome:k, base:0, valor:0, taxa:x.taxa}; by[k].base+=x.base; by[k].valor+=x.valor; });
+    const a=Object.values(by).sort((x,y)=>String(x.nome).localeCompare(String(y.nome),'pt-BR'));
+    h+=cab('Supervisão','#E8368F', a.reduce((s,x)=>s+x.base,0), a.reduce((s,x)=>s+x.valor,0)) + a.map(x=>it(x.nome, x.base, pc(x.taxa), x.valor)).join(''); }
+  if(cp.length){ h+=cab('Compartilhada recebida','#0d9488', cp.reduce((s,x)=>s+(x.fat||0),0), cp.reduce((s,x)=>s+x.valor,0))
+    + cp.slice().sort((x,y)=>String(x.nome).localeCompare(String(y.nome),'pt-BR')).map(x=>it('recebe de '+x.nome, x.fat||0, pc(x.pct), x.valor)).join(''); }
+  return h;
 }
 function _rzNotaOrigem(r, fmt){
   if(!(r.rateadoItens||[]).length) return '';
@@ -11555,17 +11579,6 @@ function gerarResumoComiPDF(){
   const tComi= reps.reduce((s,r)=>s+r.comi,0) + _gest.reduce((s,g)=>s+g.comi,0);
   const tMed = tFat?(tComi/tFat*100):0;
   const periodo = _resumoPeriodoLabel();
-  let _hier='';
-  // linhas da tabela de cima (já consolidadas como saem no PDF com hierarquia) — a hierarquia fecha com elas
-  const _topoHier=()=>[...reps.filter(r=>!((r.rateadoItens||[]).length && Math.abs(r.fat)<0.005 && Math.abs(r.comi)<0.005)).map(r=>({...r, fat:r.fat+(r.fatComp||0), _tipo:'rep'})), ..._gest.map(g=>({...g,_tipo:'gestor'}))];
-  if(window._resumoHierarquia){
-    const _mes=(document.getElementById('filtro-mes-com')||{}).value||'';
-    const _ano=(document.getElementById('filtro-ano-com')||{}).value||'';
-    let comps;
-    if(_mes&&_ano) comps=[_ano+'-'+_mes];
-    else comps=[...new Set((DB.comissoes||[]).map(c=>c.competencia_raw).filter(Boolean))].sort().reverse().slice(0,1);
-    _hier=comps.map(cr=>_hierarquiaResumoHTML(cr, comps.length===1?_topoHier():null)).join('');
-  }
   // carimbo do filtro ativo — se o PDF sai com mais reps do que o filtro, o problema é código;
   // se sai sem filtro nenhum, a seleção não chegou até aqui.
   const _fr=(window._comiReps||[]).map(String);
@@ -11575,15 +11588,16 @@ function gerarResumoComiPDF(){
   const logoSrc = _logoRel()||'';
   // v241: com a HIERARQUIA no PDF, a tabela de cima mostra cada pessoa UMA vez, já com o total (própria + compartilhada,
   // base junto); o detalhe fica só na hierarquia. Origem totalmente dividida (zerada) sai da tabela.
-  const _comHier = !!_hier;
+  // v245: o detalhamento sai EMBAIXO da linha cheia (uma soma só) — não há mais a seção separada com outro total.
+  const _comHier = !!window._resumoHierarquia;
   const _repsTab = _comHier
     ? reps.filter(r=>!((r.rateadoItens||[]).length && Math.abs(r.fat)<0.005 && Math.abs(r.comi)<0.005))
-          .map(r=>({...r, fat:r.fat+(r.fatComp||0), rateio:0, fatComp:0, rateioItens:[], rateadoItens:[]}))
+          .map(r=>({...r, fat:r.fat+(r.fatComp||0), rateio:0, fatComp:0, _det:_rzDetalhe(r,_fmt), rateioItens:[], rateadoItens:[]}))
     : reps;
   const _todos = [..._repsTab.map(r=>({...r,_tipo:'rep'})), ..._gest.map(g=>({...g,_tipo:'gestor'}))].sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
   const linhas = _todos.map(r=> r._tipo==='gestor'
       ? `<tr><td class="nm">${r.nome}<br><span style="font-size:9px;color:#1b6b3a;font-weight:600">comissão sobre faturamento${r.filial?(' · Fil. '+r.filial):''}</span></td><td class="r pk">${_fmt(r.fat)}</td><td class="r nv">${_fmt(r.comi)}</td><td class="r nv">${r.pct.toFixed(2).replace('.',',')}%</td></tr>`
-      : `<tr><td class="nm">${r.nome}${r.superv?`<br><span style="font-size:9px;color:#8e44ad;font-weight:600">inclui supervisão: ${_fmt(r.superv)}</span>`:''}${_rzNotaOrigem(r,_fmt)}</td><td class="r pk">${_fmt(r.fat)}</td><td class="r nv"${(r.comi-(r.rateio||0))<0?' style="color:#c0392b"':''}>${_fmt(r.comi-(r.rateio||0))}${(r.comi-(r.rateio||0))<0?' - Comissão negativa':''}</td><td class="r nv">${(r.fat?((r.comi-(r.rateio||0))/r.fat*100):0).toFixed(2).replace('.',',')}%</td></tr>${_rzCompLinhas(r,_fmt,'pdf')}`
+      : `<tr><td class="nm">${r.nome}${r.superv&&!r._det?`<br><span style="font-size:9px;color:#8e44ad;font-weight:600">inclui supervisão: ${_fmt(r.superv)}</span>`:''}${_comHier?'':_rzNotaOrigem(r,_fmt)}</td><td class="r pk">${_fmt(r.fat)}</td><td class="r nv"${(r.comi-(r.rateio||0))<0?' style="color:#c0392b"':''}>${_fmt(r.comi-(r.rateio||0))}${(r.comi-(r.rateio||0))<0?' - Comissão negativa':''}</td><td class="r nv">${(r.fat?((r.comi-(r.rateio||0))/r.fat*100):0).toFixed(2).replace('.',',')}%</td></tr>${r._det||''}${_rzCompLinhas(r,_fmt,'pdf')}`
     ).join('');
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Resumo de Comissões — ${periodo}</title><style>`
     + `@page{size:A4 portrait;margin:0}*{box-sizing:border-box;margin:0;padding:0}html{background:#525659;color-scheme:light}body{font-family:Arial,sans-serif;font-size:11px;color:#1a1a1a;background:#525659;padding:18px 12px 0}`
@@ -11593,7 +11607,7 @@ function gerarResumoComiPDF(){
     + `table{width:100%;border-collapse:collapse}th{padding:8px 8px;font-size:11px;font-weight:700;color:#fff;text-align:left}`
     + `th.h-pk{background:#C85E8A}th.h-nv{background:#1F3864}th.r{text-align:right}`
     + `td{padding:6px 8px;font-size:11px;border-bottom:1px solid #eee}td.r{text-align:right}td.nm{font-weight:600}td.pk{color:#333}td.nv{color:#1F3864;font-weight:600}`
-    + `tbody tr:nth-child(even){background:#fbf3f8}`
+    + `tbody tr:nth-child(even){background:#fbf3f8}tbody tr.det{background:#fff}tbody tr.det td{border-bottom:1px dotted #eee}`
     + `tfoot tr{background:#eee;font-weight:800;border-top:2px solid #1F3864}tfoot td{padding:9px 8px;font-size:12px}`
     + `.no-print{margin:0 0 20px;text-align:center}`
     + `@media print{html,body{background:#fff;padding:0}.page{width:auto;margin:0;box-shadow:none;padding:12mm}.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`
@@ -11604,7 +11618,6 @@ function gerarResumoComiPDF(){
     + `<table><thead><tr><th class="h-pk">NOME</th><th class="h-pk r">FATURAMENTO BASE DE CÁLCULO (R$)</th><th class="h-nv r">VALOR DA COMISSÃO</th><th class="h-nv r">MÉDIA COMISSÃO (%)</th></tr></thead>`
     + `<tbody>${linhas}</tbody>`
     + `<tfoot><tr><td>TOTAL DE COMISSÃO À PAGAR</td><td class="r">${_fmt(tFat)}</td><td class="r"${tComi<0?' style="color:#c0392b"':''}>${_fmt(tComi)}${tComi<0?' - Comissão negativa':''}</td><td class="r">${tMed.toFixed(2).replace('.',',')}%</td></tr></tfoot></table>`
-    + _hier
     + `</div></body></html>`;
   abrirPDFOverlay(html);
 }
