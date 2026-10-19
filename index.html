@@ -560,7 +560,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.260</span>
+      ">v2.14.261</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1277,7 +1277,9 @@ function _usuResumo(u, mods){
   const rp=R.length?`<span title="${_nvEsc(R.map(c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(c)); return c+' '+(r?(r.fantasia||r.nome):''); }).join(', '))}" style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#FCE7F3;color:#9d174d">👤 ${R.length} representante(s)</span>`:'';
   const PT=_periodoTexto((u.permissoes||{})._periodo);
   const pp=PT?`<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#EDE9FE;color:#5B21B6">📅 ${_nvEsc(PT)}</span>`:'';
-  return (ls||'<span style="color:var(--red)">nenhum módulo</span>')+rp+pp;
+  const LV=(u.permissoes||{})._repsLivres||[];   // v261: módulos com dados da empresa toda
+  const lv=R.length&&LV.length?`<span title="Dados da empresa toda nestes módulos${(u.permissoes||{})._repsNomes?' (com nomes dos representantes)':' (outros representantes sem nome)'}" style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#E0E7FF;color:#3730A3">🌐 ${_nvEsc(LV.map(id=>((mods.find(m=>m.id===id)||{}).nome||id)).join(', '))}</span>`:'';
+  return `<div style="white-space:normal;display:flex;flex-wrap:wrap;gap:2px;max-width:460px">${(ls||'<span style="color:var(--red)">nenhum módulo</span>')+rp+lv+pp}</div>`;
 }
 async function renderUsuarios(){
   const c=document.getElementById('content');
@@ -1293,7 +1295,7 @@ async function renderUsuarios(){
         <tbody>${(_usuCache.usuarios||[]).map(u=>`<tr style="border-bottom:1px solid var(--gray-1)">
           <td style="padding:8px"><b>${_nvEsc(u.nome)}</b></td><td style="white-space:nowrap;font-size:12px">${u.cpf?_cpfFmt(u.cpf):'<span style="color:#B45309">falta CPF</span>'}</td><td>${_nvEsc(u.email)}</td><td>${_nvEsc(u.cargo||'')}</td>
           <td style="max-width:420px">${_usuResumo(u,mods)}</td>
-          <td style="font-size:12px">${!u.ativo?'<span style="color:var(--red)">desativado</span>':u.convite_expira?`<span style="color:#B45309">convite pendente</span><div style="font-size:10.5px;color:var(--gray-5)">vale até ${new Date(u.convite_expira).toLocaleString('pt-BR')}</div>`:'<span style="color:var(--green)">ativo</span>'}</td>
+          <td style="font-size:12px;min-width:120px;white-space:normal;padding-left:10px">${!u.ativo?'<span style="color:var(--red)">desativado</span>':u.convite_expira?`<span style="color:#B45309">convite pendente</span><div style="font-size:10.5px;color:var(--gray-5)">vale até ${new Date(u.convite_expira).toLocaleString('pt-BR')}</div>`:'<span style="color:var(--green)">ativo</span>'}</td>
           <td style="font-size:11px">${u.ultimo_login?new Date(u.ultimo_login).toLocaleString('pt-BR'):'—'}</td>
           <td style="white-space:nowrap"><button class="btn btn-secondary" style="padding:4px 10px" onclick="_usuEditar(${u.id})">Alterar</button>
             <button class="btn btn-secondary" style="padding:4px 10px" title="PDF com as telas exatamente como este usuário vê (módulos e representantes liberados)" onclick="_usuPrevia(${u.id})">👁 Prévia</button>
@@ -1365,6 +1367,7 @@ function _usuRepsHtml(u){
         return `<div style="margin-top:10px;padding:8px 10px;border:1px dashed var(--gray-3);border-radius:var(--radius);background:var(--gray-1)">
           <div style="font-size:12.5px;font-weight:700">Módulos com os dados da EMPRESA TODA <span style="font-weight:400;color:var(--gray-5);font-size:11px">(a trava acima não vale neles — ex.: gestor vê Vendas e Compras completos e só a comissão dele)</span></div>
           <div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px">${ms.map(m=>`<label style="display:inline-flex;gap:5px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" class="uu-livre" value="${m.id}" ${liv.has(m.id)?'checked':''}> ${_nvEsc(m.nome)}</label>`).join('')}</div>
+          <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:8px;cursor:pointer"><input type="checkbox" id="uu-repsnomes" ${(u.permissoes||{})._repsNomes?'checked':''}> Mostrar os <b>nomes</b> dos outros representantes nesses módulos <span style="color:var(--gray-5);font-size:11px">(desmarcado = aparecem juntos como "OUTROS REPRESENTANTES")</span></label>
           <div style="font-size:10.5px;color:var(--gray-5);margin-top:4px">Comissão de outro representante NUNCA aparece: Comissões, supervisões, rateios e gestores ficam sempre travados, e os dados liberados vão sem a comissão/taxa de cada nota e sem a taxa e o banco dos outros representantes. O módulo também precisa estar liberado em "Acessos por módulo".</div></div>`; })()}
     </div></div>`;
 }
@@ -1477,6 +1480,7 @@ async function _usuSalvar(id){
     if(!reps.length) return toast('Marque pelo menos um representante (ou escolha "Todos")','error');
     permissoes._reps=reps;
     const liv=[...document.querySelectorAll('.uu-livre:checked')].map(c=>c.value); if(liv.length) permissoes._repsLivres=liv;   // v257
+    if(liv.length && (document.getElementById('uu-repsnomes')||{}).checked) permissoes._repsNomes=true;   // v261
   }
   const _bx=document.getElementById('uu-baixas'); if(_bx) permissoes._baixas=!!_bx.checked;   // v250
   const _per=_usuPeriodoLer();   // v239
@@ -1516,6 +1520,10 @@ async function _usuPrevia(id){
   try{
     Object.keys(DB).forEach(k=>{ const v=bakDB[k]; DB[k]=(obj.db&&k in obj.db)?obj.db[k]:(Array.isArray(v)?[]:(v&&typeof v==='object')?{}:v); });
     Object.keys(obj.db||{}).forEach(k=>{ if(!(k in bakDB)) DB[k]=obj.db[k]; });
+    // v261: compras moram nas configurações locais — a prévia usa as que vieram na cópia do usuário
+    const _loc=obj.local||{}, _lj=(k,d)=>{ try{ return _loc[k]!=null?JSON.parse(_loc[k]):d; }catch(e){ return d; } };
+    [['compras','pinkpoa_compras',[]],['compras_map','pinkpoa_compras_map',{}],['compras_grupos','pinkpoa_compras_grupos',{}],['compras_forn_grupos','pinkpoa_compras_forn_grupos',{}],['compras_forn_excluidos','pinkpoa_compras_forn_excl',[]]]
+      .forEach(([k,lk,d])=>{ const v=DB[k]; const vazio=!v || (Array.isArray(v)?!v.length:!Object.keys(v).length); if(vazio && _loc[lk]!=null) DB[k]=_lj(lk,d); });
     USER=Object.assign({},bakUser,{id:u.id,nome:u.nome,email:u.email,cargo:u.cargo,perfil:u.perfil,permissoes:u.permissoes||{},modulos:_usuCache.modulos});
     for(const m of mods){
       try{ navigate(m.id); await new Promise(r=>setTimeout(r,500)); paginas.push({nome:m.nome, id:m.id, html:_previaCapturar()}); }
@@ -12568,6 +12576,8 @@ const _COMPRAS_FGRP_KEY='pinkpoa_compras_forn_grupos';
 const _COMPRAS_EXCL_KEY='pinkpoa_compras_forn_excl';
 
 function _comprasLoad(){
+  // v261: lista vazia na cópia do servidor mas com as notas nas configurações locais (onde as compras moram) → usa as locais
+  if(Array.isArray(DB.compras) && !DB.compras.length){ try{ const l=JSON.parse(localStorage.getItem(_COMPRAS_KEY)||'[]'); if(Array.isArray(l) && l.length) DB.compras=l; }catch(e){} }
   if(!Array.isArray(DB.compras)){
     try{ DB.compras = JSON.parse(localStorage.getItem(_COMPRAS_KEY)||'[]'); }catch(e){ DB.compras=[]; }
   }
