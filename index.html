@@ -549,7 +549,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.240</span>
+      ">v2.14.241</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -7516,6 +7516,12 @@ function _hierarquiaSupervisao(compRaw){
     teams[k].compart=teams[k].compart||[]; teams[k].compart.push({de:_ordRepNome(rt.origem)||('Rep '+rt.origem), pct:_n(rt.pct), valor, base});
     teams[k].totalCompart=(teams[k].totalCompart||0)+valor;
   });
+  // v241: membro que é ORIGEM de rateio fica só com a parte que não foi dividida (a dividida aparece como "recebe de"
+  // em quem recebeu) — senão, origem e destino no mesmo grupo contavam a comissão duas vezes
+  const _pctDiv={}; (DB.rateios||[]).forEach(rt=>{ const o=String(rt.origem); _pctDiv[o]=(_pctDiv[o]||0)+_n(rt.pct); });
+  Object.values(teams).forEach(t=>Object.values(t.membros).forEach(m=>{ const p=Math.min(100,_pctDiv[String(m.cod)]||0); if(!p || m._div) return;
+    const f=(100-p)/100; m._div=p; m.liq=+((m.liq||0)*f).toFixed(2); m.fat=+((m.fat||0)*f).toFixed(2); m.abat=+((m.abat||0)*f).toFixed(2);
+    m.nome=m.nome+` (após dividir ${p}%)`; }));
   return Object.values(teams).map(t=>{ t.membrosArr=Object.values(t.membros).sort((a,b)=>ordNome(a.nome,b.nome)); t.totalProprio=t.membrosArr.reduce((s,m)=>s+m.liq,0); t.totalFat=t.membrosArr.reduce((s,m)=>s+(m.fat||0),0); t.totalAbat=t.membrosArr.reduce((s,m)=>s+(m.abat||0),0); t.superv.sort((a,b)=>ordNome(a.nome,b.nome)); t.compart=(t.compart||[]).sort((a,b)=>ordNome(a.de,b.de)); t.totalCompart=t.totalCompart||0; t.total=t.totalProprio+t.totalSuperv+t.totalCompart; return t; }).filter(t=>t.total!==0||(t.totalFat||0)!==0||t.superv.length||(t.compart||[]).length).sort((a,b)=>ordNome(a.nome,b.nome));
 }
 function cardSupervisaoComissoes(compRaw){
@@ -11292,7 +11298,14 @@ function gerarResumoComiPDF(){
     ? ' · filtro: '+_fr.map(c=>{const r=(DB.representantes||[]).find(x=>String(x.codigo)===c)||{}; return r.fantasia||r.nome||('Rep '+c);}).join(', ')
     : (_grpSel? ' · grupo: '+_grpSel : ' · sem filtro de representante');
   const logoSrc = _logoRel()||'';
-  const _todos = [...reps.map(r=>({...r,_tipo:'rep'})), ..._gest.map(g=>({...g,_tipo:'gestor'}))].sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+  // v241: com a HIERARQUIA no PDF, a tabela de cima mostra cada pessoa UMA vez, já com o total (própria + compartilhada,
+  // base junto); o detalhe fica só na hierarquia. Origem totalmente dividida (zerada) sai da tabela.
+  const _comHier = !!_hier;
+  const _repsTab = _comHier
+    ? reps.filter(r=>!((r.rateadoItens||[]).length && Math.abs(r.fat)<0.005 && Math.abs(r.comi)<0.005))
+          .map(r=>({...r, fat:r.fat+(r.fatComp||0), rateio:0, fatComp:0, rateioItens:[], rateadoItens:[]}))
+    : reps;
+  const _todos = [..._repsTab.map(r=>({...r,_tipo:'rep'})), ..._gest.map(g=>({...g,_tipo:'gestor'}))].sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
   const linhas = _todos.map(r=> r._tipo==='gestor'
       ? `<tr><td class="nm">${r.nome}<br><span style="font-size:9px;color:#1b6b3a;font-weight:600">comissão sobre faturamento${r.filial?(' · Fil. '+r.filial):''}</span></td><td class="r pk">${_fmt(r.fat)}</td><td class="r nv">${_fmt(r.comi)}</td><td class="r nv">${r.pct.toFixed(2).replace('.',',')}%</td></tr>`
       : `<tr><td class="nm">${r.nome}${r.superv?`<br><span style="font-size:9px;color:#8e44ad;font-weight:600">inclui supervisão: ${_fmt(r.superv)}</span>`:''}${_rzNotaOrigem(r,_fmt)}</td><td class="r pk">${_fmt(r.fat)}</td><td class="r nv"${(r.comi-(r.rateio||0))<0?' style="color:#c0392b"':''}>${_fmt(r.comi-(r.rateio||0))}${(r.comi-(r.rateio||0))<0?' - Comissão negativa':''}</td><td class="r nv">${(r.fat?((r.comi-(r.rateio||0))/r.fat*100):0).toFixed(2).replace('.',',')}%</td></tr>${_rzCompLinhas(r,_fmt,'pdf')}`
@@ -11310,7 +11323,7 @@ function gerarResumoComiPDF(){
     + `.no-print{margin:0 0 20px;text-align:center}`
     + `@media print{html,body{background:#fff;padding:0}.page{width:auto;margin:0;box-shadow:none;padding:12mm}.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`
     + `</style></head><body><div class="page">`
-    + `<div class="hdr"><div>${logoSrc?`<img src="${logoSrc}">`:'<strong style="color:#C85E8A;font-size:16px">Pink Poá</strong>'}</div><div class="title"><h1>Resumo de Comissões</h1><h2>${periodo} · ${reps.length} representante(s)${_gest.length?(' + '+_gest.length+' gestor(es)'):''}</h2>`
+    + `<div class="hdr"><div>${logoSrc?`<img src="${logoSrc}">`:'<strong style="color:#C85E8A;font-size:16px">Pink Poá</strong>'}</div><div class="title"><h1>Resumo de Comissões</h1><h2>${periodo} · ${_repsTab.length} representante(s)${_gest.length?(' + '+_gest.length+' gestor(es)'):''}</h2>`
     + `<div style="font-size:9px;color:#888;margin-top:2px">v${APP_VER}${_filtroLbl}</div></div><div class="dt">${new Date().toLocaleDateString('pt-BR')}</div></div>`
     + `<div class="emp"><strong>${EMP.razao_social||'Pink Poá'}</strong>${EMP.cnpj?' · CNPJ '+EMP.cnpj:''}</div>`
     + `<table><thead><tr><th class="h-pk">NOME</th><th class="h-pk r">FATURAMENTO BASE DE CÁLCULO (R$)</th><th class="h-nv r">VALOR DA COMISSÃO</th><th class="h-nv r">MÉDIA COMISSÃO (%)</th></tr></thead>`
