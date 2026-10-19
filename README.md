@@ -112,6 +112,8 @@ flowchart LR
 
 ## 3. Usuários e acessos
 
+- **CPF obrigatório** no cadastro do usuário (máscara 000.000.000-00, dígitos verificadores conferidos, sem repetir entre usuários). Usuários antigos aparecem com "falta CPF" na lista.
+
 - Menu **👥 Usuários e Acessos** (só administrador): criar, alterar e desativar usuários e definir, **para cada
   módulo**, o que a pessoa pode fazer:
   - **Ver** — consultar e filtrar;
