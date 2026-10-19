@@ -562,7 +562,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.272</span>
+      ">v2.14.273</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -12137,11 +12137,12 @@ function _sincronizarFaturamentoManual(){
   // Faturamento manual lançado na Comissão (ECOM/PENT) aparece no relatório de
   // Faturamento no mês certo. Idempotente: recria as entradas manuais a cada chamada.
   if(!DB.faturamento) DB.faturamento=[];
-  DB.faturamento = DB.faturamento.filter(f=>!f.manual);
+  DB.faturamento = DB.faturamento.filter(f=>!f.manual || f._srv);   // v273: linha manual montada pelo servidor (usuário sem comissão) fica
+  const _jaSrv=new Set(DB.faturamento.filter(f=>f._srv).map(f=>String(f.id)));
   // NÃO espelha a Pronta Entrega (PENT): ela já está no faturamento como série RO (evita duplicidade).
   // O E-commerce (ECOM) vem de planilha, então continua sendo espelhado.
   // v254: comissão de GESTOR (sobre o faturamento) não é venda — não entra no faturamento
-  (DB.comissoes||[]).filter(c=>c.manual && c.origem!=='gestor' && (Number(c.total_vendas)||0)>0 && c.competencia_raw && String(c.codigo_rep)!=='PENT').forEach(c=>{
+  (DB.comissoes||[]).filter(c=>c.manual && c.origem!=='gestor' && (Number(c.total_vendas)||0)>0 && c.competencia_raw && String(c.codigo_rep)!=='PENT' && !_jaSrv.has('man_'+c.id)).forEach(c=>{
     const cod=String(c.codigo_rep||'MAN');
     const bruto=Number(c.total_vendas)||0;
     const abat=(c.abatimentos||[]).reduce((sm,a)=>sm+Math.abs(Number(a.vlorliqu)||0),0);
