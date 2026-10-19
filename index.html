@@ -560,7 +560,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.262</span>
+      ">v2.14.263</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3112,7 +3112,12 @@ function renderComissoes() {
   const tLiquida   = dados.reduce((s,c)=>s+(c.comi_liquida||0),0);
   const tVendas    = dados.reduce((s,c)=>s+(c.origem==='gestor'?0:c.total_vendas),0);   // v254: base do gestor é o faturamento da empresa, não título
   const _flCompKPI = _comFatCompAtual();   // v253: mesmo mês da comissão sobre faturamento (filtro de competência, mês/ano…)
-  const tFatLiqKPI = (typeof calcComissaoFat==='function' && _flCompKPI) ? (calcComissaoFat(_flCompKPI, filComi||'', (typeof _cfOpts==='function'?_cfOpts():{})).liquido) : 0;
+  // v263: igual ao card "Faturamento Líquido" da tela de Faturamento: notas − troca, MESMAS naturezas e filial marcadas lá,
+  // sem descontar devolução/estorno (essas escolhas são só da comissão sobre faturamento dos gestores)
+  const _ffK = (typeof _fatFiltrosSalvos==='function') ? _fatFiltrosSalvos() : {};
+  const _filK = filComi || _ffK.fil || '';
+  const _natsK = (typeof _cfNatsFat==='function') ? _cfNatsFat() : [];
+  const tFatLiqKPI = (typeof calcComissaoFat==='function' && _flCompKPI) ? (calcComissaoFat(_flCompKPI, _filK, {incTroca:true, incDevol:false, incCanc:false, soNats:_natsK}).liquido) : 0;
   const tTrocas = dados.reduce((s,c)=>s+(c.abatimentos||[]).reduce((a,x)=>a+Math.abs(Number(x.vlorliqu)||0),0),0);
   const tDevols    = dados.reduce((s,c)=>s+(c.val_devolucoes||0),0);
   const tAbatim    = dados.reduce((s,c)=>s+Math.abs(c.comi_liquida||0),0);
@@ -3175,8 +3180,8 @@ function renderComissoes() {
       </div>
       <div class="kpi-card green" style="padding:12px">
         <div class="kpi-label" style="font-size:10px">${_escopoReps()?'Faturamento líquido — seus representantes':'Faturamento Líquido'}</div>
-        <div class="kpi-value" style="font-size:16px">${fmt(tFatLiqKPI)}</div>
-        <div class="kpi-sub">notas − troca (vpfatu)${_flCompKPI?` · ${_flCompKPI}`:''}</div>
+        <div class="kpi-value" style="font-size:16px;cursor:pointer" title="Abrir o Faturamento neste mês" onclick="_kpiAbrirFat('${_flCompKPI}')">${fmt(tFatLiqKPI)}</div>
+        <div class="kpi-sub">notas − troca${_flCompKPI?` · ${(_MABR[_flCompKPI.slice(5,7)]||'')}/${_flCompKPI.slice(0,4)}`:''}${_filK?` · fil. ${_filK}`:''} · ${_natsK.length?_natsK.length+' natureza(s) do Faturamento':'todas as naturezas'} · <a style="cursor:pointer;color:var(--pink)" onclick="_kpiAbrirFat('${_flCompKPI}')">conferir ›</a></div>
       </div>
     </div>
 
@@ -7304,6 +7309,10 @@ function _cfToggle(k){ _cfIncLer(); window._cfInc=window._cfInc||{incDevol:true,
 function _cfToggleNat(cod){ _cfIncLer(); window._cfInc=window._cfInc||{}; const s=new Set((window._cfInc.excNats||[]).map(String)); cod=String(cod); if(s.has(cod)) s.delete(cod); else s.add(cod); window._cfInc.excNats=[...s]; _cfIncGravar(); modalComissaoFat(); }
 function _cfToggleRep(cod){ _cfIncLer(); window._cfInc=window._cfInc||{}; const s=new Set((window._cfInc.excReps||[]).map(String)); cod=String(cod); if(s.has(cod)) s.delete(cod); else s.add(cod); window._cfInc.excReps=[...s]; _cfIncGravar(); modalComissaoFat(); }
 
+function _kpiAbrirFat(comp){   // v263: abre o Faturamento no mesmo mês (mantém naturezas e filial já marcadas lá)
+  if(comp){ const f=_fatFiltrosSalvos(); f.mes=comp.slice(5,7); f.ano=comp.slice(0,4); try{ localStorage.setItem('pinkpoa_fat_filtros', JSON.stringify(f)); }catch(e){} }
+  navigate('faturamento');
+}
 function _comFatCompAtual(){
   const _mes=(document.getElementById('filtro-mes-com')||{}).value||'';
   const _ano=(document.getElementById('filtro-ano-com')||{}).value||'';
