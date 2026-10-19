@@ -560,7 +560,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.261</span>
+      ">v2.14.262</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5786,6 +5786,7 @@ function _scanCardHtml() {
             : 'Arraste a pasta ou use <strong>Selecionar pasta</strong> — a varredura é idêntica.'}
         </p>
         ${cabecalho}
+        ${SUPORTA_FS?_impAutoHtml():''}
       </div>
     </div>`;
   }
@@ -5854,7 +5855,7 @@ function _scanCardHtml() {
       <label style="display:flex;gap:6px;align-items:center;margin-top:10px;font-size:12px;color:var(--gray-5);text-transform:none">
         <input type="checkbox" ${_impForcar?'checked':''} onchange="_impForcar=this.checked;renderImportacao()">
         Reimportar também os arquivos que já foram importados (normalmente deixe desmarcado: só entram arquivos novos ou alterados)
-      </label></div>
+      </label>${_impAutoHtml()}</div>
     ${painelErro}
     <div class="card-table">
       <table>
@@ -5868,7 +5869,54 @@ function _scanCardHtml() {
   </div>`;
 }
 
+// v262: IMPORTAÇÃO AUTOMÁTICA — de tempos em tempos (1 h ou o intervalo escolhido) varre a pasta conectada e importa só os
+// arquivos novos/alterados. Funciona com o sistema aberto neste computador (o navegador não lê a pasta com ele fechado).
+// O que entra vai para o banco pelo salvamento automático. Configuração por aparelho (pinkpoa_imp_auto).
+const IMP_AUTO_KEY='pinkpoa_imp_auto';
+function _impAutoCfg(){ try{ return JSON.parse(localStorage.getItem(IMP_AUTO_KEY)||'{}')||{}; }catch(e){ return {}; } }
+function _impAutoGravar(c){ try{ localStorage.setItem(IMP_AUTO_KEY, JSON.stringify(c)); }catch(e){} }
+function _impAutoSet(min){ const c=_impAutoCfg(); c.min=+min||0; c.prox=c.min?Date.now()+c.min*60000:0; _impAutoGravar(c); _impAutoAgendar(); if(CURRENT_PAGE==='importacao') renderImportacao();
+  toast(c.min?`Importação automática a cada ${c.min>=60?(c.min/60)+' h':c.min+' min'} ✅`:'Importação automática desligada'); }
+function _impAutoPode(){ return !!USER && (_ehAdmin() || !!(_acoes('importacao')||{}).incluir); }
+async function _impAutoRodar(manual){
+  const c=_impAutoCfg(); if(!manual && !c.min) return;
+  if(window._impAutoRodando || window._previaAtiva || !_impAutoPode()) return;
+  const marca=(res)=>{ const k=_impAutoCfg(); k.ultimo=Date.now(); k.res=res; k.prox=k.min?Date.now()+k.min*60000:0; _impAutoGravar(k); if(CURRENT_PAGE==='importacao' && !window._impAutoRodando) renderImportacao(); };
+  try{
+    if(!_pastaHandle) await restaurarPasta();
+    if(!_pastaHandle) return marca('sem pasta conectada — clique em Conectar pasta');
+    const perm=await _pastaHandle.queryPermission({mode:'read'});
+    if(perm!=='granted') return marca('aguardando autorização — clique em Varrer novamente uma vez');
+    window._impAutoRodando=true;
+    const antes=JSON.stringify(DB.arquivos_importados||{}).length;
+    await varrerPasta();
+    const temNovo=IMPORT_TIPOS.some(t=>_tipoPronto(t.key) && _tipoTemNovo(t.key));
+    if(temNovo) await importarTudoAuto();
+    window._impAutoRodando=false;
+    const novos=JSON.stringify(DB.arquivos_importados||{}).length!==antes;
+    marca(temNovo?(novos?'importou arquivos novos ✅':'tentou importar — veja os avisos'):'nada novo na pasta');
+    if(temNovo && CURRENT_PAGE && CURRENT_PAGE!=='importacao' && document.getElementById('modal-overlay')?.style.display!=='flex'){ try{ navigate(CURRENT_PAGE); }catch(e){} }
+  }catch(e){ window._impAutoRodando=false; marca('erro: '+(e.message||e)); }
+  finally{ window._impAutoRodando=false; try{ _progresso(''); }catch(e){} }
+}
+function _impAutoAgendar(){
+  clearInterval(window._impAutoT);
+  window._impAutoT=setInterval(()=>{ const c=_impAutoCfg(); if(c.min && (!c.prox || Date.now()>=c.prox)) _impAutoRodar(false); }, 60000);
+}
+setTimeout(_impAutoAgendar, 5000);
+function _impAutoHtml(){
+  const c=_impAutoCfg(), h=t=>t?new Date(t).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
+  const ops=[[0,'Desligada'],[30,'a cada 30 min'],[60,'a cada 1 hora'],[120,'a cada 2 horas'],[240,'a cada 4 horas'],[480,'a cada 8 horas']];
+  return `<div style="margin-top:12px;padding:10px 12px;border:1px solid ${c.min?'#86efac':'var(--gray-2)'};border-radius:var(--radius);background:${c.min?'#f0fdf4':'var(--gray-1)'};display:flex;gap:12px;align-items:center;flex-wrap:wrap;text-transform:none">
+    <b style="font-size:13px">⏱ Importação automática</b>
+    <select class="form-control" style="width:170px" onchange="_impAutoSet(this.value)">${ops.map(([v,t])=>`<option value="${v}" ${(+c.min||0)===v?'selected':''}>${t}</option>`).join('')}</select>
+    <span style="font-size:12px;color:var(--gray-5)">Última: <b>${h(c.ultimo)}</b>${c.res?` (${_nvEsc(c.res)})`:''}${c.min?` · Próxima: <b>${h(c.prox)}</b>`:''}</span>
+    <button class="btn btn-secondary btn-sm" onclick="_impAutoRodar(true)">▶ Rodar agora</button>
+    <div style="flex-basis:100%;font-size:11px;color:var(--gray-5)">Varre a pasta conectada e importa só os arquivos novos ou alterados. Funciona com o sistema aberto neste computador (pode ficar em outra aba); o que entrar vai para o banco sozinho. Depois de reabrir o navegador, clique uma vez em <b>Varrer novamente</b> para autorizar a pasta.</div>
+  </div>`;
+}
 function renderImportacao() {
+  if(window._impAutoRodando && CURRENT_PAGE!=='importacao') return;   // v262: rodando em segundo plano não troca a tela atual
   document.getElementById('content').innerHTML = `
     ${_scanCardHtml()}
     <div style="background:var(--white);border:2px solid var(--pink);border-radius:var(--radius);padding:16px;margin-bottom:20px">
@@ -10372,7 +10420,7 @@ function imprimirRelatorio(){
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
 function _versaoApp(){ return ((document.getElementById('app-versao')||{}).textContent||'').trim().replace(/^v/,''); }
 // v212: login/sessão e o login antigo do app (com CPF) NUNCA entram nem saem da cópia
-const _LOCAL_FORA = k => k.indexOf('pinkpoa_nuvem_')===0 || ['pinkpoa_token','pinkpoa_user','pinkpoa_users_v1','pinkpoa_api_url','pinkpoa_email_lembrado','pinkpoa_fat_filtros','pinkpoa_fat_cols'].includes(k);
+const _LOCAL_FORA = k => k.indexOf('pinkpoa_nuvem_')===0 || ['pinkpoa_token','pinkpoa_user','pinkpoa_users_v1','pinkpoa_api_url','pinkpoa_email_lembrado','pinkpoa_fat_filtros','pinkpoa_fat_cols','pinkpoa_imp_auto'].includes(k);
 function _montarBackup(){
   const backup = { _tipo:'PINKPOA_BACKUP', _versao:_versaoApp(), _data:new Date().toISOString(), db:{}, local:{} };
   Object.keys(DB).forEach(k=>{ try{ backup.db[k]=DB[k]; }catch(e){} });
