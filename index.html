@@ -560,7 +560,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.265</span>
+      ">v2.14.266</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -9653,7 +9653,22 @@ function _recalcVendas(linhas, f){
   return {G,C,M,Mctx,R,prods,clis,tVd,tFt,tSd,tCn,tQtv,tQtf,mgMed};
 }
 
+// v266: tela vazia por causa do ACESSO → explica quais travas valem neste módulo (em vez de mostrar tudo zerado sem motivo)
+function _vazioPorAcesso(mod, nomeMod){
+  if(_ehAdmin() || !USER || !USER.permissoes) return '';
+  const p=USER.permissoes, liv=(p._repsLivres||[]).includes(mod), R=(p._reps||[]);
+  const nomeR=c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(c)); return r?(r.fantasia||r.nome):c; };
+  const itens=[];
+  if(R.length && !liv) itens.push(`👤 travado nos representantes: <b>${_nvEsc(R.map(nomeR).join(', '))}</b> — e eles não têm movimento aqui. Para ver a empresa toda, o administrador marca <b>${_nvEsc(nomeMod)}</b> em "Módulos com os dados da EMPRESA TODA".`);
+  const PT=_periodoDaPagina(p, mod); if(PT) itens.push(`📅 meses liberados neste módulo: <b>${_nvEsc(PT)}</b>. Para ver mais meses, o administrador ajusta o "Período diferente por módulo".`);
+  if((p._colecoes||[]).length && ['vendas','produtos','estoques'].includes(mod)) itens.push(`👗 coleções liberadas: <b>${_nvEsc(p._colecoes.join(', '))}</b>.`);
+  if(!itens.length) return '';
+  return `<div class="card"><div class="card-body" style="padding:22px 26px;text-transform:none">
+    <div style="font-size:15px;font-weight:700;margin-bottom:6px">Nada para mostrar em ${_nvEsc(nomeMod)} com o seu acesso</div>
+    <div style="font-size:13px;color:var(--gray-6);line-height:1.7">${itens.map(t=>'• '+t).join('<br>')}</div></div></div>`;
+}
 function renderVendas() {
+  if(!(DB.vendas_linhas||[]).length && !((DB.vendas_agr||{}).tots||{}).vd){ const v=_vazioPorAcesso('vendas','Vendas'); if(v){ document.getElementById('content').innerHTML=v; return; } }
   const agr  = DB.vendas_agr||{};
   const tots = agr.tots||{};
   const fAba = window._vendasTab||'resumo';
@@ -13851,6 +13866,9 @@ function renderCompras(){
   _comprasLoad();
   const tab=window._comprasTab||'painel';
   const notasAll=DB.compras||[];
+  if(!notasAll.length && !_ehAdmin() && !(_acoes('compras')||{}).incluir){   // v266: usuário só de consulta e nenhuma nota no sistema
+    document.getElementById('content').innerHTML=`<div class="card"><div class="card-body" style="padding:22px 26px;text-transform:none"><div style="font-size:15px;font-weight:700;margin-bottom:6px">Nenhuma nota de compra no sistema ainda</div>
+      <div style="font-size:13px;color:var(--gray-6)">As notas de compra (XML, PDF ou planilha) são importadas pelo administrador na tela Compras. Assim que forem importadas e salvas, aparecem aqui.</div></div></div>`; return; }
   const notas=_comprasFiltradas();
   const notasST=_comprasFiltradas(true); const notasCC=_comprasFiltradas(true,true); const notasVis=_comprasFiltradas(false,true);
   const _fk=(typeof _cmpFiltros==='function')?_cmpFiltros():{}; const _itemF=!!(_fk.custo||_fk.grupo||_fk.subgrupo);
