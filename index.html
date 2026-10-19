@@ -562,7 +562,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.270</span>
+      ">v2.14.271</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1337,25 +1337,84 @@ function _usuEditar(id){
       <div class="form-group"><label>CPF *</label><input id="uu-cpf" class="form-control" inputmode="numeric" maxlength="14" placeholder="000.000.000-00" value="${_cpfFmt(u.cpf||'')}" oninput="this.value=_cpfFmt(this.value)"></div>
       <div class="form-group"><label>Cargo</label><input id="uu-cargo" class="form-control no-up" autocomplete="off" value="${_nvEsc(u.cargo||'')}"></div>
       <div class="form-group"><label>${novo?'Senha (opcional — vazio = enviar link de convite)':'Nova senha (vazio = manter; ou use 🔗 Convite)'}</label><input id="uu-senha" type="password" class="form-control no-up" autocomplete="new-password" placeholder="6 a 10 números" ${_SENHA_ATTR}></div>
-      <div class="form-group"><label>Perfil</label><select id="uu-perfil" class="form-control" onchange="document.getElementById('uu-perms').style.display=this.value==='admin'?'none':''">
-        <option value="user" ${u.perfil!=='admin'&&!(u.permissoes||{})._master?'selected':''}>Usuário — acessos abaixo, NUNCA vê comissão</option><option value="master" ${u.perfil!=='admin'&&(u.permissoes||{})._master?'selected':''}>Master limitado — vê comissão, com os limites abaixo</option><option value="admin" ${u.perfil==='admin'?'selected':''}>Administrador (tudo + usuários)</option></select></div>
+      <input type="hidden" id="uu-perfil" value="${u.perfil==='admin'?'admin':(u.permissoes||{})._master?'master':'user'}">
       <div class="form-group" style="display:flex;align-items:flex-end"><label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="uu-ativo" ${u.ativo!==false?'checked':''}> Usuário ativo</label></div>
     </div>
+    ${(()=>{ const nv=u.perfil==='admin'?'admin':(u.permissoes||{})._master?'master':'user';
+      const card=(v,ic,t,d)=>`<label class="uu-nivel" data-v="${v}" onclick="_usuNivel('${v}')" style="flex:1;min-width:170px;cursor:pointer;padding:10px 12px;border-radius:10px;border:2px solid ${nv===v?'var(--pink)':'var(--gray-2)'};background:${nv===v?'#FFF0F6':'var(--white)'}">
+          <div style="font-weight:800;font-size:13px">${ic} ${t}</div><div style="font-size:11px;color:var(--gray-5);margin-top:2px">${d}</div></label>`;
+      return `<div style="margin:6px 0 4px;font-size:12.5px;font-weight:800;color:var(--gray-6)">NÍVEL DE ACESSO</div><div style="display:flex;gap:8px;flex-wrap:wrap">
+        ${card('user','👤','Usuário','Vê os módulos marcados abaixo. <b>Nunca vê comissão.</b>')}
+        ${card('master','★','Master limitado','Vê comissão, só dentro dos limites abaixo (representantes, meses).')}
+        ${card('admin','🛡','Administrador','Vê e altera tudo, inclusive usuários.')}</div>`; })()}
+    <div id="uu-resumo" style="margin:12px 0 4px;padding:10px 12px;border-radius:10px;background:#EEF6FF;border:1px solid #BFDBFE;font-size:12.5px;line-height:1.6;text-transform:none"></div>
     <div id="uu-perms" style="${u.perfil==='admin'?'display:none':''};margin-top:6px">
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;align-items:center"><b style="margin-right:6px">Acessos por módulo</b>
+      <div style="margin:8px 0 6px;font-size:12.5px;font-weight:800;color:var(--gray-6)">1 · MÓDULOS QUE ELE ACESSA</div>
+      <div id="uu-mgrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(205px,1fr));gap:6px 10px;padding:10px;border:1px solid var(--gray-2);border-radius:10px;margin-bottom:6px">
+        ${mods.slice().sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR')).map(m=>`<div class="uu-mg" data-mod="${m.id}" style="display:flex;gap:6px;align-items:center;font-size:12.5px;min-height:28px">
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer;flex:1"><input type="checkbox" class="uu-mg-on" onchange="_usuGridMarcar('${m.id}',this.checked)"> <span>${_nvEsc(m.nome)}</span></label>
+          <select class="form-control uu-mg-modo" style="width:96px;font-size:11px;padding:1px 4px;display:none" onchange="_usuGridModo('${m.id}',this.value)"><option value="verrel">Ver + PDF</option><option value="ver">Só ver</option><option value="editar">Editar</option></select></div>`).join('')}
+      </div>
+      <details style="margin-bottom:6px"><summary style="cursor:pointer;font-size:12px;color:var(--gray-5)">Ajuste fino por módulo (incluir, alterar, excluir e relatórios separados)</summary>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0;font-size:12px;align-items:center"><b style="margin-right:6px">Acessos por módulo</b>
         <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('nada')">Nada</button>
         <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('consulta')">Tudo: só consulta</button>
         <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="_usuTodos('tudo')">Tudo: completo</button></div>
       <div style="overflow-x:auto"><table style="font-size:12.5px;border-collapse:collapse">
         <tr style="font-size:11px;color:var(--gray-5)"><th></th>${_ACOES.map(a=>`<th style="padding:0 6px">${_ACOES_NOME[a]}</th>`).join('')}<th></th></tr>
-        ${mods.map(linha).join('')}</table></div>
+        ${mods.map(linha).join('')}</table></div></details>
+      <div style="margin:14px 0 2px;font-size:12.5px;font-weight:800;color:var(--gray-6)">2 · DE QUAIS REPRESENTANTES ELE VÊ OS DADOS</div>
       ${_usuRepsHtml(u)}
+      <div style="margin:14px 0 2px;font-size:12.5px;font-weight:800;color:var(--gray-6)">3 · MESES E COLEÇÕES</div>
       ${_usuPeriodoHtml(u)}
       <div style="font-size:11px;color:var(--gray-5);margin-top:6px"><b>Incluir</b> = registros novos e importações · <b>Alterar</b> = mudar o que já existe · <b>Excluir</b> = apagar/zerar · <b>Relatórios</b> = PDF, Excel e exportações. Para importar arquivos, libere também <b>Importação</b>. O servidor confere cada registro ao salvar. Clientes, representantes e naturezas são enviados a todos como cadastro de referência.</div>
     </div>`,
     `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_usuSalvar(${id||0})">${novo?'Criar e gerar convite':'Salvar'}</button>`);
-  setTimeout(_usuRepConta,0);
+  setTimeout(()=>{ _usuRepConta(); _usuGridSync(); _usuNivel(document.getElementById('uu-perfil').value, true);
+    const mb=document.getElementById('modal-body'); if(mb && !mb._uuViva){ mb._uuViva=true; mb.addEventListener('change',()=>setTimeout(_usuResumoVivo,0)); mb.addEventListener('input',()=>setTimeout(_usuResumoVivo,0)); } _usuResumoVivo(); },0);
   window._modalFixo=true;
+}
+// v271: cadastro em caixinhas — o quadro de módulos escreve na tabela de ajuste fino (que continua sendo a fonte do salvar)
+function _usuCx(m,a){ return document.querySelector(`#uu-perms input[data-mod="${m}"][data-acao="${a}"]`); }
+function _usuGridMarcar(m,on){ _ACOES.forEach(a=>{ const c=_usuCx(m,a); if(c) c.checked = on ? (a==='ver'||a==='relatorios') : false; }); _usuGridSync(); }
+function _usuGridModo(m,modo){ _ACOES.forEach(a=>{ const c=_usuCx(m,a); if(c) c.checked = modo==='editar' ? true : modo==='ver' ? a==='ver' : (a==='ver'||a==='relatorios'); }); _usuGridSync(); }
+function _usuGridSync(){
+  const nivel=(document.getElementById('uu-perfil')||{}).value;
+  document.querySelectorAll('#uu-mgrid .uu-mg').forEach(d=>{ const m=d.dataset.mod, on=!!(_usuCx(m,'ver')||{}).checked;
+    const ed=['incluir','alterar','excluir'].some(a=>(_usuCx(m,a)||{}).checked), rl=!!(_usuCx(m,'relatorios')||{}).checked;
+    const cb=d.querySelector('.uu-mg-on'), sel=d.querySelector('.uu-mg-modo'), bloq=nivel==='user' && (m==='comissoes'||m==='automacao');
+    cb.checked=on && !bloq; cb.disabled=bloq; sel.style.display=on&&!bloq?'':'none'; sel.value=ed?'editar':rl?'verrel':'ver';
+    d.style.opacity=bloq?.45:1; d.title=bloq?'Só o nível Master limitado vê comissão':''; });
+  _usuResumoVivo();
+}
+function _usuNivel(v, inicial){
+  const h=document.getElementById('uu-perfil'); if(h) h.value=v;
+  document.querySelectorAll('.uu-nivel').forEach(c=>{ const on=c.dataset.v===v; c.style.borderColor=on?'var(--pink)':'var(--gray-2)'; c.style.background=on?'#FFF0F6':'var(--white)'; });
+  const pp=document.getElementById('uu-perms'); if(pp) pp.style.display=v==='admin'?'none':'';
+  if(v==='user'){ ['comissoes','automacao'].forEach(m=>_ACOES.forEach(a=>{ const c=_usuCx(m,a); if(c) c.checked=false; })); }
+  if(!inicial) _usuGridSync(); else _usuResumoVivo();
+}
+// resumo em linguagem simples do que o usuário vai ver
+function _usuResumoVivo(){
+  const el=document.getElementById('uu-resumo'); if(!el) return;
+  const nv=(document.getElementById('uu-perfil')||{}).value||'user';
+  if(nv==='admin'){ el.innerHTML='🛡 <b>Administrador</b>: vê e altera <b>tudo</b>, inclusive comissões e usuários.'; return; }
+  const mods=(_usuCache.modulos||[]).filter(m=>(_usuCx(m.id,'ver')||{}).checked).map(m=>m.nome).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  const lista=document.querySelector('input[name="uu-repmodo"]:checked')?.value==='lista';
+  const reps=lista?[...document.querySelectorAll('.uu-rep:checked')].map(c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===c.value); return r?(r.fantasia||r.nome):c.value; }):[];
+  const liv=[...document.querySelectorAll('.uu-livre:checked')].map(c=>{ const m=(_usuCache.modulos||[]).find(x=>x.id===c.value); return m?m.nome:c.value; });
+  const per=_usuPeriodoLer(), pt=per?_periodoTexto(per):'';
+  const temCom=mods.includes('Comissões');
+  const L=[];
+  L.push(nv==='master'?'★ <b>Master limitado</b>':'👤 <b>Usuário</b> (nunca vê comissão)');
+  L.push(mods.length?`Vê: <b>${_nvEsc(mods.join(', '))}</b>`:'<span style="color:var(--red)">Nenhum módulo marcado</span>');
+  if(nv==='master' && temCom) L.push(reps.length?`Comissão: <b>só de ${_nvEsc(reps.join(', '))}</b>`:'<span style="color:var(--red);font-weight:700">⚠ Comissão de TODOS os representantes</span>');
+  if(reps.length){ const outros=mods.filter(n=>n!=='Comissões'); const lv=outros.filter(n=>liv.includes(n)), tr=outros.filter(n=>!liv.includes(n));
+    if(lv.length) L.push(`Empresa toda em: <b>${_nvEsc(lv.join(', '))}</b> (sem comissão de ninguém)`);
+    if(tr.length) L.push(`Só dados de ${_nvEsc(reps.join(', '))} em: <b>${_nvEsc(tr.join(', '))}</b>`); }
+  else if(mods.length) L.push('Dados de <b>todos</b> os representantes nos módulos marcados'+(nv==='user'?' (sem comissão)':''));
+  L.push(pt?`Meses: <b>${_nvEsc(pt)}</b>`:'Meses: <b>todos</b>');
+  el.innerHTML='📋 <b>Resumo:</b> '+L.join(' · ');
 }
 // v226: ESCOPO POR REPRESENTANTE — o usuário só enxerga (e só grava) os dados dos representantes marcados:
 // faturamento, comissões, recebíveis, vendas e os clientes deles. "Todos" = sem restrição. Quem filtra é o servidor.
@@ -1421,16 +1480,15 @@ function _usuEscolher(tipo,id){
   if(tipo==='rep'){
     const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(id)); if(!r) return;
     if(novo){ set('uu-nome', r.fantasia&&r.fantasia!==r.nome ? r.fantasia : r.nome); if(r.email) set('uu-email', String(r.email).toLowerCase()); set('uu-cargo','REPRESENTANTE'); }
-    const pf=document.getElementById('uu-perfil'); if(pf){ pf.value='user'; document.getElementById('uu-perms').style.display=''; }
+    _usuNivel('master', true);   // v271: representante vê a própria comissão → Master limitado travado nele
     const perms={}; _USU_MODS_REP.forEach(m=>perms[m]={ver:true,relatorios:true}); _usuMarcarMods(perms);
-    _usuMarcarReps([r.codigo]);
+    _usuMarcarReps([r.codigo]); _usuGridSync();
     document.getElementById('uu-busca').value=`${r.codigo} · ${r.fantasia||r.nome}`;
     toast(`Representante ${r.codigo} carregado: ${r.email?'':'sem e-mail no cadastro — preencha o e-mail; '}acesso só aos dados dele (ajuste se precisar)`);
   } else {
     const u=(_usuCache.usuarios||[]).find(x=>String(x.id)===String(id)); if(!u) return;
-    const pf=document.getElementById('uu-perfil');
-    if(u.perfil==='admin'){ if(pf){ pf.value='admin'; document.getElementById('uu-perms').style.display='none'; } }
-    else { if(pf){ pf.value='user'; document.getElementById('uu-perms').style.display=''; } _usuMarcarMods(u.permissoes); _usuMarcarReps((u.permissoes||{})._reps);
+    if(u.perfil==='admin'){ _usuNivel('admin'); }
+    else { _usuNivel((u.permissoes||{})._master?'master':'user', true); _usuMarcarMods(u.permissoes); _usuMarcarReps((u.permissoes||{})._reps); setTimeout(_usuGridSync,0);
       const P=(u.permissoes||{})._periodo||{}; ['comp','venc'].forEach(k=>{ ['de','ate'].forEach(x=>{ const el=document.getElementById(`uu-${k}-${x}`); if(el) el.value=(P[k]||{})[x]||''; }); }); }
     document.getElementById('uu-busca').value='';
     toast(`Acessos copiados de ${u.nome}`);
@@ -1492,7 +1550,7 @@ function _usuPeriodoLer(){
   const P={}; [['comp','uu-comp'],['venc','uu-venc']].forEach(([k,id])=>{ const de=g(id+'-de'), ate=g(id+'-ate'); if(de||ate) P[k]={de,ate}; });
   return Object.keys(P).length?P:null;
 }
-function _usuRepModo(){ const l=document.querySelector('input[name="uu-repmodo"]:checked')?.value==='lista'; const b=document.getElementById('uu-repbox'); if(b) b.style.display=l?'':'none'; _usuRepConta(); }
+function _usuRepModo(){ const l=document.querySelector('input[name="uu-repmodo"]:checked')?.value==='lista'; const b=document.getElementById('uu-repbox'); if(b) b.style.display=l?'':'none'; _usuRepConta(); _usuResumoVivo(); }
 function _usuRepFiltrar(){ const t=(document.getElementById('uu-repbusca')?.value||'').toLowerCase().trim();
   document.querySelectorAll('#uu-replista label').forEach(l=>{ l.style.display=!t||l.dataset.busca.includes(t)?'':'none'; }); }
 function _usuRepTodos(on){ document.querySelectorAll('#uu-replista label').forEach(l=>{ if(l.style.display!=='none') l.querySelector('input').checked=!!on; }); _usuRepConta(); }
@@ -1503,9 +1561,10 @@ function _usuMarcou(el){
   const m=el.dataset.mod, a=el.dataset.acao, cx=x=>document.querySelector(`input[data-mod="${m}"][data-acao="${x}"]`);
   if(a!=='ver' && el.checked) cx('ver').checked=true;                       // quem age também vê
   if(a==='ver' && !el.checked) _ACOES.forEach(x=>{ const c=cx(x); if(c) c.checked=false; });
+  _usuGridSync();
 }
-function _usuLinha(m,on){ _ACOES.forEach(x=>{ const c=document.querySelector(`input[data-mod="${m}"][data-acao="${x}"]`); if(c) c.checked=!!on; }); }
-function _usuTodos(modo){ document.querySelectorAll('#uu-perms input[data-acao]').forEach(c=>{ c.checked = modo==='tudo' || (modo==='consulta' && (c.dataset.acao==='ver'||c.dataset.acao==='relatorios')); }); }
+function _usuLinha(m,on){ _ACOES.forEach(x=>{ const c=document.querySelector(`input[data-mod="${m}"][data-acao="${x}"]`); if(c) c.checked=!!on; }); _usuGridSync(); }
+function _usuTodos(modo){ document.querySelectorAll('#uu-perms input[data-acao]').forEach(c=>{ c.checked = modo==='tudo' || (modo==='consulta' && (c.dataset.acao==='ver'||c.dataset.acao==='relatorios')); }); _usuGridSync(); }
 async function _usuSalvar(id){
   const g=x=>(document.getElementById(x)||{}).value||'';
   const permissoes={};
