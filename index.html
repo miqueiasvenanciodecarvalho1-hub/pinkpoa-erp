@@ -560,7 +560,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.263</span>
+      ">v2.14.264</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1234,7 +1234,7 @@ function _modoLeitura(){
   // v235: acesso restrito a representantes aparece sempre no topo da tela
   const _livre=(USER && USER.permissoes && USER.permissoes._repsLivres||[]).includes(CURRENT_PAGE);   // v257: módulo sem a trava de representante
   const R=_livre ? [] : ((!_ehAdmin() && USER && USER.permissoes && USER.permissoes._reps) || []);
-  const PT=!_ehAdmin() && USER && USER.permissoes ? _periodoTexto(USER.permissoes._periodo) : '';
+  const PT=!_ehAdmin() && USER && USER.permissoes ? _periodoDaPagina(USER.permissoes, CURRENT_PAGE) : '';
   const tudo=!ac || _ACOES.every(a=>ac[a]);
   if(tudo && !R.length && !PT) return;
   const pode=ac?_ACOES.filter(a=>ac[a]).map(a=>_ACOES_NOME[a].toLowerCase()):[], nao=ac?_ACOES.filter(a=>!ac[a]).map(a=>_ACOES_NOME[a].toLowerCase()):[];
@@ -1279,7 +1279,13 @@ function _usuResumo(u, mods){
   const pp=PT?`<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#EDE9FE;color:#5B21B6">📅 ${_nvEsc(PT)}</span>`:'';
   const LV=(u.permissoes||{})._repsLivres||[];   // v261: módulos com dados da empresa toda
   const lv=R.length&&LV.length?`<span title="Dados da empresa toda nestes módulos${(u.permissoes||{})._repsNomes?' (com nomes dos representantes)':' (outros representantes sem nome)'}" style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#E0E7FF;color:#3730A3">🌐 ${_nvEsc(LV.map(id=>((mods.find(m=>m.id===id)||{}).nome||id)).join(', '))}</span>`:'';
-  return `<div style="white-space:normal;display:flex;flex-wrap:wrap;gap:2px;max-width:460px">${(ls||'<span style="color:var(--red)">nenhum módulo</span>')+rp+lv+pp}</div>`;
+  const PMx=(u.permissoes||{})._periodoMods||{};
+  const pmx=Object.keys(PMx).length?`<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#EDE9FE;color:#5B21B6">📅 ${_nvEsc(Object.entries(PMx).map(([m,o])=>((mods.find(x=>x.id===m)||{}).nome||m)+': '+_periodoModTexto(o)).join(' · '))}</span>`:'';
+  // v264: resumo numa linha; os chips abrem só ao clicar
+  const nMods=mods.filter(m=>_normAcoes((u.permissoes||{})[m.id])).length;
+  const resumo=[`${nMods} módulo(s)`, R.length?`👤 ${R.length} representante(s)`:'', LV.length&&R.length?'🌐 empresa toda em '+LV.length:'', PT?'📅 '+PT:'', Object.keys(PMx).length?'📅 '+Object.keys(PMx).length+' por módulo':''].filter(Boolean).join(' · ');
+  return `<details style="max-width:460px;white-space:normal"><summary style="cursor:pointer;font-size:12px;color:var(--gray-6)">${_nvEsc(resumo)} <span style="color:var(--pink);font-size:11px">ver ›</span></summary>
+    <div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:4px">${(ls||'<span style="color:var(--red)">nenhum módulo</span>')+rp+lv+pp+pmx}</div></details>`;
 }
 async function renderUsuarios(){
   const c=document.getElementById('content');
@@ -1423,6 +1429,9 @@ function _usuEscolher(tipo,id){
 // v239: PERÍODO — o usuário só enxerga (e só grava) os meses liberados. Quem filtra é o servidor.
 const _MES_NOME=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 function _mesRot(m){ return m?(_MES_NOME[+m.slice(5,7)-1]+'/'+m.slice(0,4)):''; }
+// v264: período de um MÓDULO (override em _periodoMods) — texto para a faixa azul e a lista de usuários
+function _periodoModTexto(o){ if(!o) return ''; if(o.todos) return 'todos os meses'; if(o.ult) return `últimos ${o.ult} meses`; return _periodoTexto(o); }
+function _periodoDaPagina(perms, pag){ const pm=(perms||{})._periodoMods||{}; return pm[pag] ? _periodoModTexto(pm[pag]) : _periodoTexto((perms||{})._periodo); }
 function _periodoTexto(P){
   if(!P) return '';
   const r=f=>f&&(f.de||f.ate)?(f.de&&f.ate?(f.de===f.ate?_mesRot(f.de):`${_mesRot(f.de)} a ${_mesRot(f.ate)}`):f.de?`a partir de ${_mesRot(f.de)}`:`até ${_mesRot(f.ate)}`):'';
@@ -1446,6 +1455,15 @@ function _usuPeriodoHtml(u){
     <div style="font-size:12.5px"><b>Meses que este usuário enxerga</b> <span style="color:var(--gray-5);font-size:11px">(em branco = todos)</span></div>
     ${linha('comp','Mês de fechamento','comissões, faturamento, vendas, recebidos e banco',c)}
     ${linha('venc','Mês de vencimento','recebíveis, duplicatas e contas a pagar',v)}
+    ${(()=>{ const PM=(u.permissoes||{})._periodoMods||{}; const ms=(_usuCache.modulos||[]).filter(m=>!_PAGINAS_ADMIN.includes(m.id)).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+      const val=o=>!o?'':o.todos?'todos':o.ult?'u'+o.ult:'pers';
+      const ops=[['','Igual ao geral'],['u3','Últimos 3 meses'],['u6','Últimos 6 meses'],['u12','Últimos 12 meses'],['u24','Últimos 24 meses'],['u36','Últimos 36 meses'],['todos','Todos os meses'],['pers','Personalizado…']];
+      return `<details ${Object.keys(PM).length?'open':''} style="margin-top:10px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700">Período diferente por módulo ${Object.keys(PM).length?`<span style="color:var(--pink)">(${Object.keys(PM).length})</span>`:''} <span style="font-weight:400;color:var(--gray-5);font-size:11px">— ex.: Comissões só Set–Out, Vendas os últimos 12 meses</span></summary>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:6px 14px;margin-top:6px">${ms.map(m=>{ const o=PM[m.id], vv=val(o), c=(o&&o.comp)||{};
+          return `<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12px"><span style="min-width:110px;font-weight:600">${_nvEsc(m.nome)}</span>
+            <select class="form-control uu-pmod" data-mod="${m.id}" style="width:150px;font-size:12px;padding:2px 6px" onchange="this.parentNode.querySelector('.uu-pm-pers').style.display=this.value==='pers'?'inline-flex':'none'">${ops.map(([k,t])=>`<option value="${k}" ${vv===k?'selected':''}>${t}</option>`).join('')}</select>
+            <span class="uu-pm-pers" style="display:${vv==='pers'?'inline-flex':'none'};gap:4px;align-items:center">de <input type="month" class="form-control uu-pm-de" style="width:140px;font-size:12px;padding:2px 4px" value="${c.de||''}"> até <input type="month" class="form-control uu-pm-ate" style="width:140px;font-size:12px;padding:2px 4px" value="${c.ate||''}"></span></div>`; }).join('')}</div>
+        <div style="font-size:10.5px;color:var(--gray-5);margin-top:4px">Vale para o mês de fechamento e de vencimento daquele módulo. Dado usado por dois módulos (ex.: faturamento, em Comissões e Vendas) segue o período mais amplo entre eles; a lista de comissões segue sempre o período de Comissões.</div></details>`; })()}
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:12.5px;cursor:pointer">
       <input type="checkbox" id="uu-baixas" ${_verBaixasDe(u.permissoes)?'checked':''} style="margin-top:2px">
       <span><b>Ver as notas recebidas no financeiro</b> <span style="color:var(--gray-5);font-size:11px">(baixas fora da comissão — mov. 92 — no detalhe e no extrato da comissão). Desmarcado, ele não recebe esses dados.</span></span></label>
@@ -1483,6 +1501,10 @@ async function _usuSalvar(id){
     if(liv.length && (document.getElementById('uu-repsnomes')||{}).checked) permissoes._repsNomes=true;   // v261
   }
   const _bx=document.getElementById('uu-baixas'); if(_bx) permissoes._baixas=!!_bx.checked;   // v250
+  { const PM={}; document.querySelectorAll('.uu-pmod').forEach(sel=>{ const v=sel.value, m=sel.dataset.mod; if(!v) return;   // v264: período por módulo
+      if(v==='todos') PM[m]={todos:true}; else if(v[0]==='u') PM[m]={ult:+v.slice(1)};
+      else { const w=sel.parentNode, de=w.querySelector('.uu-pm-de').value, ate=w.querySelector('.uu-pm-ate').value; if(de||ate) PM[m]={comp:{de,ate},venc:{de,ate}}; } });
+    if(Object.keys(PM).length) permissoes._periodoMods=PM; }
   const _per=_usuPeriodoLer();   // v239
   if(_per){ for(const k in _per){ const f=_per[k]; if(f.de&&f.ate&&f.de>f.ate) return toast('No período, o mês "de" precisa ser antes do "até"','error'); } permissoes._periodo=_per; }
   const corpo={nome:g('uu-nome').trim(),email:g('uu-email').trim(),cpf:g('uu-cpf').replace(/\D/g,''),cargo:g('uu-cargo').trim(),perfil:g('uu-perfil'),ativo:!!(document.getElementById('uu-ativo')||{}).checked,permissoes};
