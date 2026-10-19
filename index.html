@@ -559,7 +559,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.252</span>
+      ">v2.14.253</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3019,7 +3019,7 @@ function renderComissoes() {
   const tComissao  = dados.reduce((s,c)=>s+c.total_comissao,0);
   const tLiquida   = dados.reduce((s,c)=>s+(c.comi_liquida||0),0);
   const tVendas    = dados.reduce((s,c)=>s+c.total_vendas,0);
-  const _flCompKPI = (filtMes && filtAno) ? filtAno+'-'+filtMes : ([...new Set((DB.faturamento||[]).map(f=>f.mes).filter(Boolean))].sort().reverse()[0]||'');
+  const _flCompKPI = _comFatCompAtual();   // v253: mesmo mês da comissão sobre faturamento (filtro de competência, mês/ano…)
   const tFatLiqKPI = (typeof calcComissaoFat==='function' && _flCompKPI) ? (calcComissaoFat(_flCompKPI, filComi||'', (typeof _cfOpts==='function'?_cfOpts():{})).liquido) : 0;
   const tTrocas = dados.reduce((s,c)=>s+(c.abatimentos||[]).reduce((a,x)=>a+Math.abs(Number(x.vlorliqu)||0),0),0);
   const tDevols    = dados.reduce((s,c)=>s+(c.val_devolucoes||0),0);
@@ -3228,22 +3228,60 @@ function renderComissoes() {
     ${cardSupervisaoComissoes(document.getElementById('sup-comp')?.value||'')}`;
 }
 
+// v253: FECHAR PERÍODO — fecha as comissões pendentes da competência escolhida e LANÇA a comissão dos gestores
+// (comissão sobre faturamento, ex.: ANDREA MIRANDA) como um registro igual aos dos representantes. O gestor ganha um
+// código de representante (GEST1, GEST2…) para poder receber acesso (Usuários → representantes) e ver só a dele.
+const _MABR={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
+function _gestorCodigo(g){
+  if(g.rep && (DB.representantes||[]).some(r=>String(r.codigo)===String(g.rep))) return String(g.rep);
+  const ex=(DB.representantes||[]).find(r=>r.tipo==='gestor' && String(r.nome||'').toUpperCase()===String(g.nome||'').toUpperCase());
+  let cod=ex?String(ex.codigo):'';
+  if(!cod){ let n=1; while((DB.representantes||[]).some(r=>String(r.codigo)==='GEST'+n)) n++; cod='GEST'+n;
+    DB.representantes.push({id:Date.now()+n, codigo:cod, nome:String(g.nome||'').toUpperCase(), fantasia:String(g.nome||'').toUpperCase(), taxa_comissao:Number(g.pct)||0, tipo:'gestor', email:'', banco:'', agencia:'', conta:''}); }
+  g.rep=cod; salvarComissaoFat(); return cod;
+}
+function _gestorLancar(comp){
+  const opts=_cfOpts(); let n=0;
+  (DB.comissaoFat||[]).forEach(g=>{
+    const c=calcComissaoFat(comp, g.filial||'', opts), pct=Number(g.pct)||0, comi=+(c.liquido*pct/100).toFixed(2);
+    const cod=_gestorCodigo(g), i=DB.comissoes.findIndex(x=>x.manual && x.origem==='gestor' && String(x.codigo_rep)===cod && x.competencia_raw===comp);
+    if(i>=0 && DB.comissoes[i].status==='pago') return;   // já pago: não mexe
+    const dt=comp+'-01', lin=(t,v)=>({titulo:t, serie:'', cli_cod:'', cli_nome:t, data:dt, taxa:pct, vlorvenc:+v.toFixed(2), comivenc:+(v*pct/100).toFixed(2), parcelas:1});
+    const tit=[lin('VENDAS (BRUTO)', c.bruto)].concat(c.incTroca&&c.troca?[lin('(−) TROCA', -c.troca)]:[], c.incDevol&&c.devol?[lin('(−) DEVOLUÇÕES', -c.devol)]:[], c.incCanc&&c.estorno?[lin('(−) ESTORNO DE CANCELAMENTOS', -c.estorno)]:[]);
+    const reg={ id:(i>=0?DB.comissoes[i].id:Date.now()+(++n)), codigo_rep:cod, representante:String(g.nome||'').toUpperCase(), competencia:(_MABR[comp.slice(5,7)]||comp.slice(5,7))+'/'+comp.slice(0,4), competencia_raw:comp,
+      taxa:pct, qtd_notas:tit.length, qtd_clientes:0, total_vendas:c.liquido, total_comissao:comi, comi_liquida:0, val_devolucoes:0, devolucoes:0, baixas:0,
+      titulos:tit, abatimentos:[], baixas92:[], baixasNE:[], baixas99:[], canceladas:[], status:'fechado', manual:true, origem:'gestor',
+      baseFat:{bruto:c.bruto, troca:c.troca, devol:c.devol, estorno:c.estorno, liquido:c.liquido, filial:g.filial||'', nats:opts.soNats||[]} };
+    if(i>=0) DB.comissoes[i]=reg; else DB.comissoes.push(reg);
+    if(i<0) n++;
+  });
+  return (DB.comissaoFat||[]).length;
+}
 function modalFecharComissoes() {
+  const comps=[...new Set((DB.comissoes||[]).map(c=>c.competencia_raw).filter(Boolean))].sort().reverse();
+  const atual=_comFatCompAtual(); if(atual && !comps.includes(atual)) comps.unshift(atual);
+  const sel=window._fcComp && comps.includes(window._fcComp) ? window._fcComp : (atual||comps[0]||'');
+  const rot=r=>(_MABR[String(r).slice(5,7)]||'')+'/'+String(r).slice(0,4);
+  const pend=(DB.comissoes||[]).filter(c=>c.status==='pendente' && c.competencia_raw===sel);
+  const opts=_cfOpts();
+  const gest=(DB.comissaoFat||[]).map(g=>{ const c=calcComissaoFat(sel, g.filial||'', opts); return {g, base:c.liquido, comi:+(c.liquido*(Number(g.pct)||0)/100).toFixed(2)}; });
   openModal('Fechar Período de Comissões', `
-    <div class="form-grid">
-      <div class="form-group"><label>De</label><input id="fc-di" class="form-control" type="date" value="2025-01-01"></div>
-      <div class="form-group"><label>Até</label><input id="fc-df" class="form-control" type="date" value="2025-01-31"></div>
-      <div class="form-group"><label>Representante</label><select id="fc-rep" class="ord-az form-control">
-        <option value="">Todos</option>
-        ${DB.representantes.map(r=>`<option value="${r.id}">${r.nome}</option>`).join('')}
-      </select></div>
-      <div class="form-group"><label>Observação</label><input id="fc-obs" class="form-control"></div>
-    </div>`,
+    <div class="form-group"><label>Competência</label><select id="fc-comp" class="form-control" onchange="window._fcComp=this.value;modalFecharComissoes()">${comps.map(c=>`<option value="${c}" ${c===sel?'selected':''}>${rot(c)}</option>`).join('')}</select></div>
+    <div style="font-size:13px;margin:6px 0 12px">Serão <b>fechadas ${pend.length}</b> comissão(ões) pendente(s) de ${rot(sel)}.</div>
+    ${gest.length?`<div style="border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 12px;background:var(--gray-1)">
+      <label style="display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px;cursor:pointer"><input type="checkbox" id="fc-gest" checked> Lançar a comissão dos gestores (sobre o faturamento)</label>
+      <div style="font-size:11px;color:var(--gray-5);margin:4px 0 8px">Entra na lista de Comissões como as demais (já fechada). Cada gestor recebe um código de representante (GEST…) para você liberar o acesso dele em Usuários.</div>
+      <table style="font-size:12px;width:100%"><thead><tr><th>Gestor</th><th style="text-align:right">Base (fat. líquido)</th><th style="text-align:right">%</th><th style="text-align:right">Comissão</th></tr></thead>
+      <tbody>${gest.map(x=>`<tr><td>${x.g.nome}${x.g.filial?` (Fil. ${x.g.filial})`:''}${x.g.rep?` <span style="color:var(--gray-4);font-size:10px">${x.g.rep}</span>`:''}</td><td style="text-align:right">${fmt(x.base)}</td><td style="text-align:right">${(Number(x.g.pct)||0).toFixed(2).replace('.',',')}%</td><td style="text-align:right;font-weight:700;color:var(--pink)">${fmt(x.comi)}</td></tr>`).join('')}</tbody></table></div>`
+    :`<div style="font-size:12px;color:var(--gray-5)">Nenhum gestor com comissão sobre faturamento cadastrado.</div>`}`,
     `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-     <button class="btn btn-primary" onclick="
-       DB.comissoes.filter(c=>c.status==='pendente').forEach(c=>c.status='fechado');
-       closeModal();renderComissoes();toast('Período fechado com sucesso! ✅');">Confirmar Fechamento</button>`
-  );
+     <button class="btn btn-primary" onclick="_fecharPeriodoConfirmar()">Confirmar Fechamento</button>`);
+}
+function _fecharPeriodoConfirmar(){
+  const comp=(document.getElementById('fc-comp')||{}).value||''; if(!comp) return toast('Escolha a competência','error');
+  let n=0; (DB.comissoes||[]).forEach(c=>{ if(c.status==='pendente' && c.competencia_raw===comp){ c.status='fechado'; n++; } });
+  const g=(document.getElementById('fc-gest')||{}).checked ? _gestorLancar(comp) : 0;
+  closeModal(); renderComissoes(); toast(`Período fechado ✅ — ${n} comissão(ões)${g?` + ${g} gestor(es) lançado(s)`:''}`);
 }
 
 function modalDetalheComissao(id) {
@@ -7129,6 +7167,8 @@ function _comFatCompAtual(){
   const _mes=(document.getElementById('filtro-mes-com')||{}).value||'';
   const _ano=(document.getElementById('filtro-ano-com')||{}).value||'';
   if(_mes && _ano) return _ano+'-'+_mes;
+  const _fc=(document.getElementById('filtro-comp')||{}).value||'';   // v253: filtro "Set/2026" da tela de Comissões
+  if(_fc){ const x=(DB.comissoes||[]).find(c=>c.competencia===_fc && c.competencia_raw); if(x) return x.competencia_raw; }
   // v251: sem filtro na comissão → o mês marcado no Faturamento; senão a última competência de comissão (mês fechado),
   // e só por último o mês mais recente do faturamento (que pode estar pela metade)
   const ff=_fatFiltrosSalvos(); if(ff.mes && ff.ano) return ff.ano+'-'+ff.mes;
@@ -11659,7 +11699,7 @@ function gerarResumoComiPDF(){
     const _m=(document.getElementById('filtro-mes-com')||{}).value||''; const _a=(document.getElementById('filtro-ano-com')||{}).value||'';
     let _cr; if(_m&&_a) _cr=_a+'-'+_m; else _cr=[...new Set((DB.faturamento||[]).map(f=>f.mes).filter(Boolean))].sort().reverse()[0]||'';
     const _o=(typeof _cfOpts==='function')?_cfOpts():{};
-    _gest=(DB.comissaoFat||[]).map(g=>{ const c=calcComissaoFat(_cr, g.filial||'', _o); return {nome:g.nome, filial:g.filial||'', fat:c.liquido, comi:+(c.liquido*(Number(g.pct)||0)/100).toFixed(2), pct:Number(g.pct)||0}; });
+    _gest=(DB.comissaoFat||[]).filter(g=>!(g.rep && (DB.comissoes||[]).some(x=>x.origem==='gestor' && String(x.codigo_rep)===String(g.rep) && x.competencia_raw===_cr))).map(g=>{ const c=calcComissaoFat(_cr, g.filial||'', _o); return {nome:g.nome, filial:g.filial||'', fat:c.liquido, comi:+(c.liquido*(Number(g.pct)||0)/100).toFixed(2), pct:Number(g.pct)||0}; });
   }
   if(!reps.length && !_gest.length){ toast('Nenhum representante incluído no resumo','error'); return; }
   // Base do rodapé: quando há gestor (ex.: Andrea) a base dele JÁ é o faturamento TOTAL da empresa —
