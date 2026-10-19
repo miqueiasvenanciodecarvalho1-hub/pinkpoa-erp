@@ -549,7 +549,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.241</span>
+      ">v2.14.242</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -8244,8 +8244,11 @@ function _fxNome(no, c){
   const d=Object.entries(no.desc).sort((a,b)=>b[1]-a[1]);
   if(d.length) return k+' · '+d[0][0];                       // conta (ou grupo com lançamento direto)
   let f=no; while(f.filhos.size) f=[...f.filhos.values()].sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot))[0];   // conta mais pesada do grupo
-  const nf=Object.entries(f.desc||{}).sort((a,b)=>b[1]-a[1])[0];
-  return k+' · '+(nf?`grupo (maior: ${nf[0]})`:'grupo');
+  // v242: grupo sem nome → as contas que mais pesam nele ("11 · FORNECEDORES, FRETES + 3 CONTAS"), não "grupo (maior: …)"
+  const fl=[]; const anda=n=>n.filhos.size?n.filhos.forEach(anda):fl.push(n); anda(no);
+  const nomesF=[...new Set(fl.sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot)).map(x=>Object.entries(x.desc||{}).sort((a,b)=>b[1]-a[1])[0]?.[0]).filter(Boolean))];
+  if(!nomesF.length) return k+' · GRUPO '+k;
+  return k+' · '+nomesF.slice(0,2).join(', ')+(nomesF.length>2?` + ${nomesF.length-2} CONTA${nomesF.length-2>1?'S':''}`:'');
 }
 function _fxAbrir(k){ const A=window._fxAbertos=window._fxAbertos||{}; A[k]=!A[k]; renderFluxo(); }
 function _fxNivel(n){ window._fxNiv=n; window._fxAbertos={}; renderFluxo(); }
@@ -8258,11 +8261,15 @@ function _fxRenomear(k){
 function _fxCiaToggle(cia){ const c=_fxCfg(); c.cias[cia]=!_fxParticipa(cia,c); _fxGravar(c); renderFluxo(); }
 function _fxTodas(on){ const c=_fxCfg(); _fxCias().forEach(k=>c.cias[k]=!!on); _fxGravar(c); renderFluxo(); }
 function _fxFilialCia(f, cia){ const c=_fxCfg(); if(cia) c.filiais[f]=cia; else delete c.filiais[f]; _fxGravar(c); renderFluxo(); }
+function _fxMesAtual(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+function _fxMesSoma(m, k){ const [y,mm]=m.split('-').map(Number); const d=new Date(y, mm-1+k, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
 function _fxDados(){
   const c=_fxCfg(), todos=_fxLancamentos();
   const meses=[...new Set(todos.map(l=>l.dt.slice(0,7)))].sort();
-  const de=document.getElementById('fx-de')?.value || window._fxDe || meses[Math.max(0,meses.length-12)] || '';
-  const ate=document.getElementById('fx-ate')?.value || window._fxAte || meses[meses.length-1] || '';
+  // v242: o período padrão termina no último mês FECHADO — o mês corrente (parcial) distorce médias e comparações
+  const atual=_fxMesAtual(), fech=meses.filter(m=>m<atual), baseM=fech.length?fech:meses;
+  const de=document.getElementById('fx-de')?.value || window._fxDe || baseM[Math.max(0,baseM.length-12)] || '';
+  const ate=document.getElementById('fx-ate')?.value || window._fxAte || baseM[baseM.length-1] || '';
   window._fxDe=de; window._fxAte=ate;
   const sel=todos.filter(l=>_fxParticipa(l.cia,c) && l.dt.slice(0,7)>=de && l.dt.slice(0,7)<=ate);
   return { c, todos, meses, de, ate, sel };
@@ -8320,7 +8327,7 @@ function renderFluxo(){
             <button class="btn btn-secondary btn-sm" onclick="_fxTodas(true)">todas</button><button class="btn btn-secondary btn-sm" onclick="_fxTodas(false)">nenhuma</button></div>
           ${fora?`<div style="font-size:11px;color:var(--gray-5);margin-top:6px">${fora.toLocaleString('pt-BR')} lançamento(s) de CIAs desmarcadas ficaram fora.</div>`:''}
         </div>
-        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <div style="display:${aba==='proj'||aba==='pxr'?'none':'flex'};gap:6px;align-items:center;flex-wrap:wrap">
           <label style="font-size:11px;color:var(--gray-5)">de <select id="fx-de" class="form-control" style="width:100px" onchange="_fxFiltrar()">${meses.map(m=>`<option value="${m}" ${m===de?'selected':''}>${rotM(m)}</option>`).join('')}</select></label>
           <label style="font-size:11px;color:var(--gray-5)">até <select id="fx-ate" class="form-control" style="width:100px" onchange="_fxFiltrar()">${meses.map(m=>`<option value="${m}" ${m===ate?'selected':''}>${rotM(m)}</option>`).join('')}</select></label>
           <button class="btn btn-secondary btn-sm" onclick="_fxExcel()">📊 Excel</button>
@@ -8329,18 +8336,20 @@ function renderFluxo(){
       <div style="font-size:11px;color:var(--gray-5);margin-top:6px">Recebimentos de clientes (todas as filiais e o e-commerce) são da <b>RMF</b>; a <b>RK</b> entra só com os pagamentos dela.</div>
     </div></div>
 
-    <div class="kpi-grid">
+    ${aba==='proj'||aba==='pxr'?'':`<div class="kpi-grid">
       <div class="kpi-card green"><div class="kpi-label">Entradas realizadas</div><div class="kpi-value">${fmt(soma(ent))}</div><div class="kpi-sub">${ent.length.toLocaleString('pt-BR')} lançamentos</div></div>
       <div class="kpi-card" style="border-left:3px solid var(--red)"><div class="kpi-label">Saídas realizadas</div><div class="kpi-value" style="color:var(--red)">${fmt(soma(sai))}</div><div class="kpi-sub">${sai.length.toLocaleString('pt-BR')} lançamentos</div></div>
       <div class="kpi-card blue"><div class="kpi-label">Resultado do período</div><div class="kpi-value" style="${soma(sel)<0?'color:var(--red)':''}">${fmt(soma(sel))}</div><div class="kpi-sub">${rotM(de)} a ${rotM(ate)}</div></div>
       <div class="kpi-card amber"><div class="kpi-label">Lançamentos no fluxo</div><div class="kpi-value">${sel.length.toLocaleString('pt-BR')}</div><div class="kpi-sub">de ${todos.length.toLocaleString('pt-BR')} na base</div></div>
-    </div>
+    </div>`}
 
     <div style="display:flex;gap:6px;margin:4px 0 14px">
-      <button class="btn ${aba==='fluxo'?'btn-primary':'btn-secondary'}" onclick="_fxAba('fluxo')">📊 Fluxo de caixa</button>
+      <button class="btn ${aba==='proj'?'btn-primary':'btn-secondary'}" onclick="_fxAba('proj')">📈 Projetado</button>
+      <button class="btn ${aba==='pxr'?'btn-primary':'btn-secondary'}" onclick="_fxAba('pxr')">⚖ Previsto × Realizado</button>
+      <button class="btn ${aba==='fluxo'?'btn-primary':'btn-secondary'}" onclick="_fxAba('fluxo')">📊 Realizado</button>
       <button class="btn ${aba==='lanc'?'btn-primary':'btn-secondary'}" onclick="_fxAba('lanc')">📄 Lançamentos (${sel.length.toLocaleString('pt-BR')})</button>
     </div>
-    ${aba==='fluxo'?`
+    ${aba==='proj'||aba==='pxr'?_fxProjHtml(aba, c, todos, rotM):aba==='fluxo'?`
     ${_fxAnalise(ent, sai, cols, arvS, c, rotM)}
     <div class="card" style="margin-bottom:14px"><div class="card-header"><h2>Fluxo de Caixa Realizado — por contas, mês a mês</h2>
       <div style="display:flex;gap:4px;align-items:center;font-size:11px;color:var(--gray-5)">abrir até o nível
@@ -8381,7 +8390,7 @@ function _fxAnalise(ent, sai, cols, arvS, c, rotM){
   const soma=a=>a.reduce((s,l)=>s+l.valor,0), tE=soma(ent), tS=Math.abs(soma(sai)), n=cols.length;
   const pm=(lista)=>{ const m={}; cols.forEach(k=>m[k]=0); lista.forEach(l=>{ const k=l.dt.slice(0,7); if(k in m) m[k]+=l.valor; }); return m; };
   const mE=pm(ent), mS=pm(sai), mR={}; cols.forEach(k=>mR[k]=mE[k]+mS[k]);
-  const neg=cols.filter(k=>mR[k]<0);
+  const neg=cols.filter(k=>mR[k]<0 && k<_fxMesAtual());
   const maxS=cols.reduce((a,k)=>Math.abs(mS[k])>Math.abs(mS[a])?k:a, cols[0]);
   const pct=(v,t)=>t?(v/t*100).toFixed(1).replace('.',',')+'%':'—';
   // composição por grupo de 1º nível
@@ -8390,13 +8399,16 @@ function _fxAnalise(ent, sai, cols, arvS, c, rotM){
   const folhas=[]; const anda=no=>no.filhos.forEach(f=>f.filhos.size?anda(f):folhas.push(f)); anda(arvS);
   folhas.sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot));
   // variação: último mês × média dos anteriores (contas com peso)
-  const ult=cols[n-1], ant=cols.slice(0,-1);
-  const varia=ant.length ? folhas.map(f=>{ const media=ant.reduce((s,k)=>s+Math.abs(f.m[k]||0),0)/ant.length, u=Math.abs(f.m[ult]||0);
+  // v242: compara o último mês FECHADO do período (o mês corrente está pela metade e daria tudo "abaixo da média")
+  const fechados=cols.filter(k=>k<_fxMesAtual()), parcial=cols.length>fechados.length;
+  const ult=fechados[fechados.length-1], ant=fechados.slice(0,-1);
+  const varia=(ult && ant.length) ? folhas.map(f=>{ const media=ant.reduce((s,k)=>s+Math.abs(f.m[k]||0),0)/ant.length, u=Math.abs(f.m[ult]||0);
       return {f, media, u, d:u-media}; }).filter(x=>x.media>0 && Math.abs(x.d)>=Math.max(1000, x.media*0.3)).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d)).slice(0,5) : [];
   const semPlano=sai.filter(l=>!l.cod), conc5=folhas.slice(0,5).reduce((s,f)=>s+Math.abs(f.tot),0);
   const li=t=>`<li style="margin:3px 0">${t}</li>`;
   const pontos=[];
   pontos.push(`Entradas de <b>${fmt(tE)}</b> contra saídas de <b>${fmt(tS)}</b> → resultado <b style="color:${tE-tS<0?'var(--red)':'var(--green)'}">${fmt(tE-tS)}</b> (${tS?'cobertura '+pct(tE,tS)+' das saídas':''}).`);
+  if(parcial) pontos.push(`<span style="color:#b45309">${rotM(cols[n-1])} ainda está em andamento</span> — entra nos totais, mas fica fora das comparações.`);
   pontos.push(`Média mensal: entradas ${fmt(tE/n)} · saídas ${fmt(tS/n)}. Maior saída em <b>${rotM(maxS)}</b> (${fmt(Math.abs(mS[maxS]))}).`);
   if(neg.length) pontos.push(`<span style="color:var(--red)">${neg.length} mês(es) com resultado negativo</span>: ${neg.map(k=>`${rotM(k)} (${fmt(mR[k])})`).join(', ')}.`);
   else pontos.push(`Nenhum mês com resultado negativo no período.`);
@@ -8408,7 +8420,7 @@ function _fxAnalise(ent, sai, cols, arvS, c, rotM){
       ${g1.slice(0,8).map(g=>{ const p=Math.abs(g.tot)/(tS||1)*100; return `<div style="margin:4px 0"><div style="display:flex;justify-content:space-between;gap:8px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nvEsc(_fxNome(g,c))}</span><b>${p.toFixed(1).replace('.',',')}%</b></div>
         <div style="height:6px;background:var(--gray-1);border-radius:3px"><div style="height:6px;width:${Math.min(100,p)}%;background:var(--pink);border-radius:3px"></div></div></div>`; }).join('')}
     </div>
-    ${varia.length?`<div><div style="font-weight:700;margin-bottom:4px">Fora do padrão em ${rotM(ult)} (× média dos meses anteriores)</div><ul style="margin:0;padding-left:18px">${varia.map(x=>li(`${_nvEsc(_fxNome(x.f,c))}: ${fmt(x.u)} contra média ${fmt(x.media)} <b style="color:${x.d>0?'var(--red)':'var(--green)'}">${x.d>0?'▲':'▼'} ${fmt(Math.abs(x.d))}</b>`)).join('')}</ul></div>`:''}
+    ${ult && ant.length?`<div><div style="font-weight:700;margin-bottom:4px">Fora do padrão em ${rotM(ult)} (× média de ${ant.length} mês(es) anteriores)</div><ul style="margin:0;padding-left:18px">${varia.length?'':li('Nenhuma conta variou mais de 30% (e R$ 1.000) contra a média.')}${varia.map(x=>li(`${_nvEsc(_fxNome(x.f,c))}: ${fmt(x.u)} contra média ${fmt(x.media)} <b style="color:${x.d>0?'var(--red)':'var(--green)'}">${x.d>0?'▲':'▼'} ${fmt(Math.abs(x.d))}</b>`)).join('')}</ul></div>`:''}
   </div></div>`;
 }
 function _fxExcel(){
@@ -8422,6 +8434,246 @@ function _fxExcel(){
   const nome=`fluxo_realizado_${de}_a_${ate}`;
   if(typeof XLSX!=='undefined'){ const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Fluxo realizado'); XLSX.writeFile(wb, nome+'.xlsx'); return; }
   const csv=rows.map(r=>r.map(v=>typeof v==='number'?String(v).replace('.',','):'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'})); a.download=nome+'.csv'; a.click();
+}
+// ---------- v242: FLUXO DE CAIXA PROJETADO (Previsto) e PREVISTO × REALIZADO ----------
+// Plano mês a mês, como os planos de fluxo de caixa de mercado:
+//   FATURAMENTO BRUTO previsto (padrão: média dos meses fechados) − DEVOLUÇÃO % = FATURAMENTO LÍQUIDO
+//   ENTRADAS = CONTAS A RECEBER (carteira real, títulos em aberto pelo vencimento) + VENDAS SIMULADAS
+//              (faturamento líquido previsto distribuído pelo prazo de recebimento medido na própria carteira)
+//   SAÍDAS   = uma linha por grupo do plano de contas, cada uma com a sua REGRA:
+//              auto (maior entre o já lançado no contas a pagar e a média realizada) · só lançado · média · fixo · % do fat. líquido
+//   SALDO INICIAL + entradas − saídas = SALDO FINAL, que vira o saldo inicial do mês seguinte.
+// Qualquer célula pode ser digitada por cima (fica destacada). "Congelar previsto" guarda a foto para o Previsto × Realizado.
+// O plano fica em pinkpoa_fx_plano (configuração local que vai ao servidor junto com o módulo Fluxo).
+const FX_PL_KEY='pinkpoa_fx_plano';
+const FX_REGRAS={auto:'Auto (lançado × média)', lancado:'Só o lançado', media:'Média realizada', fixo:'Fixo R$/mês', pct:'% do fat. líquido'};
+function _fxPlano(){ let p={}; try{ p=JSON.parse(localStorage.getItem(FX_PL_KEY)||'{}')||{}; }catch(e){}
+  p.linhas=p.linhas||{}; p.fat=p.fat||{}; p.extras=p.extras||[];
+  if(!/^\d{4}-\d{2}$/.test(p.ini||'')) p.ini=_fxMesAtual();
+  p.n=Math.min(24,Math.max(1,+p.n||6)); p.base=Math.min(12,Math.max(1,+p.base||3)); p.nivel=+p.nivel===2?2:1;
+  if(p.recVenc==null) p.recVenc=false; if(p.pagVenc==null) p.pagVenc=true;
+  return p; }
+function _fxPlGravar(p){ try{ localStorage.setItem(FX_PL_KEY, JSON.stringify(p)); }catch(e){} }
+function _fxPlRedesenhar(){ const w=document.querySelector('.fx-pl-wrap'), x=w?w.scrollLeft:0; renderFluxo(); const w2=document.querySelector('.fx-pl-wrap'); if(w2) w2.scrollLeft=x; }
+function _fxPlSet(k, v){ const p=_fxPlano();
+  if(k==='ini'){ if(!/^\d{4}-\d{2}$/.test(v)) return; p.ini=v; }
+  else if(k==='recVenc'||k==='pagVenc') p[k]=!!v;
+  else if(k==='saldoIni'||k==='devPct'){ if(String(v).trim()==='') delete p[k]; else p[k]=pNum(v); }
+  else p[k]=+v;
+  _fxPlGravar(p); _fxPlRedesenhar(); }
+function _fxPlFat(m, v){ const p=_fxPlano(); if(String(v).trim()==='') delete p.fat[m]; else p.fat[m]=pNum(v); _fxPlGravar(p); _fxPlRedesenhar(); }
+function _fxPlLinha(k){ const p=_fxPlano(); const x=p.extras.find(e=>e.id===k); return x || (p.linhas[k]=p.linhas[k]||{}); }
+function _fxPlRegra(k, r){ const p=_fxPlano(); const x=p.extras.find(e=>e.id===k)||(p.linhas[k]=p.linhas[k]||{}); x.regra=r;
+  if((r==='fixo'||r==='pct') && x.valor==null){ const v=prompt(r==='fixo'?'Valor fixo por mês (R$):':'Percentual sobre o faturamento líquido (%):',''); if(v===null){ return _fxPlRedesenhar(); } x.valor=pNum(v); }
+  _fxPlGravar(p); _fxPlRedesenhar(); }
+function _fxPlValor(k, v){ const p=_fxPlano(); const x=p.extras.find(e=>e.id===k)||(p.linhas[k]=p.linhas[k]||{}); x.valor=pNum(v); _fxPlGravar(p); _fxPlRedesenhar(); }
+function _fxPlCel(k, m, v){ const p=_fxPlano(); const x=p.extras.find(e=>e.id===k)||(p.linhas[k]=p.linhas[k]||{}); x.cel=x.cel||{};
+  if(String(v).trim()==='') delete x.cel[m]; else x.cel[m]=Math.abs(pNum(v)); _fxPlGravar(p); _fxPlRedesenhar(); }
+function _fxPlNova(){
+  const nome=prompt('Nome da nova linha do fluxo (ex.: EMPRÉSTIMO, APORTE DE SÓCIOS, IMPOSTOS PARCELADOS):',''); if(!nome||!nome.trim()) return;
+  const ent=confirm(`"${nome.trim().toUpperCase()}" é uma ENTRADA de dinheiro?\n\nOK = entrada · Cancelar = saída`);
+  const v=prompt('Valor fixo por mês (R$) — pode deixar vazio e digitar mês a mês:','');
+  const p=_fxPlano(); p.extras.push({id:'X'+Date.now().toString(36), nome:nome.trim().toUpperCase(), tipo:ent?'E':'S', regra:'fixo', valor:v?pNum(v):0, cel:{}});
+  _fxPlGravar(p); _fxPlRedesenhar(); }
+function _fxPlRemover(id){ const p=_fxPlano(); const x=p.extras.find(e=>e.id===id); if(!x||!confirm(`Remover a linha "${x.nome}"?`)) return;
+  p.extras=p.extras.filter(e=>e.id!==id); _fxPlGravar(p); _fxPlRedesenhar(); }
+function _fxPlLimpar(){ if(!confirm('Voltar todas as linhas para a regra automática e apagar os valores digitados por cima?\n\n(O faturamento previsto, o saldo inicial, as linhas extras e o previsto congelado continuam.)')) return;
+  const p=_fxPlano(); p.linhas={}; _fxPlGravar(p); _fxPlRedesenhar(); }
+// Calcula o plano inteiro (usado pela tela, pelo Excel e pelo congelamento)
+function _fxPlCalc(c, todos){
+  const p=_fxPlano(), atual=_fxMesAtual(), hoje=new Date().toISOString().slice(0,10);
+  const meses=[]; for(let i=0;i<p.n;i++) meses.push(_fxMesSoma(p.ini,i));
+  const fim=meses[meses.length-1];
+  const baseM=[]; for(let i=p.base;i>=1;i--) baseM.push(_fxMesSoma(atual,-i));   // meses FECHADOS da média
+  const part=l=>_fxParticipa(l.cia,c);
+  const chave=l=>{ const cm=_fxCaminho(l); return cm[Math.min(p.nivel,cm.length)-1]; };
+  // saídas: realizado (média e o que já saiu no mês corrente) e o já lançado em aberto
+  const realS=todos.filter(l=>l.tipo==='S' && part(l));
+  const UP=t=>String(t==null?'':t).toLocaleUpperCase('pt-BR').replace(/\s+/g,' ').trim();
+  const abertos=[]; let pagVencidos=0;
+  (DB.pagar||[]).forEach(t=>{
+    if(!t || t.pgmto || t.status!=='aberto' || !t.venc) return;
+    if(!(String(t.cancfin||'0')==='0'||String(t.cancfin||'')==='')) return;
+    const cia=UP(t.emp||'—'); if(!_fxParticipa(cia,c)) return;
+    const v=+(Number(t.valor)||0).toFixed(2); if(!v) return;
+    let m=t.venc.slice(0,7);
+    if(m<p.ini){ if(!p.pagVenc || _pgMuitoAntigo(t, hoje, PG_MESES_CORTE)) { if(!_pgMuitoAntigo(t, hoje, PG_MESES_CORTE)) pagVencidos+=v; return; } m=p.ini; }
+    if(m>fim) return;
+    abertos.push({ dt:m+'-01', mes:m, cia, tipo:'S', valor:-Math.abs(v), grupo:UP(t.planoDesc||t.plano||'SEM PLANO DE CONTAS'), cod:String(t.plano||'').trim() });
+  });
+  // nomes dos grupos: árvore com o realizado + o lançado
+  const arv=_fxArvore(realS.concat(abertos)), nos={}; const anda=n=>n.filhos.forEach(f=>{ nos[f.k]=f; anda(f); }); anda(arv);
+  const media={}, jaSaiu={}, lanc={};
+  realS.forEach(l=>{ const m=l.dt.slice(0,7), k=chave(l);
+    if(baseM.includes(m)) media[k]=(media[k]||0)+Math.abs(l.valor)/p.base;
+    if(m===atual) jaSaiu[k]=(jaSaiu[k]||0)+Math.abs(l.valor); });
+  abertos.forEach(l=>{ const k=chave(l); (lanc[k]=lanc[k]||{})[l.mes]=(lanc[k][l.mes]||0)+Math.abs(l.valor); });
+  const chaves=[...new Set(Object.keys(media).concat(Object.keys(lanc)))].sort((a,b)=>/^[\d.]+$/.test(a)&&/^[\d.]+$/.test(b)?a.localeCompare(b,undefined,{numeric:true}):a.localeCompare(b));
+  // faturamento: histórico do Audience (vendas e devoluções por mês de emissão)
+  const fatH={}, devH={};
+  (DB.faturamento||[]).forEach(f=>{ if(!f.mes || f.sit==='C') return; const m=String(f.mes).slice(0,7);
+    if(f.tp==='devolucao') devH[m]=(devH[m]||0)+Math.abs(Number(f.vn)||0);
+    else if(f.tp!=='entrada') fatH[m]=(fatH[m]||0)+Math.abs(Number(f.vnBruto!=null?f.vnBruto:f.vn)||0); });
+  const fatMedia=baseM.reduce((s,m)=>s+(fatH[m]||0),0)/p.base, devBase=baseM.reduce((s,m)=>s+(devH[m]||0),0);
+  const devAuto=fatMedia? devBase/p.base/fatMedia*100 : 0, devPct=p.devPct!=null?p.devPct:devAuto;
+  const fatB={}, fatAuto={}; meses.forEach(m=>{ const a=m===atual?Math.max(0,fatMedia-(fatH[m]||0)):fatMedia; fatAuto[m]=a; fatB[m]=p.fat[m]!=null?p.fat[m]:a; });
+  const fatL={}; meses.forEach(m=>fatL[m]=fatB[m]*(1-devPct/100));
+  // prazo de recebimento medido na carteira: % do valor que vence 0,1,2… meses depois da emissão
+  const curva=[0,0,0,0,0,0,0]; let cT=0;
+  (DB.recebiveis||[]).forEach(r=>{ if(!r.em||!r.e) return; const a=r.em.slice(0,7), b=r.e.slice(0,7); if(b<a) return;
+    const k=Math.min(6,(+b.slice(0,4)-+a.slice(0,4))*12+(+b.slice(5,7)-+a.slice(5,7))); const v=Math.abs(Number(r.v)||0); curva[k]+=v; cT+=v; });
+  const prazo=cT? curva.map(v=>v/cT) : [0,0.3,0.4,0.3,0,0,0];
+  // entradas: carteira real (títulos em aberto pelo vencimento) + vendas simuladas
+  const cart={}; let recVencidos=0; const lim90=_fxMesSoma(p.ini,-3);
+  (DB.recebiveis||[]).forEach(r=>{ if(r.dtbx || (r.sit && r.sit!=='aberto') || !r.e) return;
+    const v=Math.abs(Number(r.sal>0?r.sal:r.v)||0); if(!v) return; let m=r.e.slice(0,7);
+    if(m<p.ini){ if(m<lim90) return; if(!p.recVenc){ recVencidos+=v; return; } m=p.ini; }
+    if(m>fim) return; cart[m]=(cart[m]||0)+v; });
+  const sim={}; meses.forEach((m,i)=>prazo.forEach((q,k)=>{ const d=meses[i+k]; if(d && q) sim[d]=(sim[d]||0)+fatL[m]*q; }));
+  // valor de uma linha num mês, pela regra
+  const regraVal=(L, autoMed, autoLanc, m)=>{
+    if(L.cel && L.cel[m]!=null) return L.cel[m];
+    const r=L.regra||'auto';
+    if(r==='fixo') return +L.valor||0;
+    if(r==='pct') return fatL[m]*(+L.valor||0)/100;
+    if(r==='lancado') return autoLanc;
+    if(r==='media') return autoMed;
+    return Math.max(autoLanc, autoMed);
+  };
+  const saidas=chaves.map(k=>{ const L=p.linhas[k]||{}, v={}, med={};
+    meses.forEach(m=>{ med[m]=m===atual?Math.max(0,(media[k]||0)-(jaSaiu[k]||0)):(media[k]||0); v[m]=regraVal(L, med[m], (lanc[k]||{})[m]||0, m); });
+    return { k, nome:nos[k]?_fxNome(nos[k],c):k, L, v, media:media[k]||0, lanc:lanc[k]||{}, med }; });
+  const extras=p.extras.map(x=>{ const v={}; meses.forEach(m=>v[m]=regraVal(x,0,0,m)); return {k:x.id, nome:x.nome, tipo:x.tipo, L:x, v, extra:true}; });
+  const tE={}, tS={}, res={}, sIni={}, sFim={}; let saldo=+p.saldoIni||0;
+  meses.forEach(m=>{ tE[m]=(cart[m]||0)+(sim[m]||0)+extras.filter(x=>x.tipo==='E').reduce((s,x)=>s+x.v[m],0);
+    tS[m]=saidas.reduce((s,x)=>s+x.v[m],0)+extras.filter(x=>x.tipo==='S').reduce((s,x)=>s+x.v[m],0);
+    res[m]=tE[m]-tS[m]; sIni[m]=saldo; saldo+=res[m]; sFim[m]=saldo; });
+  return { p, meses, atual, baseM, fatB, fatAuto, fatL, fatMedia, devPct, devAuto, prazo, cart, sim, saidas, extras, tE, tS, res, sIni, sFim, recVencidos, pagVencidos, chave };
+}
+function _fxProjHtml(aba, c, todos, rotM){
+  if(aba==='pxr') return _fxPxrHtml(c, todos, rotM);
+  const P=_fxPlCalc(c, todos), {p, meses}=P;
+  const n2=v=>(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const q=t=>String(t).replace(/'/g,"\\'");
+  const td=(v,st)=>`<td style="text-align:right;white-space:nowrap;${v<0?'color:var(--red);':''}${st||''}">${Math.abs(v)>=0.005?fmt(v):'—'}</td>`;
+  const inp=(v,on,dest,tit)=>`<td style="text-align:right;padding:2px 4px"><input class="form-control" style="width:104px;text-align:right;padding:3px 6px;font-size:12px;${dest?'background:#fff7d6;border-color:#f59e0b':''}" value="${n2(v)}" title="${_nvEsc(tit||'Digite para fixar o valor deste mês (vazio = volta para a regra)')}" onchange="${on}"></td>`;
+  const regraSel=(k,L)=>`<select class="form-control" style="width:170px;font-size:11px;padding:2px 4px" onchange="_fxPlRegra('${q(k)}',this.value)">${Object.entries(FX_REGRAS).map(([r,t])=>`<option value="${r}" ${(L.regra||'auto')===r?'selected':''}>${t}</option>`).join('')}</select>`
+    +((L.regra==='fixo'||L.regra==='pct')?` <input class="form-control" style="width:80px;font-size:11px;padding:2px 4px;text-align:right;display:inline-block" value="${n2(L.valor)}" title="${L.regra==='pct'?'% sobre o faturamento líquido':'R$ por mês'}" onchange="_fxPlValor('${q(k)}',this.value)">${L.regra==='pct'?'%':''}`:'');
+  const linha=(rot, mm, st, regra, totV)=>`<tr style="${st||''}"><td style="white-space:nowrap;max-width:340px;overflow:hidden;text-overflow:ellipsis" title="${_nvEsc(rot)}">${_nvEsc(rot)}</td><td style="white-space:nowrap;font-size:11px;color:var(--gray-5)">${regra||''}</td>${meses.map(m=>td(mm[m]||0)).join('')}${td(totV!=null?totV:meses.reduce((s,m)=>s+(mm[m]||0),0),'font-weight:700')}</tr>`;
+  const linhaEd=(x)=>{ const cel=(x.L.cel)||{};
+    const tit=m=>x.extra?'':`média ${fmt(x.med[m])} · lançado ${fmt(x.lanc[m]||0)} — digite para fixar (vazio = regra)`;
+    return `<tr><td style="white-space:nowrap;max-width:340px;overflow:hidden;text-overflow:ellipsis;padding-left:18px" title="${_nvEsc(x.k+' · '+x.nome)}">${x.extra?`<span style="cursor:pointer;color:var(--red)" title="Remover linha" onclick="_fxPlRemover('${x.k}')">✕</span> `:''}${_nvEsc(x.nome)}${!x.extra&&/^[\d.]+$/.test(x.k)?` <span style="cursor:pointer;color:var(--gray-4);font-size:11px" title="Dar nome ao grupo" onclick="_fxRenomear('${x.k}')">✎</span>`:''}</td>
+      <td style="white-space:nowrap">${regraSel(x.k,x.L)}</td>${meses.map(m=>inp(x.v[m], `_fxPlCel('${q(x.k)}','${m}',this.value)`, cel[m]!=null, tit(m))).join('')}${td(meses.reduce((s,m)=>s+x.v[m],0),'font-weight:700')}</tr>`; };
+  const prazoTxt=P.prazo.map((v,k)=>v>=0.005?`${k===0?'no mês':k+'º mês'} ${(v*100).toFixed(0)}%`:'').filter(Boolean).join(' · ');
+  const opM=[]; for(let i=-6;i<=12;i++) opM.push(_fxMesSoma(P.atual,i));
+  const H=`<div style="font-size:11px;color:var(--gray-5)">`;
+  return `
+  <div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:12px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end">
+    <label style="font-size:11px;color:var(--gray-5)">Início<br><select class="form-control" style="width:130px" onchange="_fxPlSet('ini',this.value)">${opM.map(m=>`<option value="${m}" ${m===p.ini?'selected':''}>${rotM(m)}${m===P.atual?' (atual)':''}</option>`).join('')}</select></label>
+    <label style="font-size:11px;color:var(--gray-5)">Meses<br><select class="form-control" style="width:80px" onchange="_fxPlSet('n',this.value)">${[3,6,9,12,18,24].map(k=>`<option ${k===p.n?'selected':''}>${k}</option>`).join('')}</select></label>
+    <label style="font-size:11px;color:var(--gray-5)">Média dos últimos<br><select class="form-control" style="width:150px" onchange="_fxPlSet('base',this.value)">${[1,2,3,6,12].map(k=>`<option value="${k}" ${k===p.base?'selected':''}>${k} ${k>1?'meses fechados':'mês fechado'}</option>`).join('')}</select></label>
+    <label style="font-size:11px;color:var(--gray-5)">Linhas de saída por<br><select class="form-control" style="width:165px" onchange="_fxPlSet('nivel',this.value)"><option value="1" ${p.nivel===1?'selected':''}>grupo (nível 1)</option><option value="2" ${p.nivel===2?'selected':''}>subgrupo (nível 2)</option></select></label>
+    <label style="font-size:11px;color:var(--gray-5)">Saldo inicial em caixa (R$)<br><input class="form-control" style="width:130px;text-align:right" value="${n2(p.saldoIni)}" onchange="_fxPlSet('saldoIni',this.value)"></label>
+    <div style="display:flex;flex-direction:column;gap:3px;font-size:11px">
+      <label><input type="checkbox" ${p.pagVenc?'checked':''} onchange="_fxPlSet('pagVenc',this.checked)"> pagar vencido (até ${PG_MESES_CORTE} meses) entra no 1º mês</label>
+      <label><input type="checkbox" ${p.recVenc?'checked':''} onchange="_fxPlSet('recVenc',this.checked)"> receber vencido (até 3 meses) entra no 1º mês</label></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-left:auto">
+      <button class="btn btn-secondary btn-sm" onclick="_fxPlNova()">＋ Linha</button>
+      <button class="btn btn-secondary btn-sm" onclick="_fxPlLimpar()">↺ Regras automáticas</button>
+      <button class="btn btn-secondary btn-sm" onclick="_fxPlExcel()">📊 Excel</button>
+      <button class="btn btn-primary btn-sm" onclick="_fxPlCongelar()">❄ Congelar previsto</button></div>
+  </div></div>
+  <div class="kpi-grid">
+    <div class="kpi-card green"><div class="kpi-label">Entradas previstas</div><div class="kpi-value">${fmt(meses.reduce((s,m)=>s+P.tE[m],0))}</div><div class="kpi-sub">${rotM(meses[0])} a ${rotM(meses[meses.length-1])}</div></div>
+    <div class="kpi-card" style="border-left:3px solid var(--red)"><div class="kpi-label">Saídas previstas</div><div class="kpi-value" style="color:var(--red)">${fmt(meses.reduce((s,m)=>s+P.tS[m],0))}</div><div class="kpi-sub">${P.saidas.length} grupo(s) de contas</div></div>
+    <div class="kpi-card blue"><div class="kpi-label">Saldo final previsto</div><div class="kpi-value" style="${P.sFim[meses[meses.length-1]]<0?'color:var(--red)':''}">${fmt(P.sFim[meses[meses.length-1]])}</div><div class="kpi-sub">saldo inicial ${fmt(+p.saldoIni||0)}</div></div>
+    <div class="kpi-card amber"><div class="kpi-label">Menor saldo no período</div>${(()=>{ const m=meses.reduce((a,k)=>P.sFim[k]<P.sFim[a]?k:a,meses[0]); return `<div class="kpi-value" style="${P.sFim[m]<0?'color:var(--red)':''}">${fmt(P.sFim[m])}</div><div class="kpi-sub">em ${rotM(m)}</div>`; })()}</div>
+  </div>
+  <div class="card" style="margin-bottom:14px"><div class="card-header"><h2>📈 Fluxo de Caixa Projetado — ${rotM(meses[0])} a ${rotM(meses[meses.length-1])}</h2></div>
+    <div class="table-wrap fx-pl-wrap" style="overflow-x:auto"><table style="font-size:12px">
+      <thead><tr><th>Linha</th><th>Regra</th>${meses.map(m=>`<th style="text-align:right">${rotM(m)}${m===P.atual?'<br><span style="font-weight:400;font-size:10px">(restante)</span>':''}</th>`).join('')}<th style="text-align:right">Total</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:700">FATURAMENTO BRUTO</td><td style="font-size:11px;color:var(--gray-5)">média ${fmt(P.fatMedia)}</td>${meses.map(m=>inp(P.fatB[m], `_fxPlFat('${m}',this.value)`, p.fat[m]!=null, `automático ${fmt(P.fatAuto[m])} — digite a venda prevista (vazio = automático)`)).join('')}${td(meses.reduce((s,m)=>s+P.fatB[m],0),'font-weight:700')}</tr>
+        <tr><td style="padding-left:18px">(−) DEVOLUÇÃO</td><td style="white-space:nowrap"><input class="form-control" style="width:70px;font-size:11px;padding:2px 4px;text-align:right;display:inline-block;${p.devPct!=null?'background:#fff7d6;border-color:#f59e0b':''}" value="${n2(P.devPct)}" title="histórico: ${n2(P.devAuto)}% (vazio = histórico)" onchange="_fxPlSet('devPct',this.value)">%</td>${meses.map(m=>td(-(P.fatB[m]-P.fatL[m]))).join('')}${td(-meses.reduce((s,m)=>s+P.fatB[m]-P.fatL[m],0))}</tr>
+        ${linha('= FATURAMENTO LÍQUIDO', P.fatL, 'font-weight:700;border-bottom:2px solid var(--gray-2)')}
+        ${linha('SALDO INICIAL', P.sIni, 'font-weight:700;background:var(--gray-1)', '', P.sIni[meses[0]])}
+        ${linha('▲ ENTRADAS', P.tE, 'font-weight:700;color:var(--green)')}
+        ${linha('CONTAS A RECEBER — CARTEIRA REAL', P.cart, '', 'títulos em aberto')}
+        ${linha('VENDAS SIMULADAS (FAT. LÍQUIDO × PRAZO)', P.sim, '', prazoTxt)}
+        ${P.extras.filter(x=>x.tipo==='E').map(linhaEd).join('')}
+        ${linha('▼ SAÍDAS', P.tS, 'font-weight:700;color:var(--red)')}
+        ${P.saidas.map(linhaEd).join('')}
+        ${P.extras.filter(x=>x.tipo==='S').map(linhaEd).join('')}
+        ${linha('= RESULTADO DO MÊS', P.res, 'font-weight:800;border-top:2px solid var(--gray-3)')}
+        ${linha('SALDO FINAL (ACUMULADO)', P.sFim, 'font-weight:800;background:var(--gray-1)', '', P.sFim[meses[meses.length-1]])}
+      </tbody></table></div>
+    <div style="padding:8px 14px">${H}
+      <b>Regras:</b> <b>Auto</b> = o maior entre o que já está lançado no contas a pagar para o mês e a média realizada dos últimos ${p.base} mês(es) fechado(s) (${P.baseM.map(rotM).join(', ')}).
+      No mês corrente conta só o que <b>falta</b> sair (média − já pago no mês). Valores digitados por cima ficam em <span style="background:#fff7d6;padding:0 4px">amarelo</span>; apague para voltar à regra.</div>
+      ${H}Vendas simuladas: o faturamento líquido previsto entra no caixa pelo prazo medido na carteira (${prazoTxt||'—'}).
+      ${P.recVencidos?` Há <b>${fmt(P.recVencidos)}</b> a receber vencido nos últimos 3 meses fora da projeção.`:''}${P.pagVencidos?` Há <b>${fmt(P.pagVencidos)}</b> a pagar vencido fora da projeção.`:''}</div></div>
+  </div>`;
+}
+function _fxPlCongelar(){
+  const {c, todos}=_fxDados(), P=_fxPlCalc(c, todos), p=P.p;
+  if(p.cong && !confirm(`Já existe um previsto congelado em ${fmtDate(p.cong.em)} (${p.cong.meses.length} meses).\nSubstituir pela projeção atual?`)) return;
+  // o mês corrente aparece no projetado só com o que FALTA; no congelado ele guarda o mês inteiro (já realizado + restante)
+  const jaE=todos.filter(l=>l.tipo==='E' && _fxParticipa(l.cia,c) && l.dt.slice(0,7)===P.atual).reduce((s,l)=>s+l.valor,0), jaS={};
+  todos.forEach(l=>{ if(l.tipo!=='S' || !_fxParticipa(l.cia,c) || l.dt.slice(0,7)!==P.atual) return; const k=P.chave(l); jaS[k]=(jaS[k]||0)+Math.abs(l.valor); });
+  const v={E:{}, S:{}}, nomes={};
+  P.meses.forEach(m=>{ v.E[m]=+(P.tE[m]+(m===P.atual?jaE:0)).toFixed(2); });
+  P.saidas.concat(P.extras.filter(x=>x.tipo==='S')).forEach(x=>{ v.S[x.k]={}; nomes[x.k]=x.nome; P.meses.forEach(m=>v.S[x.k][m]=+(x.v[m]+(m===P.atual&&!x.extra?(jaS[x.k]||0):0)).toFixed(2)); });
+  p.cong={ em:new Date().toISOString().slice(0,10), meses:P.meses, nivel:p.nivel, v, nomes };
+  _fxPlGravar(p); toast('Previsto congelado ❄ — compare na aba Previsto × Realizado'); window._fxAba_='pxr'; renderFluxo();
+}
+function _fxPxrHtml(c, todos, rotM){
+  const p=_fxPlano(), C=p.cong;
+  if(!C) return `<div class="card"><div class="card-body"><div class="empty-state" style="padding:36px"><div class="es-icon">⚖</div><div class="es-text">Nenhum previsto congelado</div>
+    <div style="font-size:12px;color:var(--gray-5);margin:8px 0 14px">Monte a projeção na aba 📈 Projetado e clique em <b>❄ Congelar previsto</b>. A partir daí cada mês mostra o previsto contra o que entrou e saiu de verdade.</div>
+    <button class="btn btn-primary" onclick="_fxAba('proj')">📈 Ir para o Projetado</button></div></div></div>`;
+  const atual=_fxMesAtual(), part=l=>_fxParticipa(l.cia,c);
+  const chave=l=>{ const cm=_fxCaminho(l); return cm[Math.min(C.nivel||1,cm.length)-1]; };
+  const rE={}, rS={}, rST={};
+  todos.forEach(l=>{ if(!part(l)) return; const m=l.dt.slice(0,7); if(!C.meses.includes(m)) return;
+    if(l.tipo==='E') rE[m]=(rE[m]||0)+l.valor;
+    else { const k=chave(l); (rS[k]=rS[k]||{})[m]=(rS[k][m]||0)+Math.abs(l.valor); rST[m]=(rST[m]||0)+Math.abs(l.valor); } });
+  const chaves=[...new Set(Object.keys(C.v.S).concat(Object.keys(rS)))];
+  const nomeK=k=>C.nomes[k]||k;
+  const pS={}; C.meses.forEach(m=>pS[m]=Object.values(C.v.S).reduce((s,o)=>s+(o[m]||0),0));
+  const tem=m=>m<=atual;
+  const cel=(prev, real, m, saida)=>{ if(!tem(m)) return `<td style="text-align:right">${fmt(prev)}</td><td style="text-align:right;color:var(--gray-4)">—</td><td></td>`;
+    const d=real-prev, ruim=saida?d>0:d<0, pc=prev?d/prev*100:0;
+    return `<td style="text-align:right">${fmt(prev)}</td><td style="text-align:right;font-weight:600">${fmt(real)}</td><td style="text-align:right;font-size:11px;white-space:nowrap;color:${Math.abs(d)<0.5?'var(--gray-4)':ruim?'var(--red)':'var(--green)'}">${Math.abs(d)<0.5?'=':(d>0?'▲ ':'▼ ')+(prev?Math.abs(pc).toFixed(0)+'%':fmt(Math.abs(d)))}</td>`; };
+  const tot=(o)=>C.meses.filter(tem).reduce((s,m)=>s+(o[m]||0),0);
+  const lin=(rot, prev, real, saida, st)=>`<tr style="${st||''}"><td style="white-space:nowrap;max-width:320px;overflow:hidden;text-overflow:ellipsis" title="${_nvEsc(rot)}">${_nvEsc(rot)}</td>${C.meses.map(m=>cel(prev[m]||0, real[m]||0, m, saida)).join('')}${cel(tot(prev), tot(real), C.meses[0], saida)}</tr>`;
+  const pR={}, rR={}; C.meses.forEach(m=>{ pR[m]=(C.v.E[m]||0)-pS[m]; rR[m]=(rE[m]||0)-(rST[m]||0); });
+  return `<div class="card"><div class="card-header"><h2>⚖ Previsto × Realizado <span style="font-weight:400;font-size:12px;color:var(--gray-5)">— previsto congelado em ${fmtDate(C.em)}</span></h2>
+      <button class="btn btn-secondary btn-sm" onclick="_fxPlCongelar()">❄ Congelar de novo</button></div>
+    <div class="table-wrap" style="overflow-x:auto"><table style="font-size:12px">
+      <thead><tr><th rowspan="2">Linha</th>${C.meses.map(m=>`<th colspan="3" style="text-align:center;border-left:1px solid var(--gray-2)">${rotM(m)}${m===atual?' (parcial)':''}</th>`).join('')}<th colspan="3" style="text-align:center;border-left:1px solid var(--gray-2)">Até hoje</th></tr>
+        <tr>${C.meses.concat(['t']).map(()=>`<th style="text-align:right;border-left:1px solid var(--gray-2)">Previsto</th><th style="text-align:right">Realizado</th><th style="text-align:right">Var.</th>`).join('')}</tr></thead>
+      <tbody>
+        ${lin('▲ ENTRADAS', C.v.E, rE, false, 'font-weight:700;color:var(--green)')}
+        ${lin('▼ SAÍDAS', pS, rST, true, 'font-weight:700;color:var(--red)')}
+        ${chaves.map(k=>lin('   '+nomeK(k), C.v.S[k]||{}, rS[k]||{}, true)).join('')}
+        ${lin('= RESULTADO DO MÊS', pR, rR, false, 'font-weight:800;border-top:2px solid var(--gray-3)')}
+      </tbody></table></div>
+    <div style="font-size:11px;color:var(--gray-5);padding:8px 14px">Realizado = o que está na base (pagamentos com data de pagamento e baixas de clientes), das CIAs marcadas. Meses futuros mostram só o previsto. Em vermelho, o que ficou pior que o previsto (entrou menos ou saiu mais).</div></div>`;
+}
+function _fxPlExcel(){
+  const {c, todos}=_fxDados(), P=_fxPlCalc(c, todos), M=P.meses;
+  const r=(rot, o, regra)=>[rot, regra||''].concat(M.map(m=>+(+(o[m]||0)).toFixed(2)));
+  const dev={}; M.forEach(m=>dev[m]=-(P.fatB[m]-P.fatL[m]));
+  const rows=[['Linha','Regra'].concat(M)].concat([
+    r('FATURAMENTO BRUTO',P.fatB), r('(-) DEVOLUÇÃO',dev,P.devPct.toFixed(2)+'%'), r('= FATURAMENTO LÍQUIDO',P.fatL), r('SALDO INICIAL',P.sIni),
+    r('ENTRADAS',P.tE), r('CONTAS A RECEBER — CARTEIRA REAL',P.cart), r('VENDAS SIMULADAS',P.sim)],
+    P.extras.filter(x=>x.tipo==='E').map(x=>r(x.nome,x.v,FX_REGRAS[x.L.regra||'auto'])),
+    [r('SAÍDAS',P.tS)], P.saidas.map(x=>r(x.nome,x.v,FX_REGRAS[x.L.regra||'auto'])), P.extras.filter(x=>x.tipo==='S').map(x=>r(x.nome,x.v,FX_REGRAS[x.L.regra||'auto'])),
+    [r('= RESULTADO DO MÊS',P.res), r('SALDO FINAL',P.sFim)]);
+  const nome=`fluxo_projetado_${M[0]}_a_${M[M.length-1]}`;
+  if(typeof XLSX!=='undefined'){ const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), 'Fluxo projetado'); XLSX.writeFile(wb, nome+'.xlsx'); return; }
+  const csv=rows.map(x=>x.map(v=>typeof v==='number'?String(v).replace('.',','):'"'+String(v).replace(/"/g,'""')+'"').join(';')).join('\r\n');
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'})); a.download=nome+'.csv'; a.click();
 }
 function _pgSecoes(){

@@ -83,6 +83,19 @@ flowchart LR
 
 ---
 
+### Fluxo de Caixa Projetado (menu Financeiro → 💵 Fluxo de Caixa → 📈 Projetado)
+- Plano mês a mês: **início** e **número de meses** configuráveis, **saldo inicial** em caixa e saldo final acumulado.
+- **Faturamento bruto** previsto (padrão = média dos últimos meses fechados; digitável mês a mês) − **devolução %**
+  (histórico; editável) = **faturamento líquido**.
+- **Entradas** = contas a receber da **carteira real** (títulos em aberto pelo vencimento) + **vendas simuladas**
+  (faturamento líquido previsto distribuído pelo prazo de recebimento medido na carteira) + linhas extras.
+- **Saídas** = uma linha por grupo (ou subgrupo) do plano de contas, cada uma com a sua **regra**: *Auto* (o maior entre
+  o já lançado no contas a pagar e a média realizada) · *só o lançado* · *média* · *fixo R$/mês* · *% do faturamento
+  líquido*. Qualquer célula pode ser digitada por cima (fica amarela; vazio volta à regra). No mês corrente conta só o
+  que falta sair. **＋ Linha** cria entradas/saídas extras (empréstimo, aporte, parcelamento…).
+- **❄ Congelar previsto** guarda a foto; a aba **⚖ Previsto × Realizado** compara mês a mês (previsto, realizado, variação).
+- Respeita as CIAs marcadas (RMF/RK). O plano fica salvo e vai ao servidor junto com o módulo Fluxo.
+
 ### Fluxo de Caixa Realizado (menu Financeiro → 💵 Fluxo de Caixa)
 - **Todos os lançamentos da base**, sem os filtros da posição de fechamento: saídas = todos os títulos do
   ERP_PGTO com data de pagamento (valor pago); entradas = baixas de clientes do vpdpcl2 (sem elas, os títulos
@@ -93,7 +106,8 @@ flowchart LR
   abrir e fechar e os botões "abrir até o nível 1-2-3-4"; coluna **%** do total. Os grupos sem nome na base podem ser
   nomeados no **✎** (fica salvo). Entradas: Recebimentos › tipo › CIA.
 - **🔎 Análise do período** (automática): cobertura das saídas pelas entradas, médias, meses negativos, concentração nas
-  5 maiores contas, para onde vai o dinheiro por grupo, contas fora do padrão no último mês e pagamentos sem plano.
+  5 maiores contas, para onde vai o dinheiro por grupo, contas fora do padrão no último mês **fechado** e pagamentos sem plano. O período padrão termina no último mês fechado
+  (o mês corrente, parcial, fica fora das comparações).
 - Resultado e acumulado mês a mês; lista de lançamentos com busca e **📊 Excel** (com grupo, subgrupo e código da conta).
 
 ## 3. Usuários e acessos
