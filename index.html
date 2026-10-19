@@ -559,7 +559,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.253</span>
+      ">v2.14.254</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2427,7 +2427,7 @@ function _comiOficialFat(f){
     if(f.fMes && raw.slice(5,7)!==f.fMes) return;
     if(f.fAno && raw.slice(0,4)!==f.fAno) return;
     comi += Number(c.total_comissao)||0;
-    base += Number(c.total_vendas)||0;
+    if(c.origem!=='gestor') base += Number(c.total_vendas)||0;
   });
   return {ok:true, comi:+comi.toFixed(2), base:+base.toFixed(2)};
 }
@@ -3018,7 +3018,7 @@ function renderComissoes() {
   // KPIs calculados sobre dados filtrados
   const tComissao  = dados.reduce((s,c)=>s+c.total_comissao,0);
   const tLiquida   = dados.reduce((s,c)=>s+(c.comi_liquida||0),0);
-  const tVendas    = dados.reduce((s,c)=>s+c.total_vendas,0);
+  const tVendas    = dados.reduce((s,c)=>s+(c.origem==='gestor'?0:c.total_vendas),0);   // v254: base do gestor é o faturamento da empresa, não título
   const _flCompKPI = _comFatCompAtual();   // v253: mesmo mês da comissão sobre faturamento (filtro de competência, mês/ano…)
   const tFatLiqKPI = (typeof calcComissaoFat==='function' && _flCompKPI) ? (calcComissaoFat(_flCompKPI, filComi||'', (typeof _cfOpts==='function'?_cfOpts():{})).liquido) : 0;
   const tTrocas = dados.reduce((s,c)=>s+(c.abatimentos||[]).reduce((a,x)=>a+Math.abs(Number(x.vlorliqu)||0),0),0);
@@ -6563,6 +6563,7 @@ function _aplicarReposicaoFat(){
   // resolve número reutilizado e ignora abatimento de mês futuro. Idempotente.
   const abat = DB.abat_repo||{};
   (DB.faturamento||[]).forEach(f=>{
+    if(f.manual) return;   // v254: linha manual (e-commerce) tem a troca dela — vem da comissão, não do vpdpcl2
     if(f.vnBruto==null) f.vnBruto = f.vn;
     const emis = String(f.mes||'');
     const key = String(f.fil||'')+'|'+String(f.nf||'')+'|'+String(f.cli||'');
@@ -11820,7 +11821,8 @@ function _sincronizarFaturamentoManual(){
   DB.faturamento = DB.faturamento.filter(f=>!f.manual);
   // NÃO espelha a Pronta Entrega (PENT): ela já está no faturamento como série RO (evita duplicidade).
   // O E-commerce (ECOM) vem de planilha, então continua sendo espelhado.
-  (DB.comissoes||[]).filter(c=>c.manual && (Number(c.total_vendas)||0)>0 && c.competencia_raw && String(c.codigo_rep)!=='PENT').forEach(c=>{
+  // v254: comissão de GESTOR (sobre o faturamento) não é venda — não entra no faturamento
+  (DB.comissoes||[]).filter(c=>c.manual && c.origem!=='gestor' && (Number(c.total_vendas)||0)>0 && c.competencia_raw && String(c.codigo_rep)!=='PENT').forEach(c=>{
     const cod=String(c.codigo_rep||'MAN');
     const bruto=Number(c.total_vendas)||0;
     const abat=(c.abatimentos||[]).reduce((sm,a)=>sm+Math.abs(Number(a.vlorliqu)||0),0);
