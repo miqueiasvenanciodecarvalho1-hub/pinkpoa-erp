@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.230</span>
+      ">v2.14.231</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2944,7 +2944,12 @@ function renderComissoes() {
                   <span>Representantes (marque vários)</span>
                   <span style="cursor:pointer;color:var(--pink)" onclick="window._comiReps=[];renderComissoes()">Limpar</span>
                 </div>
-                ${reps.map(r=>{const ri=repInfo(r);return `<label style="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--gray-1)'" onmouseleave="this.style.background=''"><input type="checkbox" value="${r}" ${filtReps.includes(String(r))?'checked':''} onchange="toggleComiRep('${r}')"><span>${ri.fantasia||ri.nome}</span></label>`;}).join('')}
+                <div style="position:sticky;top:-6px;background:var(--white);padding:6px 10px;border-bottom:1px solid var(--gray-2);z-index:1;display:flex;gap:6px" onclick="event.stopPropagation()">
+                  <input id="comirep-busca" class="form-control no-up" style="flex:1;padding:5px 8px;font-size:12px" placeholder="Filtrar por nome ou código…" autocomplete="off" oninput="_comiRepFiltrar(this.value)">
+                  <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px" title="Marcar todos os que aparecem" onclick="_comiRepMarcarVisiveis()">✓ visíveis</button>
+                </div>
+                ${reps.map(r=>{const ri=repInfo(r);return `<label class="comirep-op" data-busca="${_nvEsc((r+' '+(ri.fantasia||'')+' '+(ri.nome||'')).toLowerCase())}" style="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--gray-1)'" onmouseleave="this.style.background=''"><input type="checkbox" value="${r}" ${filtReps.includes(String(r))?'checked':''} onchange="toggleComiRep('${r}')"><span>${ri.fantasia||ri.nome} <span style="color:var(--gray-4);font-size:10.5px">${r}</span></span></label>`;}).join('')}
+                <div id="comirep-nada" style="display:none;padding:8px 12px;font-size:12px;color:var(--gray-5)">Nenhum representante com esse nome.</div>
                 <div style="border-top:1px solid var(--gray-2);padding:6px 12px;text-align:right;position:sticky;bottom:0;background:var(--white)">
                   <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();document.getElementById('comirep-dropdown').style.display='none';window._comiRepsDirty=false;renderComissoes();">✓ Consolidar</button>
                 </div>
@@ -3203,6 +3208,11 @@ function toggleNat(codigo) {
   const lbl=document.getElementById('nat-dd-label');
   if(lbl){ const n=window._fatNats.length; lbl.textContent = n===0?'Nat.':n===1?window._fatNats[0]:(n+' nat.'); }
 }
+// v231: busca dentro da lista de representantes das Comissões
+function _comiRepFiltrar(t){ t=String(t||'').toLowerCase().trim(); let n=0;
+  document.querySelectorAll('#comirep-dropdown .comirep-op').forEach(l=>{ const ok=!t||l.dataset.busca.includes(t); l.style.display=ok?'flex':'none'; if(ok) n++; });
+  const z=document.getElementById('comirep-nada'); if(z) z.style.display=n?'none':''; }
+function _comiRepMarcarVisiveis(){ document.querySelectorAll('#comirep-dropdown .comirep-op').forEach(l=>{ if(l.style.display==='none') return; const c=l.querySelector('input'); if(!c.checked){ c.checked=true; toggleComiRep(c.value); } }); }
 function toggleComiRep(cod){
   cod=String(cod); window._comiReps=window._comiReps||[];
   const i=window._comiReps.indexOf(cod);
@@ -3214,6 +3224,7 @@ function toggleComiRepDropdown(e){
   const dd=document.getElementById('comirep-dropdown'); if(!dd) return;
   const abrindo=dd.style.display==='none';
   dd.style.display=abrindo?'block':'none';
+  if(abrindo) setTimeout(()=>{ const b=document.getElementById('comirep-busca'); if(b){ b.value=''; _comiRepFiltrar(''); b.focus(); } },0);
   const aplicar=()=>{ if(window._comiRepsDirty){ window._comiRepsDirty=false; renderComissoes(); } };
   if(abrindo){ const close=ev=>{ if(!dd.contains(ev.target)){ dd.style.display='none'; document.removeEventListener('click',close); aplicar(); } }; setTimeout(()=>document.addEventListener('click',close),0); }
   else aplicar();
