@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.231</span>
+      ">v2.14.232</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -704,6 +704,8 @@ document.addEventListener('click', function(ev){
 
 // v230: clicar fora só fecha se o clique COMEÇOU fora (arrastar ao selecionar texto não fecha mais) e nunca em
 // formulário marcado como fixo (cadastro de usuário): esses fecham só por Cancelar/Salvar/✕.
+// v232: relatórios/PDF usam o logo ESCURO (o da tela de login); o do menu lateral tem letras brancas e some no papel branco
+function _logoRel(){ return (document.querySelector('#login-screen .login-card img')||document.querySelector('#login-screen img'))?.src||''; }
 function openModal(title, body, footer='', tamanho='') {
   window._modalFixo=false;
   const _m=document.querySelector('#modal-overlay .modal');
@@ -990,6 +992,9 @@ if(_CONVITE_TOK){ ['pinkpoa_token','pinkpoa_user','pinkpoa_nuvem_token','pinkpoa
 window.addEventListener('hashchange',()=>{ if(/convite=/.test(location.hash)) location.reload(); });
 // v212: sessão antiga (login local) sem a do servidor não vale mais
 if (TOKEN && !localStorage.getItem('pinkpoa_nuvem_token')) { localStorage.removeItem('pinkpoa_token'); localStorage.removeItem('pinkpoa_user'); TOKEN=''; USER=null; }
+// v232: a restauração da sessão roda no FIM do script (_restaurarSessao). Antes rodava aqui, antes de _PAGINAS_ADMIN e
+// outras constantes existirem → erro → o catch apagava o localStorage inteiro: todo recarregar da página deslogava.
+function _restaurarSessao(){
 if (TOKEN && USER && USER.email) {
   try {
     try{ const nu=JSON.parse(localStorage.getItem('pinkpoa_nuvem_usuario')||'null'); if(nu) USER=Object.assign({},USER,nu); }catch(_){}
@@ -1000,7 +1005,12 @@ if (TOKEN && USER && USER.email) {
     document.getElementById('avatar-initials').textContent = rotulo.trim()[0].toUpperCase();
     // checkApiStatus() já roda uma vez logo abaixo — não duplicar
     _avisoSemDados(); // v208
-  } catch(e) { localStorage.clear(); TOKEN = ''; USER = null; }
+  } catch(e) {   // só a sessão sai — preferências, e-mail lembrado e endereço da API ficam
+    console.error('Sessão:', e);
+    ['pinkpoa_token','pinkpoa_user','pinkpoa_nuvem_token','pinkpoa_nuvem_usuario'].forEach(k=>{ try{ localStorage.removeItem(k); }catch(_){} });
+    TOKEN = ''; USER = null; document.getElementById('login-screen').style.display = '';
+  }
+}
 }
 
 // ── API STATUS ────────────────────────────────────────────────
@@ -7426,7 +7436,7 @@ function gerarNaturezaPDF(codigo){
   const T={vb:0,desc:0,vn:0,vi:0,pis:0,cof:0,comi:0,qtd:0};
   notas.forEach(f=>{T.vb+=_n(f.vb);T.desc+=_n(f.desc);T.vn+=_n(f.vn);T.vi+=_n(f.vi);T.pis+=_n(f.pis);T.cof+=_n(f.cof);T.comi+=_n(f.comi);T.qtd+=_n(f.qtd);});
   const porMes={}; notas.forEach(f=>{ porMes[f.mes||'—']=(porMes[f.mes||'—']||0)+_n(f.vn); });
-  const logoSrc=document.querySelector('#sidebar img')?.src||'';
+  const logoSrc=_logoRel()||'';
 
   const linhas=notas.map(f=>`<tr><td class="m">${f.nf}/${f.sr}</td><td>${_fmtD(f.dt)}</td><td>${f.fil}</td><td>${_nCli(f.cli)}</td><td>${f.uf||''}</td><td>${_nRep(f.rep)}</td><td class="r">${_fmt(f.vb)}</td><td class="r">${_n(f.desc)?'-'+_fmt(f.desc):'—'}</td><td class="r"><strong>${_fmt(f.vn)}</strong></td><td class="r">${_n(f.vi)?_fmt(f.vi):'—'}</td><td class="r">${_n(f.comi)?_fmt(f.comi):'—'}</td><td class="r">${_n(f.qtd)?_n(f.qtd).toLocaleString('pt-BR'):'—'}</td></tr>`).join('');
   const linhasMes=Object.keys(porMes).sort(ordNome).map(m=>`<tr><td>${m}</td><td class="r">${_fmt(porMes[m])}</td></tr>`).join('');
@@ -10060,6 +10070,8 @@ async function _asConferir(){
 }
 ['click','change','keyup'].forEach(ev=>document.addEventListener(ev,()=>{ if(_asBase!==null) _asAgendar(); },true));
 setInterval(_asConferir, 60000);
+// v232: a cada 5 min confere se o servidor tem cópia nova ou se os acessos do usuário mudaram (sem precisar sair e entrar)
+setInterval(()=>{ if(USER && window._nvRef && !_asRodando && !_nvAutoRodando && document.visibilityState==='visible') _nvConferirAtualizacao(window._nvRef); }, 300000);
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='hidden') _asConferir(); });
 window.addEventListener('beforeunload',e=>{ if(_asRodando){ e.preventDefault(); e.returnValue='Salvando no servidor…'; } });
 // v212: admin baixa a cópia completa; usuário comum, a cópia filtrada pelos módulos liberados (o servidor monta)
@@ -10082,6 +10094,7 @@ async function _nvBaixarAplicar(v){
   const obj=JSON.parse(txt);
   if(!obj || obj._tipo!=='PINKPOA_BACKUP') throw new Error('Cópia do servidor com formato inesperado');
   const fix=_aplicarBackup(obj);
+  window._nvRef=v.chave||v.lote;
   _asMarcarBase(v.lote||null);
   try{ if(typeof navigate==='function' && typeof CURRENT_PAGE!=='undefined') navigate(CURRENT_PAGE); }catch(e){}
   return fix;
@@ -10097,6 +10110,7 @@ async function _nvAutoCarregar(){
   if(c && c.txt && c.dono===((USER&&USER.email)||'')){
     try{
       const fix=_aplicarBackup(JSON.parse(c.txt));
+      window._nvRef=c.ref;
       _asMarcarBase(c.ref||null);
       try{ navigate(CURRENT_PAGE||_primeiraPagina()); }catch(e){}
       toast(`Dados do aparelho (cópia de ${c.criado_em?new Date(c.criado_em).toLocaleString('pt-BR'):'?'}) — conferindo se há atualização…`);
@@ -10130,8 +10144,11 @@ async function _nvConferirAtualizacao(refAtual){
     await _sessaoAtualizar();
     const v=await _nvUltima();
     if(!v || (v.chave||v.lote)===refAtual){ _nvStatusDados('em dia'); return; }
-    // v220: há mudanças locais ainda não enviadas? não troca por cima delas
-    if(_asBase!==null && _asHashDe(_montarBackup())!==_asBase){ _nvStatusDados('servidor tem cópia mais nova — há mudanças locais'); return; }
+    // v232: acessos/representantes do usuário mudaram (a "chave" da cópia filtrada mudou além do lote)? troca SEMPRE —
+    // a cópia do aparelho pode ter dados que ele não pode mais ver. Mudanças locais só seguram quem pode editar.
+    const escopo=r=>String(r||'').split('|').slice(1).join('|');
+    const mudouAcesso=!!(v.chave && refAtual && escopo(v.chave)!==escopo(refAtual));
+    if(!mudouAcesso && _podeEditarAlgo() && _asBase!==null && _asHashDe(_montarBackup())!==_asBase){ _nvStatusDados('servidor tem cópia mais nova — há mudanças locais'); return; }
     _nvStatusDados('baixando atualização…');
     const fix=await _nvBaixarAplicar(v);
     toast(`Dados atualizados (cópia de ${new Date(v.criado_em).toLocaleString('pt-BR')})`);
@@ -10619,7 +10636,7 @@ function gerarFatPDF() {
   const tIcms=dados.reduce((s,f)=>s+_nn(f.vi),0), tPis=dados.reduce((s,f)=>s+_nn(f.pis),0);
   const tCof=dados.reduce((s,f)=>s+_nn(f.cof),0), tComi=dados.reduce((s,f)=>s+_nn(f.comi),0);
   const tQtd=dados.reduce((s,f)=>s+_nn(f.qtd),0);
-  const logoSrc=document.querySelector('#sidebar img')?.src||'';
+  const logoSrc=_logoRel()||'';
   const TIPO_TXT={venda:'Venda',devolucao:'Devolução',entrada:'Entrada',consignacao:'Consignação',bonificacao:'Bonificação',cancelada:'Cancelada',outros:'Outros'};
   const filtrosDesc=[fTipo?'Tipo: '+(TIPO_TXT[fTipo]||fTipo):'',fFil?'Filial '+fFil:'',fRep?'Rep.: '+_nRep(fRep):'',fNats.length?'Nat.: '+fNats.join(', '):'',fBusca?'Busca: '+fBusca:'',fMes?MESES[fMes]:'',fAno||''].filter(Boolean).join(' · ')||'Sem filtros';
   const BADGE={venda:['Vda','#e8f5ee','#1b6b3a'],devolucao:['Dev','#fdecec','#a51c1c'],entrada:['Ent','#e7f0fb','#1253aa'],consignacao:['Cons','#fef3c7','#92400e'],bonificacao:['Bon','#fef3c7','#92400e'],cancelada:['Canc','#eee','#666'],outros:['Out','#f0f0f0','#666']};
@@ -11080,7 +11097,7 @@ function gerarResumoComiPDF(){
   const _filtroLbl = _fr.length
     ? ' · filtro: '+_fr.map(c=>{const r=(DB.representantes||[]).find(x=>String(x.codigo)===c)||{}; return r.fantasia||r.nome||('Rep '+c);}).join(', ')
     : (_grpSel? ' · grupo: '+_grpSel : ' · sem filtro de representante');
-  const logoSrc = document.querySelector('#sidebar img')?.src||'';
+  const logoSrc = _logoRel()||'';
   const _todos = [...reps.map(r=>({...r,_tipo:'rep'})), ..._gest.map(g=>({...g,_tipo:'gestor'}))].sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
   const linhas = _todos.map(r=> r._tipo==='gestor'
       ? `<tr><td class="nm">${r.nome}<br><span style="font-size:9px;color:#1b6b3a;font-weight:600">comissão sobre faturamento${r.filial?(' · Fil. '+r.filial):''}</span></td><td class="r pk">${_fmt(r.fat)}</td><td class="r nv">${_fmt(r.comi)}</td><td class="r nv">${r.pct.toFixed(2).replace('.',',')}%</td></tr>`
@@ -13516,7 +13533,7 @@ function gerarRelatorioComiPDF(comId) {
     if(!dados.length){ toast('Nenhum dado — verifique os filtros','error'); return; }
     periodo = filtComp||[filtMes?MESES[filtMes]:'',filtAno||''].filter(Boolean).join('/')||'Todos os períodos';
   }
-  const logoSrc = document.querySelector('#sidebar img')?.src||'';
+  const logoSrc = _logoRel()||'';
 
   const porRep = {};
   dados.forEach(c=>{
@@ -13596,7 +13613,7 @@ function gerarConciliacaoPDF() {
   const tRec=CONC.reduce((s,c)=>s+c.t_recebido,0);
   const tDup=CONC.reduce((s,c)=>s+c.t_duplicatas,0);
   const tSald=CONC.reduce((s,c)=>s+c.t_saldo,0);
-  const logoSrc=document.querySelector('#sidebar img')?.src||'';
+  const logoSrc=_logoRel()||'';
   const htmlRel=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Conciliação Bancária</title><style>@page{size:A4;margin:15mm 12mm}*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,sans-serif;font-size:10px;color:#1a1a1a}.hdr{display:flex;justify-content:space-between;align-items:center;padding-bottom:7px;border-bottom:2px solid #C85E8A;margin-bottom:10px}.hdr img{height:32px}.hdr h1{font-size:12px;font-weight:700;color:#C85E8A}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:10px}.kpi{border:1px solid #eee;border-radius:3px;padding:7px;text-align:center}.kpi .lb{font-size:7px;color:#888;text-transform:uppercase}.kpi .vl{font-size:11px;font-weight:700;margin-top:1px}table{width:100%;border-collapse:collapse}thead tr{background:#C85E8A;color:#fff}th{padding:4px 6px;font-size:9px;font-weight:700}td{padding:3px 6px;font-size:9px;border-bottom:1px solid #f0f0f0}tr:nth-child(even){background:#fdf0f6}th.r,td.r{text-align:right}tfoot td{background:#2d2d2d;color:#fff;font-weight:700;padding:4px 6px}.bg-g{color:#1b6b3a;background:#e8f5ee;border-radius:3px;padding:1px 4px;font-size:8px;font-weight:700}.bg-a{color:#92400e;background:#fef3c7;border-radius:3px;padding:1px 4px;font-size:8px;font-weight:700}.bg-b{color:#1253aa;background:#dbeafe;border-radius:3px;padding:1px 4px;font-size:8px;font-weight:700}.no-print{margin-top:12px;text-align:center}@media print{.no-print{display:none};body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body><div class="hdr"><div>${logoSrc?`<img src="${logoSrc}">`:'<strong style="color:#C85E8A">Pink Poá</strong>'}</div><div style="text-align:center;flex:1"><h1>Conciliação Bancária</h1></div><div style="font-size:8px;color:#888">${new Date().toLocaleDateString('pt-BR')}</div></div><div class="kpis"><div class="kpi"><div class="lb">Total Recebido</div><div class="vl" style="color:#1253aa">${_fmt(tRec)}</div></div><div class="kpi"><div class="lb">Total Duplicatas</div><div class="vl">${_fmt(tDup)}</div></div><div class="kpi"><div class="lb">Saldo em Aberto</div><div class="vl" style="color:#92400e">${_fmt(tSald)}</div></div><div class="kpi"><div class="lb">Clientes</div><div class="vl">${CONC.length}</div></div></div><table><thead><tr><th>Cód.</th><th>Cliente</th><th class="r">Recebido</th><th class="r">Total Dup.</th><th class="r">Saldo</th><th class="r">Diferença</th><th>Status</th></tr></thead><tbody>${CONC.sort((a,b)=>b.t_recebido-a.t_recebido).map(c=>`<tr><td style="font-family:monospace">${c.cod_cli}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${nomeCl(c.cod_cli)}</td><td class="r" style="font-weight:700;color:#1253aa">${_fmt(c.t_recebido)}</td><td class="r">${_fmt(c.t_duplicatas)}</td><td class="r" style="color:${c.t_saldo>0?'#92400e':'#aaa'}">${_fmt(c.t_saldo)}</td><td class="r" style="font-weight:700;color:${Math.abs(c.diferenca)<1?'#1b6b3a':c.diferenca>0?'#1253aa':'#b91c1c'}">${c.diferenca>0?'+':''}${_fmt(c.diferenca)}</td><td><span class="${c.status==='ok'?'bg-g':c.status==='sobra'?'bg-b':'bg-a'}">${c.status==='ok'?'✅ ok':c.status==='sobra'?'↑ sobra':'⏳ pend.'}</span></td></tr>`).join('')}</tbody><tfoot><tr><td colspan="2">TOTAL — ${CONC.length} clientes</td><td class="r">${_fmt(tRec)}</td><td class="r">${_fmt(tDup)}</td><td class="r">${_fmt(tSald)}</td><td class="r">${_fmt(CONC.reduce((s,c)=>s+c.diferenca,0))}</td><td></td></tr></tfoot></table><div class="no-print"><button onclick="window.print()" style="background:#C85E8A;color:#fff;border:none;padding:10px 28px;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer">🖨 Imprimir</button></div></body></html>`;
   abrirPDFOverlay(htmlRel);
 }
@@ -13746,9 +13763,10 @@ ${url}</textarea>
   );
 }
 
+try { _restaurarSessao(); } catch(e){ console.error('Sessão:', e); }
 try {
   if (TOKEN && USER) {
-    navigate('dashboard');
+    navigate(_primeiraPagina() || 'dashboard');
   } else {
     restaurarEmailLembrado();
     document.getElementById(localStorage.getItem(EMAIL_KEY) ? 'l-senha' : 'l-email')?.focus();
