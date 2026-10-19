@@ -5,7 +5,7 @@ representantes, recebíveis, contas a pagar, conciliação bancária, vendas, es
 Os dados vêm dos arquivos exportados do ERP Audience (CSV), de planilhas de e-commerce e do
 extrato do Pagar.me.
 
-- **Abrir o sistema:** https://pinkpoafinanceiro.com.br (o endereço antigo do GitHub Pages redireciona para ele)
+- **Abrir o sistema:** https://www.pinkpoafinanceiro.com.br (o endereço sem www e o antigo do GitHub Pages redirecionam para ele; HTTPS com certificado próprio)
 - **Versão atual:** aparece no topo e no rodapé (`v2.14.NNN`).
 
 ---
