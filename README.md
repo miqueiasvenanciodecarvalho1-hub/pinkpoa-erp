@@ -110,6 +110,11 @@ flowchart LR
   (o mês corrente, parcial, fica fora das comparações).
 - Resultado e acumulado mês a mês; lista de lançamentos com busca e **📊 Excel** (com grupo, subgrupo e código da conta).
 
+### Central de Relatórios (menu Principal → 🗂️ Relatórios)
+- Reúne por área (Comissões, Compras, Conciliação, Contas a pagar, Faturamento, Fluxo de caixa, Produtos, Recebíveis, Vendas)
+  os relatórios que já existem nas telas; busca por nome. Cada área aparece só para quem tem **Relatórios** liberado no módulo.
+- O relatório abre na tela do módulo, com os filtros dela, e já é gerado.
+
 ## 3. Usuários e acessos
 
 - **CPF obrigatório** no cadastro do usuário (máscara 000.000.000-00, dígitos verificadores conferidos, sem repetir entre usuários). Usuários antigos aparecem com "falta CPF" na lista.

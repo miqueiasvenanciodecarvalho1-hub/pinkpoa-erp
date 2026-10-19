@@ -468,6 +468,7 @@ License: MIT
   <div class="nav-group">
     <div class="nav-label">Principal</div>
     <div class="nav-item active" onclick="navigate('dashboard')"><span class="nav-icon">📊</span> Dashboard</div>
+    <div class="nav-item" onclick="navigate('relatorios')"><span class="nav-icon">🗂️</span> Relatórios</div>
   </div>
   <div class="nav-group">
     <div class="nav-label">Cadastros</div>
@@ -559,7 +560,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.258</span>
+      ">v2.14.259</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1103,6 +1104,66 @@ const _PAGINAS_ADMIN=['usuarios','configuracoes'];   // só administrador
 const _SENHA_OK=v=>/^\d{6,10}$/.test(String(v||'')), _SENHA_MSG='A senha deve ter de 6 a 10 números (somente números)';
 const _SENHA_ATTR=`inputmode="numeric" maxlength="10" oninput="this.value=this.value.replace(/\\D/g,'').slice(0,10)"`;
 function _ehAdmin(){ return !!USER && USER.perfil==='admin'; }
+// v259: CENTRAL DE RELATÓRIOS — reúne, por área, os relatórios que já existem nas telas. Cada área aparece só para quem tem
+// "Relatórios" liberado no módulo dela. O relatório abre na tela do módulo (com os filtros dela) e já dispara a geração.
+const REL_CATALOGO=[
+  {mod:'comissoes', area:'Comissões', ic:'💰', itens:[
+    {n:'Resumo de comissões', d:'Por representante (PDF), com hierarquia, supervisão e comissão compartilhada', f:'modalResumoComissoes()'},
+    {n:'Relatório detalhado de comissões', d:'Notas de cada representante na competência filtrada (PDF)', f:'gerarRelatorioComiPDF()'},
+    {n:'Comissões em Excel', d:'Lista da tela de comissões com os filtros aplicados', f:'exportarComissoesXLSX()'},
+    {n:'Relatório de vendas por tipo', d:'Pedidos, e-commerce e pronta entrega: vendas, troca, devolução e líquido', f:'modalRelatorioVendas()'},
+    {n:'Supervisão', d:'Comissão de supervisão por equipe (PDF)', f:'gerarSupervisaoPDF()'},
+    {n:'Comissão sobre faturamento (gestores)', d:'Base do faturamento líquido e comissão dos gestores', f:'modalComissaoFat()', adm:true}]},
+  {mod:'compras', area:'Compras', ic:'🛒', itens:[
+    {n:'Relatório de compras', d:'Compras por fornecedor, grupo e período (PDF/Excel)', f:'gerarRelatorioCompras()'}]},
+  {mod:'conciliacao', area:'Conciliação bancária', ic:'🏦', itens:[
+    {n:'Conciliação em PDF', d:'Recebido × duplicatas por cliente', f:'gerarConciliacaoPDF()'},
+    {n:'Conciliação em Excel', d:'Mesma conciliação em planilha', f:'exportarConciliacaoXLSX()'}]},
+  {mod:'pagar', area:'Contas a pagar', ic:'🧾', itens:[
+    {n:'Posição de fechamento (fornecedores)', d:'Compras, contas a pagar, atrasados e bancos na data de corte', f:'modalPosPagar()'}]},
+  {mod:'faturamento', area:'Faturamento', ic:'🧾', itens:[
+    {n:'Relatório de faturamento', d:'Por natureza, com bruto, troca, devolução, líquido e tributos (PDF)', f:'gerarFatPDF()'},
+    {n:'Faturamento em Excel', d:'Notas fiscais com os filtros da tela', f:'exportarFatXLSX()'},
+    {n:'Cancelamentos e estornos', d:'Notas canceladas no mês e estorno na base', f:'modalEstornoCancelamentos()'}]},
+  {mod:'fluxo', area:'Fluxo de caixa', ic:'💵', itens:[
+    {n:'Fluxo realizado em Excel', d:'Todos os lançamentos do período, por grupo de contas', f:'_fxExcel()'},
+    {n:'Fluxo projetado em Excel', d:'Plano mês a mês com as regras de cada linha', f:'_fxPlExcel()'},
+    {n:'Previsto × realizado', d:'Abre a comparação do previsto congelado com o realizado', f:"_fxAba('pxr')"}]},
+  {mod:'produtos', area:'Produtos', ic:'👗', itens:[
+    {n:'Relatório de produtos', d:'Produtos com preços, margem e vendas', f:'gerarRelatorioProdutos()'}]},
+  {mod:'recebiveis', area:'Recebíveis', ic:'📋', itens:[
+    {n:'Posição de fechamento (clientes)', d:'Carteira em aberto, vencidos e a vencer na data de corte', f:'modalPosReceber()'},
+    {n:'Recebidos por dia', d:'Baixas de clientes dia a dia (PDF)', f:'modalRecebidosDia()'}]},
+  {mod:'vendas', area:'Vendas', ic:'🛍️', itens:[
+    {n:'Relatório de vendas', d:'Pedidos, faturado, saldo e cancelados por grupo, coleção, mês e representante (PDF/Excel)', f:'gerarRelatorioVendas()'}]},
+];
+function _relCatalogo(){
+  if(!USER) return [];
+  return REL_CATALOGO.map(a=>{ const ac=_acoes(a.mod); if(!ac || !ac.relatorios) return null;
+      const it=a.itens.filter(i=>!i.adm || (_ehAdmin() || !_escopoReps())).slice().sort((x,y)=>x.n.localeCompare(y.n,'pt-BR'));
+      return it.length?{...a, itens:it}:null; }).filter(Boolean).sort((x,y)=>x.area.localeCompare(y.area,'pt-BR'));
+}
+function renderRelatorios(){
+  const el=document.getElementById('content'), cat=_relCatalogo(), b=(window._relBusca||'').toLowerCase();
+  const vis=cat.map(a=>({...a, itens:a.itens.filter(i=>!b || (a.area+' '+i.n+' '+i.d).toLowerCase().includes(b))})).filter(a=>a.itens.length);
+  el.innerHTML=`<div class="card" style="margin-bottom:14px"><div class="card-body" style="padding:12px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="font-size:13px;color:var(--gray-5);flex:1;min-width:220px">Escolha o relatório. Ele abre na tela do módulo, com os filtros dela, para você ajustar mês, representante etc.</div>
+      <input id="rel-busca" class="form-control" style="width:260px" placeholder="Buscar relatório…" value="${_nvEsc(window._relBusca||'')}" oninput="window._relBusca=this.value;clearTimeout(window._relT);window._relT=setTimeout(()=>{renderRelatorios();const i=document.getElementById('rel-busca');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},200)">
+    </div></div>
+    ${vis.length?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">${vis.map(a=>`
+      <div class="card" style="margin:0"><div class="card-header"><h2>${a.ic} ${a.area}</h2><span style="font-size:11px;color:var(--gray-5)">${a.itens.length} relatório(s)</span></div>
+        <div class="card-body" style="padding:6px 10px 10px">${a.itens.map(i=>`
+          <div onclick="_relAbrir('${a.mod}', ${JSON.stringify(i.f).replace(/"/g,'&quot;')})" style="display:flex;gap:10px;align-items:center;padding:9px 8px;border-radius:8px;cursor:pointer;border-bottom:1px solid var(--gray-1)" onmouseover="this.style.background='var(--gray-1)'" onmouseout="this.style.background=''">
+            <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:13px">${i.n}</div><div style="font-size:11.5px;color:var(--gray-5)">${i.d}</div></div>
+            <span style="color:var(--pink);font-weight:700;font-size:18px">›</span></div>`).join('')}
+        </div></div>`).join('')}</div>`
+    :`<div class="card"><div class="card-body"><div class="empty-state" style="padding:36px"><div class="es-icon">🗂️</div><div class="es-text">${cat.length?'Nenhum relatório com esse nome':'Nenhum relatório liberado para o seu usuário'}</div></div></div></div>`}`;
+}
+function _relAbrir(mod, chamada){
+  if(!_acoes(mod) || !_acoes(mod).relatorios) return toast('Sem permissão de relatórios neste módulo','error');
+  navigate(mod);
+  setTimeout(()=>{ try{ (new Function(chamada))(); }catch(e){ toast('Não foi possível abrir: '+e.message,'error'); } }, 350);
+}
 // v218: por módulo {ver, incluir, alterar, excluir, relatorios} (aceita o formato antigo 'ver'/'editar')
 const _ACOES=['ver','incluir','alterar','excluir','relatorios'];
 const _ACOES_NOME={ver:'Ver',incluir:'Incluir',alterar:'Alterar',excluir:'Excluir',relatorios:'Relatórios'};
@@ -1113,7 +1174,8 @@ function _normAcoes(v){
   const o={}; _ACOES.forEach(a=>o[a]=!!v[a]); if(o.incluir||o.alterar||o.excluir||o.relatorios) o.ver=true; return o.ver?o:null;
 }
 function _acoes(mod){ if(!USER) return null; if(_ehAdmin()) return _normAcoes('editar'); return _normAcoes((USER.permissoes||{})[mod]); }
-function _perm(mod){ const a=_acoes(mod); return !a?'':(a.incluir||a.alterar||a.excluir)?'editar':'ver'; }   // compatível com o código antigo
+function _perm(mod){ if(mod==='relatorios') return _relCatalogo().length?'ver':'';   // v259: central de relatórios — aparece se houver algum relatório liberado
+  const a=_acoes(mod); return !a?'':(a.incluir||a.alterar||a.excluir)?'editar':'ver'; }   // compatível com o código antigo
 function _podeEditarAlgo(){ return _ehAdmin() || Object.keys((USER&&USER.permissoes)||{}).some(m=>_perm(m)==='editar'); }
 function _primeiraPagina(){
   for(const el of document.querySelectorAll('#sidebar .nav-item')){ const m=(el.getAttribute('onclick')||'').match(/navigate\('(\w+)'\)/);
@@ -1696,7 +1758,7 @@ const PAGE_TITLES = {
   dashboard:'Dashboard', clientes:'Clientes', representantes:'Representantes',
   usuarios:'Usuários e Acessos', configuracoes:'Configurações',
   produtos:'Produtos', faturamento:'Faturamento', comissoes:'Comissões',
-  recebiveis:'Recebíveis', pagar:'Contas a Pagar (Fornecedores)', fluxo:'Fluxo de Caixa Realizado', conciliacao:'Conciliação Bancária', vendas:'Análise de Vendas', estoques:'Gestão de Estoques', naturezas:'Naturezas de Operação', compras:'Compras', importacao:'Importação de Arquivos', automacao:'Automação'
+  recebiveis:'Recebíveis', pagar:'Contas a Pagar (Fornecedores)', fluxo:'Fluxo de Caixa Realizado', conciliacao:'Conciliação Bancária', vendas:'Análise de Vendas', estoques:'Gestão de Estoques', naturezas:'Naturezas de Operação', compras:'Compras', importacao:'Importação de Arquivos', automacao:'Automação', relatorios:'Relatórios'
 };
 
 const _NAV_ITEMS = Array.from(document.querySelectorAll('#sidebar .nav-item'));
@@ -1738,6 +1800,7 @@ function navigate(page) {
     faturamento: renderFaturamento, comissoes: renderComissoes,
     recebiveis: renderRecebiveis, pagar: renderPagar, fluxo: renderFluxo, conciliacao: renderConciliacao, vendas: renderVendas, estoques: renderEstoques, naturezas: renderNaturezas,
     compras: renderCompras,
+    relatorios: renderRelatorios,
     importacao: renderImportacao,
     automacao: renderAutomacao,
     usuarios: renderUsuarios,
