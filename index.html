@@ -559,7 +559,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.256</span>
+      ">v2.14.257</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1170,7 +1170,8 @@ function _modoLeitura(){
   if(_leituraObs){ _leituraObs.disconnect(); _leituraObs=null; }
   const ac = CURRENT_PAGE && !_PAGINAS_ADMIN.includes(CURRENT_PAGE) ? _acoes(CURRENT_PAGE) : null;
   // v235: acesso restrito a representantes aparece sempre no topo da tela
-  const R=(!_ehAdmin() && USER && USER.permissoes && USER.permissoes._reps) || [];
+  const _livre=(USER && USER.permissoes && USER.permissoes._repsLivres||[]).includes(CURRENT_PAGE);   // v257: módulo sem a trava de representante
+  const R=_livre ? [] : ((!_ehAdmin() && USER && USER.permissoes && USER.permissoes._reps) || []);
   const PT=!_ehAdmin() && USER && USER.permissoes ? _periodoTexto(USER.permissoes._periodo) : '';
   const tudo=!ac || _ACOES.every(a=>ac[a]);
   if(tudo && !R.length && !PT) return;
@@ -1297,6 +1298,12 @@ function _usuRepsHtml(u){
           ||'<div style="color:var(--gray-5);font-size:12px">Nenhum representante carregado.</div>'}
       </div>
       <div style="font-size:11px;color:var(--gray-5);margin-top:4px">Ele verá só o faturamento, as comissões, os recebíveis, as vendas e os clientes desses representantes. Totais da empresa não aparecem para ele.</div>
+      ${(()=>{ const liv=new Set(((u.permissoes||{})._repsLivres||[]).map(String));
+        const ms=(_usuCache.modulos||[]).filter(m=>m.id!=='comissoes' && !_PAGINAS_ADMIN.includes(m.id)).sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR'));
+        return `<div style="margin-top:10px;padding:8px 10px;border:1px dashed var(--gray-3);border-radius:var(--radius);background:var(--gray-1)">
+          <div style="font-size:12.5px;font-weight:700">Módulos com os dados da EMPRESA TODA <span style="font-weight:400;color:var(--gray-5);font-size:11px">(a trava acima não vale neles — ex.: gestor vê Vendas e Compras completos e só a comissão dele)</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px">${ms.map(m=>`<label style="display:inline-flex;gap:5px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" class="uu-livre" value="${m.id}" ${liv.has(m.id)?'checked':''}> ${_nvEsc(m.nome)}</label>`).join('')}</div>
+          <div style="font-size:10.5px;color:var(--gray-5);margin-top:4px">Comissões fica sempre travada. Dado que um módulo travado também usa (ex.: faturamento, que a Comissão lê) continua travado. O módulo também precisa estar liberado em "Acessos por módulo".</div></div>`; })()}
     </div></div>`;
 }
 // v228: busca no cadastro (representantes do banco + usuários já criados) para preencher o novo acesso
@@ -1407,6 +1414,7 @@ async function _usuSalvar(id){
     const reps=[...document.querySelectorAll('.uu-rep:checked')].map(c=>c.value);
     if(!reps.length) return toast('Marque pelo menos um representante (ou escolha "Todos")','error');
     permissoes._reps=reps;
+    const liv=[...document.querySelectorAll('.uu-livre:checked')].map(c=>c.value); if(liv.length) permissoes._repsLivres=liv;   // v257
   }
   const _bx=document.getElementById('uu-baixas'); if(_bx) permissoes._baixas=!!_bx.checked;   // v250
   const _per=_usuPeriodoLer();   // v239
