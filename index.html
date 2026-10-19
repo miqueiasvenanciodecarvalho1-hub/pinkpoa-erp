@@ -549,7 +549,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.245</span>
+      ">v2.14.246</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -7518,6 +7518,8 @@ function _hierarquiaSupervisao(compRaw){
   });
   // v241: membro que é ORIGEM de rateio fica só com a parte que não foi dividida (a dividida aparece como "recebe de"
   // em quem recebeu) — senão, origem e destino no mesmo grupo contavam a comissão duas vezes
+  // v246: supervisionado não conta como "própria" da equipe do supervisor (é pago separado; na equipe entra só a supervisão)
+  Object.values(teams).forEach(t=>t.superv.forEach(x=>{ if(String(x.rep)!==String((t.key||'').replace(/^rep:/,''))) delete t.membros[String(x.rep)]; }));
   const _pctDiv={}; (DB.rateios||[]).forEach(rt=>{ const o=String(rt.origem); _pctDiv[o]=(_pctDiv[o]||0)+_n(rt.pct); });
   Object.values(teams).forEach(t=>Object.values(t.membros).forEach(m=>{ const p=Math.min(100,_pctDiv[String(m.cod)]||0); if(!p || m._div) return;
     const f=(100-p)/100; m._div=p; m.liq=+((m.liq||0)*f).toFixed(2); m.fat=+((m.fat||0)*f).toFixed(2); m.abat=+((m.abat||0)*f).toFixed(2);
@@ -11341,9 +11343,13 @@ function _resumoComiDados(){
   if(_sel.length) _arr = _arr.filter(r=>_sel.includes(String(r.cod)));
   if(typeof resumoAgruparGrupo!=='undefined' && resumoAgruparGrupo){
     const gg = {};
+    // v246: SUPERVISIONADO recebe a própria comissão SEPARADO — não entra na linha do grupo do supervisor
+    // (senão o grupo somava a comissão dele E a supervisão sobre ele). Sai em linha própria.
+    const _supNoGrupo = new Set((DB.supervisoes||[]).filter(sp=>_grpDe(sp.supervisor) && _grpDe(sp.rep)===_grpDe(sp.supervisor) && String(sp.rep)!==String(sp.supervisor)).map(sp=>String(sp.rep)));
     _arr.forEach(r=>{
-      const key = r.grupo ? 'g:'+r.grupo : r.cod;
-      if(!gg[key]) gg[key] = {cod:key, nome:(r.grupo||r.nome), grupo:r.grupo||'', fat:0, comi:0, superv:0, supervItens:[], membros:[]};
+      const key = (r.grupo && !_supNoGrupo.has(String(r.cod))) ? 'g:'+r.grupo : r.cod;
+      const _emGrupo = key!==r.cod;
+      if(!gg[key]) gg[key] = {cod:key, nome:(_emGrupo?r.grupo:r.nome), grupo:_emGrupo?r.grupo:'', fat:0, comi:0, superv:0, supervItens:[], membros:[]};
       if(r.prop || r.fatP) gg[key].membros.push({nome:r.nome, fat:r.fatP||0, comi:r.prop||0, div:r.rateadoItens||[]});
       gg[key].fat += r.fat; gg[key].comi += r.comi; gg[key].superv += (r.superv||0);
       if(r.supervItens) gg[key].supervItens = (gg[key].supervItens||[]).concat(r.supervItens);
