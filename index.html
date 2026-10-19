@@ -560,7 +560,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.259</span>
+      ">v2.14.260</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2551,6 +2551,46 @@ function _fatConsolHtml(dados){
   return `<div class="card-table"><table style="font-size:12px"><thead><tr><th>${dimLbl} (${arr.length})</th><th style="text-align:right">Notas</th><th style="text-align:right">Bruto</th><th style="text-align:right">Desc.</th><th style="text-align:right">Troca</th><th style="text-align:right">Devol.</th><th style="text-align:right">NF Líq.</th><th style="text-align:right">ICMS</th><th style="text-align:right">PIS</th><th style="text-align:right">COFINS</th><th style="text-align:right">Comissão</th><th style="text-align:right">Peças</th></tr></thead><tbody>${rows}</tbody><tfoot style="background:var(--gray-1);font-weight:700"><tr style="border-top:2px solid var(--gray-2)"><td>TOTAL</td><td style="text-align:right">${T.n}</td><td style="text-align:right">${fmt(T.vb)}</td><td style="text-align:right;color:var(--amber)">${fmt(T.desc)}</td><td style="text-align:right;color:#b45309">−${fmt(T.repo)}</td><td style="text-align:right;color:var(--red)">${fmt(T.dev)}</td><td style="text-align:right">${fmt(T.vn)}</td><td style="text-align:right">${fmt(T.vi)}</td><td style="text-align:right">${fmt(T.pis)}</td><td style="text-align:right">${fmt(T.cof)}</td><td style="text-align:right;color:var(--pink)">${fmt(T.comi)}</td><td style="text-align:right">${Number(T.qtd).toLocaleString('pt-BR')}</td></tr></tfoot></table></div>`;
 }
 
+// v260: COLUNAS da lista de notas — o usuário escolhe quais aparecem (fica salvo neste aparelho). Cliente com o nome inteiro.
+const FAT_COLS_KEY='pinkpoa_fat_cols';
+const _fcm=v=>fmt(v), _fsum=(a,fn)=>a.reduce((s,f)=>s+(Number(fn(f))||0),0);
+const FAT_COLS=[
+  {k:'nf', rot:'Nota/Sér.', fixo:true, td:f=>`<td style="font-family:monospace;font-weight:700;white-space:nowrap">${f.nf}/${f.sr}</td>`},
+  {k:'dt', rot:'Data', td:f=>`<td style="white-space:nowrap;color:var(--gray-5)">${fmtDate(f.dt)}</td>`},
+  {k:'fil', rot:'Fil.', td:f=>`<td style="text-align:center;color:var(--gray-5)">${f.fil}</td>`},
+  {k:'cli', rot:'Cliente', fixo:true, td:(f,x)=>{ const n=x.nomeCli(f.cli); const etq=f.sit?`<span class="badge" style="font-size:9px;background:#eee;color:#777;margin-left:4px">${f.sit==='C'?'Cancelada':'Devolvida'}</span>`:'';
+      return `<td style="min-width:220px;max-width:340px;white-space:normal;line-height:1.25" title="${_nvEsc(n)}"><div style="font-weight:500">${_nvEsc(n)}${etq}</div></td>`; }},
+  {k:'uf', rot:'UF', td:f=>`<td style="color:var(--gray-5)">${f.uf||'—'}</td>`},
+  {k:'rep', rot:'Rep.', td:(f,x)=>`<td style="font-size:11px;color:var(--gray-5);white-space:nowrap">${x.nomeRep(f.rep)}</td>`},
+  {k:'nat', rot:'Nat.', td:f=>`<td style="font-family:monospace;font-size:11px;color:var(--gray-5)">${f.nat}</td>`},
+  {k:'tp', rot:'Tipo', td:(f,x)=>`<td><span class="badge ${x.isDev?'badge-red':f.tp==='entrada'?'badge-blue':'badge-green'}" style="font-size:10px">${x.isDev?'Dev':f.tp==='entrada'?'Ent':'Vda'}</span></td>`},
+  {k:'vb', rot:'Bruto', td:f=>`<td style="text-align:right;color:var(--gray-5)">${fmt(f.vb)}</td>`, tot:a=>_fcm(_fsum(a,f=>f.vb))},
+  {k:'desc', rot:'Desc.', td:f=>`<td style="text-align:right;color:${(f.desc||0)>0?'var(--amber)':'var(--gray-3)'}">${(f.desc||0)>0?`-${fmt(f.desc)}`:'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.desc)), cor:'var(--amber)'},
+  {k:'nfb', rot:'NF Bruto', td:f=>`<td style="text-align:right;color:var(--gray-5)">${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td>`, tot:a=>_fcm(_fsum(a,f=>f.vnBruto!=null?f.vnBruto:f.vn)), cor:'var(--gray-5)'},
+  {k:'troca', rot:'Troca', td:f=>`<td style="text-align:right;color:${(f.abatRepo||0)>0?'var(--amber)':'var(--gray-3)'}" title="${(f.abatRepo||0)>0?('Reposição abatida no mês '+(f.mes||'')):''}">${(f.abatRepo||0)>0?`−${fmt(f.abatRepo)}`:'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.abatRepo)), cor:'var(--amber)'},
+  {k:'nfl', rot:'NF Líq.', td:f=>`<td style="text-align:right;font-weight:700">${fmt(f.vn)}</td>`, tot:a=>_fcm(_fsum(a,f=>f.vn))},
+  {k:'icms', rot:'ICMS', td:f=>`<td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.vi?fmt(f.vi):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.vi))},
+  {k:'pis', rot:'PIS', td:f=>`<td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.pis?fmt(f.pis):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.pis))},
+  {k:'cof', rot:'COFINS', td:f=>`<td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.cof?fmt(f.cof):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.cof))},
+  {k:'comi', rot:'Comissão', td:f=>`<td style="text-align:right;font-weight:600;color:var(--pink)">${f.comi?fmt(f.comi):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.comi)), cor:'var(--pink)'},
+  {k:'qtd', rot:'Peças', td:f=>`<td style="text-align:right">${f.qtd?f.qtd.toLocaleString('pt-BR'):'—'}</td>`, tot:a=>_fsum(a,f=>f.qtd).toLocaleString('pt-BR')},
+];
+function _fatColsVis(){ let h=[]; try{ h=JSON.parse(localStorage.getItem(FAT_COLS_KEY)||'[]')||[]; }catch(e){} const oc=new Set(h);
+  return new Set(FAT_COLS.filter(c=>c.fixo || !oc.has(c.k)).map(c=>c.k)); }
+function _fatColToggle(k){ let h=[]; try{ h=JSON.parse(localStorage.getItem(FAT_COLS_KEY)||'[]')||[]; }catch(e){} const s=new Set(h); s.has(k)?s.delete(k):s.add(k);
+  try{ localStorage.setItem(FAT_COLS_KEY, JSON.stringify([...s])); }catch(e){} renderFaturamento(); modalFatColunas(); }
+function _fatColPadrao(modo){ const ocultar=modo==='enxuto'?['fil','uf','nat','nfb','icms','pis','cof','qtd']:[];
+  try{ localStorage.setItem(FAT_COLS_KEY, JSON.stringify(ocultar)); }catch(e){} renderFaturamento(); modalFatColunas(); }
+function modalFatColunas(){
+  const C=_fatColsVis();
+  openModal('Colunas da lista de notas', `
+    <div style="font-size:12px;color:var(--gray-5);margin-bottom:10px">Marque as colunas que devem aparecer. Nota e Cliente ficam sempre. A escolha fica salva neste aparelho.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px 12px">
+      ${FAT_COLS.map(c=>`<label style="display:flex;gap:6px;align-items:center;font-size:13px;cursor:${c.fixo?'default':'pointer'};${c.fixo?'color:var(--gray-4)':''}"><input type="checkbox" ${C.has(c.k)?'checked':''} ${c.fixo?'disabled':''} onchange="_fatColToggle('${c.k}')"> ${c.rot}</label>`).join('')}
+    </div>
+    <div style="display:flex;gap:6px;margin-top:12px"><button class="btn btn-secondary btn-sm" onclick="_fatColPadrao('enxuto')">Enxuto (cliente em destaque)</button><button class="btn btn-secondary btn-sm" onclick="_fatColPadrao('todas')">Todas as colunas</button></div>`,
+    `<button class="btn btn-primary" onclick="closeModal()">Pronto</button>`);
+}
 function renderFaturamento() {
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();   // reaplica a troca (vpdpcl2) sempre — idempotente
   if(typeof _sincronizarFaturamentoManual==='function') _sincronizarFaturamentoManual();
@@ -2696,6 +2736,7 @@ function renderFaturamento() {
             <span style="font-weight:400;color:var(--gray-5);font-size:13px">(${total.toLocaleString('pt-BR')} de ${DB.faturamento.length.toLocaleString('pt-BR')})</span>
           </h2>
           <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="modalFatColunas()" title="Escolher as colunas da lista de notas">☰ Colunas</button>
             <button class="btn btn-secondary btn-sm" onclick="exportarFatXLSX()">⬇ Excel</button>
             <button class="btn btn-secondary btn-sm" onclick="exportarSnapshotFat()" title="Exportar snapshot do faturamento do mês (para comparar depois)">📸 Exportar mês</button>
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('fat-snap-file').click()" title="Comparar com um snapshot salvo">🔍 Comparar</button>
@@ -2772,54 +2813,18 @@ function renderFaturamento() {
       ${window._fatConsol?_fatConsolHtml(dados):''}
       <div class="card-table"${window._fatConsol?' style="display:none"':''}>
         <table style="font-size:12px">
-          <thead><tr>
-            <th>Nota/Sér.</th><th>Data</th><th>Fil.</th><th style="min-width:140px">Cliente</th>
-            <th>UF</th><th>Rep.</th><th>Nat.</th><th>Tipo</th>
-            <th style="text-align:right">Bruto</th><th style="text-align:right">Desc.</th>
-            <th style="text-align:right">NF Bruto</th><th style="text-align:right">Troca</th><th style="text-align:right">NF Líq.</th><th style="text-align:right">ICMS</th>
-            <th style="text-align:right">PIS</th><th style="text-align:right">COFINS</th>
-            <th style="text-align:right">Comissão</th><th style="text-align:right">Peças</th>
-          </tr></thead>
-          <tbody>${slice.length ? slice.map(f=>{
-            const ncli=nomeCli(f.cli);
-            const nrep=nomeRep(f.rep);
-            const isDev=f.tp==='devolucao';
-            const etq = f.sit ? `<span class="badge" style="font-size:9px;background:#eee;color:#777;margin-left:4px">${f.sit==='C'?'Cancelada':'Devolvida'}</span>` : '';
-            return `<tr style="cursor:pointer;opacity:${f.sit?'.6':'1'};background:${f.sit?'#fafafa':isDev?'rgba(185,28,28,.03)':''}" onclick="modalVerNota(${f.id})">
-              <td style="font-family:monospace;font-weight:700;white-space:nowrap">${f.nf}/${f.sr}</td>
-              <td style="white-space:nowrap;color:var(--gray-5)">${fmtDate(f.dt)}</td>
-              <td style="text-align:center;color:var(--gray-5)">${f.fil}</td>
-              <td style="max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ncli}">
-                <div style="font-weight:500">${ncli}${etq}</div>
-              </td>
-              <td style="color:var(--gray-5)">${f.uf||'—'}</td>
-              <td style="font-size:11px;color:var(--gray-5);white-space:nowrap">${nrep}</td>
-              <td style="font-family:monospace;font-size:11px;color:var(--gray-5)">${f.nat}</td>
-              <td><span class="badge ${isDev?'badge-red':f.tp==='entrada'?'badge-blue':'badge-green'}" style="font-size:10px">${isDev?'Dev':f.tp==='entrada'?'Ent':'Vda'}</span></td>
-              <td style="text-align:right;color:var(--gray-5)">${fmt(f.vb)}</td>
-              <td style="text-align:right;color:${(f.desc||0)>0?'var(--amber)':'var(--gray-3)'}">${(f.desc||0)>0?`-${fmt(f.desc)}`:'—'}</td>
-              <td style="text-align:right;color:var(--gray-5)">${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td><td style="text-align:right;color:${(f.abatRepo||0)>0?'var(--amber)':'var(--gray-3)'}" title="${(f.abatRepo||0)>0?('Reposição abatida no mês '+(f.mes||'')):''}">${(f.abatRepo||0)>0?`−${fmt(f.abatRepo)}`:'—'}</td><td style="text-align:right;font-weight:700;color:${isDev?'var(--red)':'inherit'}">${fmt(f.vn)}</td>
-              <td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.vi?fmt(f.vi):'—'}</td>
-              <td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.pis?fmt(f.pis):'—'}</td>
-              <td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.cof?fmt(f.cof):'—'}</td>
-              <td style="text-align:right;font-weight:600;color:var(--pink)">${f.comi?fmt(f.comi):'—'}</td>
-              <td style="text-align:right">${f.qtd?f.qtd.toLocaleString('pt-BR'):'—'}</td>
-            </tr>`;
-          }).join('') : '<tr><td colspan="16"><div class="empty-state"><div class="es-icon">🧾</div><div class="es-text">Nenhuma nota encontrada</div></div></td></tr>'}
-          </tbody>
-          ${slice.length?`<tfoot style="background:var(--gray-1);font-weight:700;font-size:11px">
-            <tr style="border-top:2px solid var(--gray-2)">
-              <td colspan="8" style="color:var(--gray-5)">PÁGINA ${pag} — ${slice.length} notas</td>
-              <td style="text-align:right">${fmt(slice.reduce((s,f)=>s+f.vb,0))}</td>
-              <td style="text-align:right;color:var(--amber)">${fmt(slice.reduce((s,f)=>s+(f.desc||0),0))}</td>
-              <td style="text-align:right;color:var(--gray-5)">${fmt(slice.reduce((s,f)=>s+(f.vnBruto!=null?f.vnBruto:f.vn),0))}</td><td style="text-align:right;color:var(--amber)">${fmt(slice.reduce((s,f)=>s+(f.abatRepo||0),0))}</td><td style="text-align:right">${fmt(slice.reduce((s,f)=>s+f.vn,0))}</td>
-              <td style="text-align:right">${fmt(slice.reduce((s,f)=>s+(f.vi||0),0))}</td>
-              <td style="text-align:right">${fmt(slice.reduce((s,f)=>s+(f.pis||0),0))}</td>
-              <td style="text-align:right">${fmt(slice.reduce((s,f)=>s+(f.cof||0),0))}</td>
-              <td style="text-align:right;color:var(--pink)">${fmt(slice.reduce((s,f)=>s+(f.comi||0),0))}</td>
-              <td style="text-align:right">${slice.reduce((s,f)=>s+(f.qtd||0),0).toLocaleString('pt-BR')}</td>
-            </tr>
-          </tfoot>`:''}
+          ${(()=>{ const C=_fatColsVis(); const vis=FAT_COLS.filter(c=>C.has(c.k));
+            const num=c=>!!c.tot;
+            const head=`<thead><tr>${vis.map(c=>`<th style="${num(c)?'text-align:right;':''}${c.k==='cli'?'min-width:220px;':''}">${c.rot}</th>`).join('')}</tr></thead>`;
+            const body=slice.length ? slice.map(f=>{
+              const isDev=f.tp==='devolucao';
+              return `<tr style="cursor:pointer;opacity:${f.sit?'.6':'1'};background:${f.sit?'#fafafa':isDev?'rgba(185,28,28,.03)':''}" onclick="modalVerNota(${f.id})">${vis.map(c=>c.td(f,{nomeCli,nomeRep,isDev})).join('')}</tr>`; }).join('')
+              : `<tr><td colspan="${vis.length}"><div class="empty-state"><div class="es-icon">🧾</div><div class="es-text">Nenhuma nota encontrada</div></div></td></tr>`;
+            const iTot=vis.findIndex(num), lead=iTot<0?vis.length:iTot;
+            const foot=slice.length?`<tfoot style="background:var(--gray-1);font-weight:700;font-size:11px"><tr style="border-top:2px solid var(--gray-2)">
+              ${lead?`<td colspan="${lead}" style="color:var(--gray-5)">PÁGINA ${pag} — ${slice.length} notas</td>`:''}
+              ${vis.slice(lead).map(c=>num(c)?`<td style="text-align:right;${c.cor?'color:'+c.cor:''}">${c.tot(slice)}</td>`:'<td></td>').join('')}</tr></tfoot>`:'';
+            return head+'<tbody>'+body+'</tbody>'+foot; })()}
         </table>
       </div>
       <div style="padding:10px 20px;display:${window._fatConsol?'none':'flex'};align-items:center;justify-content:space-between;border-top:1px solid var(--gray-2)">
@@ -10359,7 +10364,7 @@ function imprimirRelatorio(){
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
 function _versaoApp(){ return ((document.getElementById('app-versao')||{}).textContent||'').trim().replace(/^v/,''); }
 // v212: login/sessão e o login antigo do app (com CPF) NUNCA entram nem saem da cópia
-const _LOCAL_FORA = k => k.indexOf('pinkpoa_nuvem_')===0 || ['pinkpoa_token','pinkpoa_user','pinkpoa_users_v1','pinkpoa_api_url','pinkpoa_email_lembrado','pinkpoa_fat_filtros'].includes(k);
+const _LOCAL_FORA = k => k.indexOf('pinkpoa_nuvem_')===0 || ['pinkpoa_token','pinkpoa_user','pinkpoa_users_v1','pinkpoa_api_url','pinkpoa_email_lembrado','pinkpoa_fat_filtros','pinkpoa_fat_cols'].includes(k);
 function _montarBackup(){
   const backup = { _tipo:'PINKPOA_BACKUP', _versao:_versaoApp(), _data:new Date().toISOString(), db:{}, local:{} };
   Object.keys(DB).forEach(k=>{ try{ backup.db[k]=DB[k]; }catch(e){} });
