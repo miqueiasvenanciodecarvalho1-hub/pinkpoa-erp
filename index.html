@@ -332,6 +332,12 @@ License: MIT
     .card { box-shadow: none; border: 1px solid #ccc; }
   }
 #content{text-transform:uppercase}
+  /* v240: barra do relatório compacta no celular */
+  @media (max-width:640px){
+    #pdf-overlay > div:first-child{padding:6px 8px!important;gap:6px!important;flex-wrap:wrap}
+    #pdf-overlay > div:first-child span{font-size:12px!important}
+    #pdf-overlay > div:first-child button{font-size:12px!important;padding:6px 10px!important;min-height:0!important;line-height:1.2!important}
+  }
 </style>
 </head>
 <body>
@@ -543,7 +549,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.239</span>
+      ">v2.14.240</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3976,7 +3982,7 @@ function _pmAvisoAntigo(){
 // nenhum estorno órfão. 91 zeraram a parcela por inteiro (R$ 15.592,70, saem da carteira) e 81 eram
 // parciais (abatidos, sobra R$ 12.583,63 que continua a receber).
 // Prova aritmética: entradas líquidas 367.360,69 − estornos líquidos 29.231,15 = 338.129,54.
-const APP_VER = '2.14.201';
+const APP_VER = { toString(){ return (typeof _versaoApp==='function' && _versaoApp()) || ''; } };   // v240: versão real do rodapé (antes ficava fixa em 2.14.201)
 const PM_VER = 3;   // sobe quando a regra do cartão muda; pmv < PM_VER é reprocessado
 // [mês, bruto, taxa da operação, estorno, a receber (líquido), nº de parcelas]
 const PM_MESES = JSON.parse('[["2026-09",131154.34,3944.31,10814.49,116395.54,454],["2026-10",92325.26,3334.8,7735.63,81254.83,393],["2026-11",65691.47,2372.85,4756.56,58562.06,285],["2026-12",52076.75,1881.04,4113.21,46082.5,214],["2027-01",25098.42,906.63,1491.46,22700.33,108],["2027-02",13418.71,484.69,319.8,12614.22,53],["2027-03",539.54,19.48,0.0,520.06,2]]');
@@ -9820,11 +9826,27 @@ function abrirPDFOverlay(htmlContent) {
   overlay.style.display = 'flex';
   window._ultimoRelatorioHTML = htmlContent;
   const doc = frame.contentDocument || frame.contentWindow?.document;
-  if(doc) { doc.open(); doc.write(htmlContent); doc.close(); }
+  if(doc) { doc.open(); doc.write(htmlContent); doc.close(); _pdfAjustarTela(frame); }
   const sidebar = document.getElementById('sidebar');
   if(sidebar) sidebar.style.display='none';
 }
 
+// v240: no CELULAR o relatório mantém o desenho da folha A4 e é REDUZIDO para caber na tela (antes a página era espremida
+// até a largura do celular e as colunas se sobrepunham). Impressão / Salvar PDF continuam em A4 normal.
+function _pdfAjustarTela(frame){
+  const aplica=()=>{ try{
+    const doc=frame.contentDocument; if(!doc||!doc.body) return;
+    const w=frame.clientWidth||window.innerWidth;
+    doc.body.style.zoom='';
+    if(w>=860) return;
+    let st=doc.getElementById('pdf-cel'); if(!st){ st=doc.createElement('style'); st.id='pdf-cel'; doc.head.appendChild(st); }
+    st.textContent='@media screen{.page,.pv{max-width:none!important;flex:none!important}body{min-width:max-content}}';
+    const larg=Math.max(doc.documentElement.scrollWidth, doc.body.scrollWidth, 1);
+    if(larg>w) doc.body.style.zoom=String(Math.max(0.3,(w-4)/larg));
+  }catch(e){} };
+  aplica(); setTimeout(aplica,150); setTimeout(aplica,600);
+}
+window.addEventListener('resize',()=>{ const ov=document.getElementById('pdf-overlay'), fr=document.getElementById('pdf-frame'); if(ov&&fr&&ov.style.display==='flex') _pdfAjustarTela(fr); });
 function fecharPDFOverlay() {
   const overlay = document.getElementById('pdf-overlay');
   if(overlay) overlay.style.display = 'none';
@@ -11240,7 +11262,7 @@ function gerarResumoComiPDF(){
   // Gestores (Comissão sobre Faturamento) — ex. Andrea Miranda — entram no resumo quando não há filtro de grupo específico
   const _grpSel = (typeof _resumoGrupoSel!=='undefined')?_resumoGrupoSel:'';
   let _gest=[];
-  if(!_grpSel && !_escopoReps() && (DB.comissaoFat||[]).length && typeof calcComissaoFat==='function'){
+  if(!_grpSel && !_escopoReps() && !(window._comiReps||[]).length && (DB.comissaoFat||[]).length && typeof calcComissaoFat==='function'){   // v240: com filtro de representante, gestor (comissão sobre a empresa) não entra
     const _m=(document.getElementById('filtro-mes-com')||{}).value||''; const _a=(document.getElementById('filtro-ano-com')||{}).value||'';
     let _cr; if(_m&&_a) _cr=_a+'-'+_m; else _cr=[...new Set((DB.faturamento||[]).map(f=>f.mes).filter(Boolean))].sort().reverse()[0]||'';
     const _o=(typeof _cfOpts==='function')?_cfOpts():{};
