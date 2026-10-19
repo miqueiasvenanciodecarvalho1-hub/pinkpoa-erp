@@ -559,7 +559,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.251</span>
+      ">v2.14.252</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1700,6 +1700,9 @@ document.addEventListener('input', _autoUpper, true);
 
 function navigate(page) {
   fecharSidebar();
+  // v252: a TROCA (vpdpcl2) é recalculada nota a nota em qualquer tela — antes só o Faturamento recalculava, e Comissões /
+  // relatórios usavam o valor guardado (ex.: set/26 troca 32.547,40 × 39.491,95 no Faturamento). Idempotente.
+  try{ if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat(); }catch(e){}
   // v212: só abre o que o usuário tem liberado
   if (_PAGINAS_ADMIN.includes(page) ? !_ehAdmin() : !_perm(page)) {
     const p = _primeiraPagina();
@@ -7052,6 +7055,7 @@ function _natsDevolucao(){
 }
 function calcComissaoFat(compRaw, filial, opts){
   opts = opts || {};
+  if(!window._cfRepoOk){ try{ _aplicarReposicaoFat(); }catch(e){} window._cfRepoOk=true; setTimeout(()=>{ window._cfRepoOk=false; },0); }   // v252: troca atualizada (uma vez por ciclo)
   const incDevol = opts.incDevol!==false, incTroca = opts.incTroca!==false, incCanc = opts.incCanc!==false;
   const excNats = new Set((opts.excNats||[]).map(x=>String(x).toUpperCase()));
   const excReps = new Set((opts.excReps||[]).map(String));
