@@ -338,6 +338,16 @@ License: MIT
     #pdf-overlay > div:first-child span{font-size:12px!important}
     #pdf-overlay > div:first-child button{font-size:12px!important;padding:6px 10px!important;min-height:0!important;line-height:1.2!important}
   }
+  /* v250: tabelas do detalhe da comissão no celular — um cartão por linha */
+  @media (max-width:640px){
+    table.tb-cartao thead{display:none}
+    table.tb-cartao, table.tb-cartao tbody, table.tb-cartao tfoot{display:block;width:100%}
+    table.tb-cartao tr{display:block;padding:6px 10px;border-bottom:1px solid var(--gray-2)}
+    table.tb-cartao td{display:flex;justify-content:space-between;gap:10px;padding:2px 0!important;border:none!important;max-width:none!important;white-space:normal!important;text-align:right!important;overflow:visible!important}
+    table.tb-cartao td::before{content:attr(data-l);color:var(--gray-5);font-size:11px;font-weight:600;text-align:left;font-family:inherit}
+    table.tb-cartao td[data-l=""]::before{content:none}
+    table.tb-cartao td:empty{display:none}
+  }
 </style>
 </head>
 <body>
@@ -549,7 +559,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.249</span>
+      ">v2.14.250</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -737,7 +747,14 @@ function openModal(title, body, footer='', tamanho='') {
   document.getElementById('modal-body').innerHTML     = body;
   document.getElementById('modal-footer').innerHTML   = footer || '<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>';
   document.getElementById('modal-overlay').style.display = 'flex';
+  _tbCartaoRotular(document.getElementById('modal-body'));
 }
+// v250: no celular, tabela com class "tb-cartao" vira um cartão por linha (rótulo à esquerda, valor à direita).
+// Os rótulos vêm do cabeçalho quando a célula não tem data-l.
+function _tbCartaoRotular(raiz){ try{ (raiz||document).querySelectorAll('table.tb-cartao').forEach(t=>{
+  const h=t.tHead&&t.tHead.rows[0]?[...t.tHead.rows[0].cells].map(c=>c.textContent.trim()):[];
+  [...(t.tBodies[0]?t.tBodies[0].rows:[])].forEach(r=>{ let i=0; [...r.cells].forEach(c=>{ if(!c.hasAttribute('data-l')) c.setAttribute('data-l', c.colSpan>1?'':(h[i]||'')); i+=c.colSpan||1; }); });
+}); }catch(e){} }
 function closeModal() { document.getElementById('modal-overlay').style.display = 'none'; }
 
 // ── AUTH ──────────────────────────────────────────────────────
@@ -1141,6 +1158,10 @@ function _travarEdicao(ac){
   });
 }
 // v238: usuário com acesso restrito a representantes (lista) ou null
+// v250: NOTAS RECEBIDAS no financeiro (baixas fora da comissão) — o master escolhe por usuário (_baixas).
+// Sem escolha: quem tem escopo de representante não vê; os demais veem. O servidor também tira esses dados da cópia.
+function _verBaixasDe(p){ p=p||{}; return p._baixas===true ? true : p._baixas===false ? false : !((p._reps||[]).length); }
+function _verBaixas(){ return _ehAdmin() || !USER || _verBaixasDe(USER.permissoes); }
 function _escopoReps(){ const r=!_ehAdmin() && USER && USER.permissoes && USER.permissoes._reps; return (r&&r.length)?r.map(String):null; }
 function _versaoCmp(a,b){ const x=String(a||'0').split('.').map(Number), y=String(b||'0').split('.').map(Number);
   for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; }
@@ -1346,6 +1367,9 @@ function _usuPeriodoHtml(u){
     <div style="font-size:12.5px"><b>Meses que este usuário enxerga</b> <span style="color:var(--gray-5);font-size:11px">(em branco = todos)</span></div>
     ${linha('comp','Mês de fechamento','comissões, faturamento, vendas, recebidos e banco',c)}
     ${linha('venc','Mês de vencimento','recebíveis, duplicatas e contas a pagar',v)}
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:12.5px;cursor:pointer">
+      <input type="checkbox" id="uu-baixas" ${_verBaixasDe(u.permissoes)?'checked':''} style="margin-top:2px">
+      <span><b>Ver as notas recebidas no financeiro</b> <span style="color:var(--gray-5);font-size:11px">(baixas fora da comissão — mov. 92 — no detalhe e no extrato da comissão). Desmarcado, ele não recebe esses dados.</span></span></label>
   </div>`;
 }
 function _usuPeriodoLer(){
@@ -1377,6 +1401,7 @@ async function _usuSalvar(id){
     if(!reps.length) return toast('Marque pelo menos um representante (ou escolha "Todos")','error');
     permissoes._reps=reps;
   }
+  const _bx=document.getElementById('uu-baixas'); if(_bx) permissoes._baixas=!!_bx.checked;   // v250
   const _per=_usuPeriodoLer();   // v239
   if(_per){ for(const k in _per){ const f=_per[k]; if(f.de&&f.ate&&f.de>f.ate) return toast('No período, o mês "de" precisa ser antes do "até"','error'); } permissoes._periodo=_per; }
   const corpo={nome:g('uu-nome').trim(),email:g('uu-email').trim(),cargo:g('uu-cargo').trim(),perfil:g('uu-perfil'),ativo:!!(document.getElementById('uu-ativo')||{}).checked,permissoes};
@@ -2447,13 +2472,19 @@ function _fatConsolHtml(dados){
 function renderFaturamento() {
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();   // reaplica a troca (vpdpcl2) sempre — idempotente
   if(typeof _sincronizarFaturamentoManual==='function') _sincronizarFaturamentoManual();
+  // v250: a seleção fica MARCADA (tipo, mês, ano, representante, filial e naturezas) — ao sair e voltar, ou ao recarregar,
+  // continua a mesma; só muda quando o usuário alterar ou clicar em Limpar. Fica neste aparelho (não vai para os outros usuários).
+  const _ffSalvo=(()=>{ try{ return JSON.parse(localStorage.getItem('pinkpoa_fat_filtros')||'{}')||{}; }catch(e){ return {}; } })();
+  const _ffv=(id,k)=>{ const el=document.getElementById(id); return el ? (el.value||'') : (_ffSalvo[k]||''); };
+  if(!Array.isArray(window._fatNats)) window._fatNats=Array.isArray(_ffSalvo.nats)?_ffSalvo.nats.slice():[];
   const fBusca = (document.getElementById('fat-busca')?.value||'').toLowerCase();
-  const fTipo  = document.getElementById('fat-tipo')?.value||'';
-  const fFil   = document.getElementById('fat-filial')?.value||'';
-  const fRep   = document.getElementById('fat-rep')?.value||'';
-  const fMes   = document.getElementById('fat-mes')?.value||'';
-  const fAno   = document.getElementById('fat-ano')?.value||'';
+  const fTipo  = _ffv('fat-tipo','tipo');
+  const fFil   = _ffv('fat-filial','fil');
+  const fRep   = _ffv('fat-rep','rep');
+  const fMes   = _ffv('fat-mes','mes');
+  const fAno   = _ffv('fat-ano','ano');
   const fNats  = window._fatNats||[];
+  try{ localStorage.setItem('pinkpoa_fat_filtros', JSON.stringify({tipo:fTipo, fil:fFil, rep:fRep, mes:fMes, ano:fAno, nats:fNats})); }catch(e){}
   const fPag   = parseInt(document.getElementById('fat-pag')?.value||'1');
   const POR_PAG = 50;
 
@@ -3160,7 +3191,7 @@ function renderComissoes() {
               <td style="text-align:right;color:${_abatVal>0?'#8e44ad':'var(--gray-3)'};font-weight:${_abatVal>0?600:400}">${_abatVal>0?fmt(_abatVal):'-'}</td>
               <td style="text-align:right;color:${(c.val_devolucoes||0)>0?'var(--amber)':'var(--gray-3)'}">${(c.val_devolucoes||0)>0?`(${fmt(c.val_devolucoes||0)})`:'-'}</td>
               <td style="text-align:right"><span class="badge badge-blue">${fmtPct(c.taxa)}</span></td>
-              <td style="text-align:right;font-weight:700;color:var(--pink)">${fmt(c.total_comissao)}</td>
+              <td style="text-align:right;font-weight:700;color:var(--pink);cursor:pointer;text-decoration:underline dotted" title="Ver as notas desta comissão" onclick="event.stopPropagation();modalNotasComissao(${c.id})">${fmt(c.total_comissao)}</td>
               <td style="text-align:right;color:var(--red)">${(c.comi_liquida||0)<0?`(${fmt(Math.abs(c.comi_liquida||0))})`:'-'}</td>
               <td style="text-align:right;font-weight:600;color:${(c.total_comissao+(c.comi_liquida||0)-(c.val_devolucoes||0)*(Number(c.taxa)||7)/100)>=0?'var(--green)':'var(--red)'}">${fmt(c.total_comissao+(c.comi_liquida||0)-(c.val_devolucoes||0)*(Number(c.taxa)||7)/100)}</td>
               <td style="text-align:right;font-weight:700;color:var(--blue)">${fmt(comAdj)}</td>
@@ -3229,10 +3260,10 @@ function modalDetalheComissao(id) {
     <div style="font-size:13px">
       <!-- Resumo KPIs -->
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
-        <div style="background:var(--pink-lt);border-radius:var(--radius);padding:10px;text-align:center">
+        <div style="background:var(--pink-lt);border-radius:var(--radius);padding:10px;text-align:center;cursor:pointer" onclick="modalNotasComissao(${c.id})" title="Ver as notas desta comissão">
           <div style="font-size:10px;color:var(--pink)">Comissão a Vencer</div>
-          <div style="font-weight:700;font-size:16px">${fmt(c.total_comissao)}</div>
-          <div style="font-size:11px;color:var(--gray-5)">${c.qtd_notas} notas · ${c.taxa}%</div>
+          <div style="font-weight:700;font-size:16px;text-decoration:underline dotted">${fmt(c.total_comissao)}</div>
+          <div style="font-size:11px;color:var(--pink);font-weight:600">${c.qtd_notas} notas · ${c.taxa}% · ver notas ›</div>
         </div>
         <div style="background:var(--red-lt);border-radius:var(--radius);padding:10px;text-align:center">
           <div style="font-size:10px;color:var(--red)">Abatimentos</div>
@@ -3254,8 +3285,8 @@ function modalDetalheComissao(id) {
       <!-- Abatimentos individuais -->
       ${(abats.length||_devN.length) ? `
       <div style="font-weight:700;margin-bottom:8px;color:var(--gray-6)">⚠️ Abatimentos Detalhados (${abats.length+_devN.length})</div>
-      <div style="overflow-x:auto;max-height:280px;overflow-y:auto;border:1px solid var(--gray-2);border-radius:var(--radius);margin-bottom:14px">
-        <table style="font-size:12px">
+      <div style="overflow-x:auto;max-height:320px;overflow-y:auto;border:1px solid var(--gray-2);border-radius:var(--radius);margin-bottom:14px">
+        <table class="tb-cartao" style="font-size:12px">
           <thead><tr>
             <th>Num. NF</th><th>Cliente</th><th>Data</th><th>Data Dev.</th>
             <th>Tipo</th><th>Série</th><th style="text-align:right">Repres (%)</th>
@@ -3296,24 +3327,24 @@ function modalDetalheComissao(id) {
         </table>
       </div>` : '<div style="color:var(--gray-5);font-size:12px;margin-bottom:12px">Nenhum abatimento nesta competência.</div>'}
 
-      ${(c.baixas92&&c.baixas92.length)?`
+      ${(_verBaixas()&&c.baixas92&&c.baixas92.length)?`
       <div style="font-weight:700;margin:4px 0 8px;color:var(--gray-6)">🧾 Baixas — Movimento 92 (${c.baixas92.length}) · fora da comissão</div>
-      <div style="overflow-x:auto;max-height:220px;overflow-y:auto;border:1px solid var(--gray-2);border-radius:var(--radius);margin-bottom:14px">
-        <table style="font-size:12px">
+      <div style="overflow-x:auto;max-height:260px;overflow-y:auto;border:1px solid var(--gray-2);border-radius:var(--radius);margin-bottom:14px">
+        <table class="tb-cartao" style="font-size:12px">
           <thead><tr><th>Título</th><th>Cliente</th><th>Data</th><th>Série</th><th style="text-align:right">Valor Venc. (R$)</th><th style="text-align:right">Comissão (R$)</th></tr></thead>
           <tbody>
             ${c.baixas92.map(b=>`<tr>
-              <td style="font-family:monospace;font-weight:700">${b.titulo}</td>
-              <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${b.cli_nome}">${b.cli_nome}</td>
-              <td style="white-space:nowrap">${fmtDate(b.data)}</td>
-              <td style="text-align:center">${b.serie||'—'}</td>
-              <td style="text-align:right">${fmt(b.vlorvenc)}</td>
-              <td style="text-align:right">${fmt(b.comivenc)}</td>
+              <td data-l="Título" style="font-family:monospace;font-weight:700">${b.titulo}</td>
+              <td data-l="Cliente" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${b.cli_nome}">${b.cli_nome}</td>
+              <td data-l="Data" style="white-space:nowrap">${fmtDate(b.data)}</td>
+              <td data-l="Série" style="text-align:center">${b.serie||'—'}</td>
+              <td data-l="Valor venc." style="text-align:right">${fmt(b.vlorvenc)}</td>
+              <td data-l="Comissão" style="text-align:right">${fmt(b.comivenc)}</td>
             </tr>`).join('')}
           </tbody>
           <tfoot style="background:var(--gray-1);font-weight:700"><tr>
-            <td colspan="4">Total baixas (mov. 92)</td>
-            <td style="text-align:right">${fmt(c.baixas92.reduce((s,b)=>s+(Number(b.vlorvenc)||0),0))}</td>
+            <td colspan="4" data-l="">Total baixas (mov. 92)</td>
+            <td data-l="Valor venc." style="text-align:right">${fmt(c.baixas92.reduce((s,b)=>s+(Number(b.vlorvenc)||0),0))}</td>
             <td style="text-align:right">${fmt(c.baixas92.reduce((s,b)=>s+(Number(b.comivenc)||0),0))}</td>
           </tr></tfoot>
         </table>
@@ -3338,6 +3369,35 @@ function modalDetalheComissao(id) {
   );
 }
 
+// v250: NOTAS DA COMISSÃO — clicar no valor da comissão abre as notas (títulos) que formam esse valor
+function modalNotasComissao(id){
+  const c=(DB.comissoes||[]).find(x=>x.id===id); if(!c) return;
+  const ri=DB.representantes.find(x=>x.codigo===String(c.codigo_rep));
+  const nomeRep=ri?(ri.fantasia||ri.nome):('Rep '+c.codigo_rep);
+  const bus=(document.getElementById('nc-bus')?.value||'').toLowerCase().trim();
+  const todos=(c.titulos||[]).slice().sort((a,b)=>String(a.data||'').localeCompare(String(b.data||''))||String(a.titulo).localeCompare(String(b.titulo),undefined,{numeric:true}));
+  const lst=todos.filter(t=>!bus || (t.titulo+' '+(t.serie||'')+' '+(t.cli_nome||'')).toLowerCase().includes(bus));
+  const sV=lst.reduce((s,t)=>s+(Number(t.vlorvenc)||0),0), sC=lst.reduce((s,t)=>s+(Number(t.comivenc)||0),0);
+  const e=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  openModal(`Notas da comissão — ${e(nomeRep)} — ${e(c.competencia)}`, `
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      <input id="nc-bus" class="form-control" style="flex:1;min-width:180px" placeholder="Buscar nota ou cliente" value="${e(bus)}" oninput="clearTimeout(window._ncT);window._ncT=setTimeout(()=>{modalNotasComissao(${c.id});const i=document.getElementById('nc-bus');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},250)">
+      <span style="font-size:12px;color:var(--gray-5)">${lst.length} de ${todos.length} nota(s)</span></div>
+    <div style="max-height:60vh;overflow:auto;border:1px solid var(--gray-2);border-radius:var(--radius)">
+      <table class="tb-cartao" style="font-size:12px;width:100%">
+        <thead><tr><th>Nota</th><th>Cliente</th><th>Data</th><th style="text-align:right">Valor venc.</th><th style="text-align:right">Taxa</th><th style="text-align:right">Comissão</th></tr></thead>
+        <tbody>${lst.map(t=>`<tr>
+          <td data-l="Nota" style="font-family:monospace;font-weight:700;white-space:nowrap"><span>${e(t.titulo)}${t.serie?`<span style="color:var(--gray-4);font-weight:400">/${e(t.serie)}</span>`:''}</span></td>
+          <td data-l="Cliente" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${e(t.cli_nome)}">${e(t.cli_nome)}</td>
+          <td data-l="Data" style="white-space:nowrap">${fmtDate(t.data)}</td>
+          <td data-l="Valor venc." style="text-align:right">${fmt(t.vlorvenc)}</td>
+          <td data-l="Taxa" style="text-align:right">${t.taxa?String(t.taxa).replace('.',',')+'%':'—'}</td>
+          <td data-l="Comissão" style="text-align:right;font-weight:700;color:var(--pink)">${fmt(t.comivenc)}</td></tr>`).join('')
+          ||'<tr><td colspan="6" style="text-align:center;color:var(--gray-4);padding:16px">Nenhuma nota</td></tr>'}</tbody>
+        <tfoot style="background:#f5e0ec;font-weight:700"><tr><td colspan="3" data-l="">Total${bus?' (filtro)':''}</td><td data-l="Valor venc." style="text-align:right">${fmt(sV)}</td><td></td><td data-l="Comissão" style="text-align:right">${fmt(sC)}</td></tr></tfoot>
+      </table></div>`,
+    `<button class="btn btn-secondary" onclick="modalDetalheComissao(${c.id})">‹ Detalhe</button><button class="btn btn-secondary" onclick="closeModal()">Fechar</button>`);
+}
 function toggleNat(codigo) {
   if(!window._fatNats) window._fatNats=[];
   const idx = window._fatNats.indexOf(codigo);
@@ -10100,7 +10160,7 @@ function _pdfAjustarTela(frame){
     doc.body.style.zoom='';
     if(w>=860) return;
     let st=doc.getElementById('pdf-cel'); if(!st){ st=doc.createElement('style'); st.id='pdf-cel'; doc.head.appendChild(st); }
-    st.textContent='@media screen{.page,.pv{max-width:none!important;flex:none!important}body{min-width:max-content}}';
+    st.textContent='html,body{-webkit-text-size-adjust:100%!important;text-size-adjust:100%!important}@media screen{.page,.pv{max-width:none!important;flex:none!important}body{min-width:max-content}}';
     const larg=Math.max(doc.documentElement.scrollWidth, doc.body.scrollWidth, 1);
     if(larg>w) doc.body.style.zoom=String(Math.max(0.3,(w-4)/larg));
   }catch(e){} };
@@ -10126,7 +10186,7 @@ function imprimirRelatorio(){
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
 function _versaoApp(){ return ((document.getElementById('app-versao')||{}).textContent||'').trim().replace(/^v/,''); }
 // v212: login/sessão e o login antigo do app (com CPF) NUNCA entram nem saem da cópia
-const _LOCAL_FORA = k => k.indexOf('pinkpoa_nuvem_')===0 || ['pinkpoa_token','pinkpoa_user','pinkpoa_users_v1','pinkpoa_api_url','pinkpoa_email_lembrado'].includes(k);
+const _LOCAL_FORA = k => k.indexOf('pinkpoa_nuvem_')===0 || ['pinkpoa_token','pinkpoa_user','pinkpoa_users_v1','pinkpoa_api_url','pinkpoa_email_lembrado','pinkpoa_fat_filtros'].includes(k);
 function _montarBackup(){
   const backup = { _tipo:'PINKPOA_BACKUP', _versao:_versaoApp(), _data:new Date().toISOString(), db:{}, local:{} };
   Object.keys(DB).forEach(k=>{ try{ backup.db[k]=DB[k]; }catch(e){} });
@@ -11180,7 +11240,7 @@ function gerarExtratoRep(comId){
   }
   linhas += abats.map(a=>rowV(a.titulo, a.cli_nome, a.data, 'Abatimento', a.serie||'RO', a.taxa, _n(a.vlorliqu), _n(a.comiliqu), true)).join('');
 
-  const b92 = c.baixas92||[];
+  const b92 = _verBaixas() ? (c.baixas92||[]) : [];
   const secB92 = b92.length ? `<div class="card"><div class="ttl">Baixas — Movimento 92 <span class="tag">fora da comissão</span></div><div class="scroll"><table><thead><tr><th>Título</th><th>Cliente</th><th>Data</th><th class="c">Série</th><th class="r">Valor</th><th class="r">Comissão</th></tr></thead><tbody>${b92.map(b=>`<tr><td class="mono">${esc(b.titulo)}</td><td>${esc(b.cli_nome)}</td><td>${_fmtD(b.data)}</td><td class="c">${esc(b.serie||'')}</td><td class="r">${_fmt(b.vlorvenc)}</td><td class="r">${_fmt(b.comivenc)}</td></tr>`).join('')}</tbody></table></div></div>` : '';
 
   const css = '*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:#f4f4f6;color:#1f2430;padding:14px;line-height:1.5}.wrap{max-width:820px;margin:0 auto}.card{background:#fff;border-radius:14px;box-shadow:0 1px 4px rgba(0,0,0,.06);padding:18px;margin-bottom:14px}.brand{color:#C85E8A;font-weight:800;font-size:20px}.sub{color:#6b7280;font-size:13px;margin-top:2px}h1{font-size:17px;margin:2px 0}.ttl{font-weight:700;margin-bottom:8px}.tot{display:grid;grid-template-columns:1fr auto;gap:6px 16px;font-size:14px;margin-top:6px}.tot .l{color:#6b7280}.tot .v{text-align:right;font-weight:600}.tot .neg{color:#c0392b}.saldo{border-top:2px solid #eee;margin-top:10px;padding-top:10px;font-size:16px;font-weight:800}table{width:100%;border-collapse:collapse;font-size:12.5px}th,td{padding:7px 8px;border-bottom:1px solid #eee;text-align:left;white-space:nowrap}th{background:#faf0f5;color:#8a3d63;font-size:11px;text-transform:uppercase;letter-spacing:.03em}td.r,th.r{text-align:right}td.c,th.c{text-align:center}td.mono{font-family:ui-monospace,monospace;font-weight:700}tr.neg td{color:#c0392b}.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}.foot{color:#9aa0aa;font-size:11px;text-align:center;margin-top:6px}.tag{display:inline-block;background:#fde68a;color:#92400e;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:700;vertical-align:middle}@media(max-width:520px){.tot{grid-template-columns:1fr auto}}';
