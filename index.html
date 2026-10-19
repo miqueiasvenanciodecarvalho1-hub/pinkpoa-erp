@@ -559,7 +559,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.250</span>
+      ">v2.14.251</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -7055,11 +7055,14 @@ function calcComissaoFat(compRaw, filial, opts){
   const incDevol = opts.incDevol!==false, incTroca = opts.incTroca!==false, incCanc = opts.incCanc!==false;
   const excNats = new Set((opts.excNats||[]).map(x=>String(x).toUpperCase()));
   const excReps = new Set((opts.excReps||[]).map(String));
+  const soNats = new Set((opts.soNats||[]).map(x=>String(x).toUpperCase()));   // v251: as naturezas marcadas no Faturamento
   const _natsDev=_natsDevolucao();
   let bruto=0, troca=0, devol=0, estorno=0, nEst=0, nDev=0;
   (DB.faturamento||[]).forEach(f=>{
     if(filial && String(f.fil)!==String(filial)) return;
     const natU=String(f.nat||'').toUpperCase();
+    if(soNats.size && !f.manual && !soNats.has(natU)) return;
+    if(f.sit && f.sit!=='C') return;   // devolvida/outra situação: fora, igual aos totais do Faturamento
     if(f.sit==='C'){ // cancelada: estorno se cancelada NESTE mês (dtsit) e emitida em mês anterior
       const cm=String(f.dtsit||'').slice(0,7);
       if(cm===compRaw && String(f.mes||'')<compRaw){ estorno += Math.abs(Number(f.vnBruto!=null?f.vnBruto:f.vn)||0); nEst++; }
@@ -7087,12 +7090,15 @@ function _comFatPorDia(compRaw, filial, opts){
   const incDevol=opts.incDevol!==false, incTroca=opts.incTroca!==false, incCanc=opts.incCanc!==false;
   const excNats=new Set((opts.excNats||[]).map(x=>String(x).toUpperCase()));
   const excReps=new Set((opts.excReps||[]).map(String));
+  const soNats=new Set((opts.soNats||[]).map(x=>String(x).toUpperCase()));
   const natsDev=_natsDevolucao();
   const g={};
   const _o=d=>{ d=d||'—'; return g[d]=g[d]||{dia:d,bruto:0,troca:0,devol:0,estorno:0}; };
   (DB.faturamento||[]).forEach(f=>{
     if(filial && String(f.fil)!==String(filial)) return;
     const natU=String(f.nat||'').toUpperCase();
+    if(soNats.size && !f.manual && !soNats.has(natU)) return;
+    if(f.sit && f.sit!=='C') return;
     if(f.sit==='C'){
       const cm=String(f.dtsit||'').slice(0,7);
       if(incCanc && cm===compRaw && String(f.mes||'')<compRaw){ _o(String(f.dtsit).slice(0,10)).estorno += Math.abs(Number(f.vnBruto!=null?f.vnBruto:f.vn)||0); }
@@ -7104,15 +7110,25 @@ function _comFatPorDia(compRaw, filial, opts){
   });
   return Object.values(g).map(v=>({...v, liq:+(v.bruto-v.troca-v.devol-v.estorno).toFixed(2)})).sort((a,b)=>String(a.dia).localeCompare(String(b.dia)));
 }
-function _cfOpts(){ const o=window._cfInc||{}; return {incDevol:o.incDevol!==false, incTroca:o.incTroca!==false, incCanc:o.incCanc!==false, excNats:o.excNats||[], excReps:o.excReps||[]}; }
-function _cfToggle(k){ window._cfInc=window._cfInc||{incDevol:true,incTroca:true,incCanc:true}; window._cfInc[k]=!( window._cfInc[k]!==false ); modalComissaoFat(); }
-function _cfToggleNat(cod){ window._cfInc=window._cfInc||{}; const s=new Set((window._cfInc.excNats||[]).map(String)); cod=String(cod); if(s.has(cod)) s.delete(cod); else s.add(cod); window._cfInc.excNats=[...s]; modalComissaoFat(); }
-function _cfToggleRep(cod){ window._cfInc=window._cfInc||{}; const s=new Set((window._cfInc.excReps||[]).map(String)); cod=String(cod); if(s.has(cod)) s.delete(cod); else s.add(cod); window._cfInc.excReps=[...s]; modalComissaoFat(); }
+// v251: a base do gestor usa as MESMAS naturezas marcadas no Faturamento (o mesmo valor nas duas telas) e as escolhas
+// (troca/devolução/estorno, retiradas) ficam salvas até o usuário mudar.
+function _fatFiltrosSalvos(){ try{ return JSON.parse(localStorage.getItem('pinkpoa_fat_filtros')||'{}')||{}; }catch(e){ return {}; } }
+function _cfNatsFat(){ const n=Array.isArray(window._fatNats)?window._fatNats:(_fatFiltrosSalvos().nats||[]); return n.map(String); }
+function _cfIncLer(){ if(!window._cfInc){ try{ window._cfInc=JSON.parse(localStorage.getItem('pinkpoa_cf_inc')||'null'); }catch(e){} } return window._cfInc||{}; }
+function _cfIncGravar(){ try{ localStorage.setItem('pinkpoa_cf_inc', JSON.stringify(window._cfInc||{})); }catch(e){} }
+function _cfOpts(){ const o=_cfIncLer(); return {incDevol:o.incDevol!==false, incTroca:o.incTroca!==false, incCanc:o.incCanc!==false, excNats:o.excNats||[], excReps:o.excReps||[], soNats:_cfNatsFat()}; }
+function _cfToggle(k){ _cfIncLer(); window._cfInc=window._cfInc||{incDevol:true,incTroca:true,incCanc:true}; window._cfInc[k]=!( window._cfInc[k]!==false ); _cfIncGravar(); modalComissaoFat(); }
+function _cfToggleNat(cod){ _cfIncLer(); window._cfInc=window._cfInc||{}; const s=new Set((window._cfInc.excNats||[]).map(String)); cod=String(cod); if(s.has(cod)) s.delete(cod); else s.add(cod); window._cfInc.excNats=[...s]; _cfIncGravar(); modalComissaoFat(); }
+function _cfToggleRep(cod){ _cfIncLer(); window._cfInc=window._cfInc||{}; const s=new Set((window._cfInc.excReps||[]).map(String)); cod=String(cod); if(s.has(cod)) s.delete(cod); else s.add(cod); window._cfInc.excReps=[...s]; _cfIncGravar(); modalComissaoFat(); }
 
 function _comFatCompAtual(){
   const _mes=(document.getElementById('filtro-mes-com')||{}).value||'';
   const _ano=(document.getElementById('filtro-ano-com')||{}).value||'';
   if(_mes && _ano) return _ano+'-'+_mes;
+  // v251: sem filtro na comissão → o mês marcado no Faturamento; senão a última competência de comissão (mês fechado),
+  // e só por último o mês mais recente do faturamento (que pode estar pela metade)
+  const ff=_fatFiltrosSalvos(); if(ff.mes && ff.ano) return ff.ano+'-'+ff.mes;
+  const cc=[...new Set((DB.comissoes||[]).map(c=>c.competencia_raw).filter(Boolean))].sort().reverse()[0]; if(cc) return cc;
   return [...new Set((DB.faturamento||[]).map(f=>f.mes).filter(Boolean))].sort().reverse()[0]||'';
 }
 function _cfFmt(v){ return new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(v)||0); }
@@ -7258,10 +7274,12 @@ function modalComissaoFat(){
   }).join('');
   openModal(`Comissão sobre Faturamento · ${compRaw||'—'}`, `
     <div style="font-size:12px;color:var(--gray-5);margin-bottom:8px">Gestores que ganham % sobre o <b>faturamento líquido</b> do mês (ex.: <b>ANDREA MIRANDA</b> — Gerente de Compras/Produção — 0,50%).<br>Líquido = Vendas (bruto) − Troca (RO) − Devoluções do mês − <b>Estorno de cancelamentos</b> (nota de mês anterior cancelada neste mês). Devoluções contam pela <b>data da devolução</b> (mesmo com emissão anterior).</div><div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:10px;padding:8px 10px;background:#eef;border-radius:8px"><label style="font-size:12px;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" ${_opts.incTroca?'checked':''} onchange="_cfToggle('incTroca')"> Incluir Troca (RO) na base</label><label style="font-size:12px;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" ${_opts.incDevol?'checked':''} onchange="_cfToggle('incDevol')"> Incluir Devoluções na base</label><label style="font-size:12px;display:inline-flex;align-items:center;gap:5px;cursor:pointer"><input type="checkbox" ${_opts.incCanc?'checked':''} onchange="_cfToggle('incCanc')"> Incluir Estorno de cancelamentos</label></div>${(()=>{ const b=calcComissaoFat(compRaw,'',_opts); return `<div style="padding:10px 12px;background:#eef7ee;border:1px solid #cfe6cf;border-radius:8px;margin-bottom:10px;font-size:12.5px"><b>📊 Base automática de ${compRaw} (Todas as filiais)</b><br>Vendas ${_cfFmt(b.bruto)} ${_opts.incTroca?`− Troca ${_cfFmt(b.troca)} `:''}${_opts.incDevol?`− Devol. ${_cfFmt(b.devol)} `:''}${_opts.incCanc?`− Estorno ${_cfFmt(b.estorno)} `:''}= <b style="color:#1b6b3a">Fat. Líquido ${_cfFmt(b.liquido)}</b><div style="color:#666;margin-top:3px">Comissão de exemplo — Andrea 0,50% = <b>${_cfFmt(b.liquido*0.005)}</b> · adicione o gestor abaixo para registrar.</div></div>`; })()}
+    ${(()=>{ const n=_cfNatsFat(); const M={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
+      return `<div style="font-size:12px;background:#eef6ff;border:1px solid #cfe3fb;border-radius:8px;padding:6px 10px;margin-bottom:10px">🔗 <b>Mesma base do Faturamento</b>: ${M[String(compRaw).slice(5,7)]||''}/${String(compRaw).slice(0,4)} · ${n.length?`${n.length} natureza(s) marcada(s) lá (${n.join(', ')})`:'todas as naturezas'}. Com <b>Devoluções</b> e <b>Estorno</b> desmarcados, o líquido aqui é o <b>Faturamento Líquido</b> da tela de Faturamento; com Devoluções marcadas, é o <b>Vendas Líquidas</b>.</div>`; })()}
     ${(()=>{
       const _o=_cfOpts(); const exNat=new Set((_o.excNats||[]).map(String)); const exRep=new Set((_o.excReps||[]).map(String));
-      const natMap={}, repMap={};
-      (DB.faturamento||[]).forEach(f=>{ if(f.mes!==compRaw||f.tp!=='venda'||f.sit) return; const nb=Number(f.vnBruto!=null?f.vnBruto:f.vn)||0; const nk=String(f.nat||'?').toUpperCase(); natMap[nk]=(natMap[nk]||0)+nb; const rk=String(f.rep||'?'); repMap[rk]=(repMap[rk]||0)+nb; });
+      const natMap={}, repMap={}, _so=new Set((_o.soNats||[]).map(x=>String(x).toUpperCase()));
+      (DB.faturamento||[]).forEach(f=>{ if(f.mes!==compRaw||f.tp!=='venda'||f.sit) return; if(_so.size && !f.manual && !_so.has(String(f.nat||'').toUpperCase())) return; const nb=Number(f.vnBruto!=null?f.vnBruto:f.vn)||0; const nk=String(f.nat||'?').toUpperCase(); natMap[nk]=(natMap[nk]||0)+nb; const rk=String(f.rep||'?'); repMap[rk]=(repMap[rk]||0)+nb; });
       const nats=Object.entries(natMap).sort((a,b)=>b[1]-a[1]);
       const reps=Object.entries(repMap).sort((a,b)=>b[1]-a[1]);
       const cN=nats.map(([k,v])=>`<label style="display:inline-flex;align-items:center;gap:4px;font-size:11px;margin:2px 8px 2px 0;cursor:pointer;${exNat.has(k)?'opacity:.5;text-decoration:line-through':''}"><input type="checkbox" ${exNat.has(k)?'':'checked'} onchange="_cfToggleNat('${k}')"> ${k} (${_cfFmt(v)})</label>`).join('');
