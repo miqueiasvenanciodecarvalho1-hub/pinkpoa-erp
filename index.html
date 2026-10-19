@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.229</span>
+      ">v2.14.230</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -568,7 +568,7 @@ License: MIT
 <!-- ═══════════════════════════════════════════════════════
      MODAL GENÉRICO
 ════════════════════════════════════════════════════════ -->
-<div id="modal-overlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal()">
+<div id="modal-overlay" class="modal-overlay" style="display:none" onmousedown="window._ovDown=(event.target===this)" onclick="if(event.target===this && window._ovDown && !window._modalFixo)closeModal(); window._ovDown=false">
   <div class="modal">
     <div class="modal-header">
       <h3 id="modal-title">Modal</h3>
@@ -702,7 +702,10 @@ document.addEventListener('click', function(ev){
         .forEach(([,r])=>tbody.appendChild(r));
 }, false);
 
+// v230: clicar fora só fecha se o clique COMEÇOU fora (arrastar ao selecionar texto não fecha mais) e nunca em
+// formulário marcado como fixo (cadastro de usuário): esses fecham só por Cancelar/Salvar/✕.
 function openModal(title, body, footer='', tamanho='') {
+  window._modalFixo=false;
   const _m=document.querySelector('#modal-overlay .modal');
   if(_m) _m.classList.toggle('modal-lg', tamanho==='lg');
   document.getElementById('modal-title').textContent  = title;
@@ -930,7 +933,7 @@ if (localStorage.getItem(SB_KEY) === '1') toggleColapso(true);
 // ── ATALHOS E EVENTOS DE LAYOUT ─────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    if (document.getElementById('modal-overlay')?.style.display === 'flex') closeModal();
+    if (document.getElementById('modal-overlay')?.style.display === 'flex') { if (!window._modalFixo) closeModal(); }   // v230: Esc (ex.: fechar sugestão do navegador) não fecha formulário
     else fecharSidebar();
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b' && window.innerWidth > 768) {
@@ -1176,9 +1179,9 @@ function _usuEditar(id){
       <div style="font-size:11px;color:var(--gray-5);margin-top:4px">Representante: preenche nome, e-mail e cargo e libera só os dados dele. Usuário: copia os acessos (módulos e representantes).</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      <div class="form-group"><label>Nome *</label><input id="uu-nome" class="form-control no-up" value="${_nvEsc(u.nome||'')}" ${novo?'':'data-existente="1"'}></div>
+      <div class="form-group"><label>Nome *</label><input id="uu-nome" class="form-control no-up" autocomplete="off" value="${_nvEsc(u.nome||'')}" ${novo?'':'data-existente="1"'}></div>
       <div class="form-group"><label>E-mail (login) *</label><input id="uu-email" type="email" class="form-control no-up" value="${_nvEsc(u.email||'')}"></div>
-      <div class="form-group"><label>Cargo</label><input id="uu-cargo" class="form-control no-up" value="${_nvEsc(u.cargo||'')}"></div>
+      <div class="form-group"><label>Cargo</label><input id="uu-cargo" class="form-control no-up" autocomplete="off" value="${_nvEsc(u.cargo||'')}"></div>
       <div class="form-group"><label>${novo?'Senha (opcional — vazio = enviar link de convite)':'Nova senha (vazio = manter; ou use 🔗 Convite)'}</label><input id="uu-senha" type="password" class="form-control no-up" autocomplete="new-password" placeholder="6 a 10 números" ${_SENHA_ATTR}></div>
       <div class="form-group"><label>Perfil</label><select id="uu-perfil" class="form-control" onchange="document.getElementById('uu-perms').style.display=this.value==='admin'?'none':''">
         <option value="user" ${u.perfil!=='admin'?'selected':''}>Usuário (acessos abaixo)</option><option value="admin" ${u.perfil==='admin'?'selected':''}>Administrador (tudo + usuários)</option></select></div>
@@ -1197,6 +1200,7 @@ function _usuEditar(id){
     </div>`,
     `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_usuSalvar(${id||0})">${novo?'Criar e gerar convite':'Salvar'}</button>`);
   setTimeout(_usuRepConta,0);
+  window._modalFixo=true;
 }
 // v226: ESCOPO POR REPRESENTANTE — o usuário só enxerga (e só grava) os dados dos representantes marcados:
 // faturamento, comissões, recebíveis, vendas e os clientes deles. "Todos" = sem restrição. Quem filtra é o servidor.
