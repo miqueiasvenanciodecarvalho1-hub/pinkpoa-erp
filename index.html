@@ -549,7 +549,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.247</span>
+      ">v2.14.248</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -11419,7 +11419,7 @@ function _rzDetalhe(r, fmt){
   if(!sv.length && !cp.length && mb.length<=1 && !(mb[0]&&(mb[0].div||[]).length)) return '';
   const pc=v=>(+v||0).toFixed(2).replace('.',',')+'%';
   const f=(window._comiReps||[]).map(String), noFiltro=nome=>!f.length || f.some(c=>(_ordRepNome(c)||'')===nome);
-  const cab=(t,cor,base,v)=>`<tr class="det"><td style="padding:4px 8px 2px 18px;font-size:9.5px;font-weight:700;color:${cor};text-transform:uppercase">${t}</td><td class="r" style="font-size:9.5px;color:#777">${fmt(base)}</td><td class="r" style="font-size:9.5px;font-weight:700;color:${cor}">${fmt(v)}</td><td></td></tr>`;
+  const cab=(t,cor,base,v)=>`<tr class="det sub"><td style="padding:4px 8px 2px 18px;font-size:9.5px;font-weight:700;color:${cor};text-transform:uppercase">${t}</td><td class="r" style="font-size:9.5px;color:#777">${fmt(base)}</td><td class="r" style="font-size:9.5px;font-weight:700;color:${cor}">${fmt(v)}</td><td></td></tr>`;
   const it=(nome,base,tx,v,nota)=>`<tr class="det"><td style="padding:2px 8px 2px 30px;font-size:10px">↳ ${nome}${nota?`<span style="font-size:9px;color:#0d9488"> ${nota}</span>`:''}</td><td class="r" style="font-size:10px;color:#555">${fmt(base)}</td><td class="r" style="font-size:10px">${fmt(v)}</td><td class="r" style="font-size:10px;color:#777">${tx}</td></tr>`;
   let h='';
   if(mb.length){ h+=cab('Vendas próprias','#555', mb.reduce((s,m)=>s+m.fat,0), mb.reduce((s,m)=>s+m.comi,0));
@@ -11615,7 +11615,7 @@ function gerarResumoComiPDF(){
     + `table{width:100%;border-collapse:collapse}th{padding:8px 8px;font-size:11px;font-weight:700;color:#fff;text-align:left}`
     + `th.h-pk{background:#C85E8A}th.h-nv{background:#1F3864}th.r{text-align:right}`
     + `td{padding:6px 8px;font-size:11px;border-bottom:1px solid #eee}td.r{text-align:right}td.nm{font-weight:600}td.pk{color:#333}td.nv{color:#1F3864;font-weight:600}`
-    + `tbody tr:nth-child(even){background:#fbf3f8}tbody tr.det{background:#fff}tbody tr.det td{border-bottom:1px dotted #eee}`
+    + `tbody tr:nth-child(even){background:#fbf3f8}tbody tr.det{background:#fff}tbody tr.det td{border-bottom:1px dotted #eee}tbody tr.det.sub td{border-top:1px dashed #9a9a9a;border-bottom:1px dashed #9a9a9a;background:#fafafa}`
     + `tfoot tr{background:#eee;font-weight:800;border-top:2px solid #1F3864}tfoot td{padding:9px 8px;font-size:12px}`
     + `.no-print{margin:0 0 20px;text-align:center}`
     + `@media print{html,body{background:#fff;padding:0}.page{width:auto;margin:0;box-shadow:none;padding:12mm}.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}`
