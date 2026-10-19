@@ -559,7 +559,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.255</span>
+      ">v2.14.256</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1757,7 +1757,7 @@ function renderDashboard() {
   // Comissões por representante (top 5)
   const porRep = {};
   DB.comissoes.forEach(c=>{
-    if(!porRep[c.codigo_rep]) porRep[c.codigo_rep]={nome:c.representante,total:0};
+    if(!porRep[c.codigo_rep]) porRep[c.codigo_rep]={nome:(_ordRepNome(c.codigo_rep)||c.representante||('Rep. '+c.codigo_rep)),total:0};   // v256: apelido (fantasia)
     porRep[c.codigo_rep].total += c.total_comissao;
   });
   const topReps = Object.values(porRep).sort((a,b)=>b.total-a.total).slice(0,6);
@@ -6881,7 +6881,7 @@ function processarComissoes(rowsA, rowsB) {
     DB.comissoes.push({
       id: id++,
       codigo_rep: g.codigo_rep,
-      representante: (DB.representantes.find(x => String(x.codigo) === g.codigo_rep)||{}).nome || ('Rep. '+g.codigo_rep),
+      representante: (()=>{ const r=DB.representantes.find(x => String(x.codigo) === g.codigo_rep)||{}; return r.fantasia || r.nome || ('Rep. '+g.codigo_rep); })(),
       competencia: g.competencia,
       competencia_raw: g.competencia_raw,
       qtd_notas: g.qtd_notas,
@@ -8519,42 +8519,73 @@ function _fxAba(a){ window._fxAba_=a; window._fxP=1; renderFluxo(); }
 function _fxVerConta(k){ window._fxConta=k; window._fxAba_='lanc'; window._fxP=1; renderFluxo(); }
 // v222: ANÁLISE — leitura automática do período escolhido
 function _fxAnalise(ent, sai, cols, arvS, c, rotM){
+  // v256: análise em blocos visuais (indicadores, grupos, meses e variações) — antes era um texto corrido
   if(!cols.length || (!ent.length && !sai.length)) return '';
-  const soma=a=>a.reduce((s,l)=>s+l.valor,0), tE=soma(ent), tS=Math.abs(soma(sai)), n=cols.length;
+  const soma=a=>a.reduce((s,l)=>s+l.valor,0), tE=soma(ent), tS=Math.abs(soma(sai));
+  const atual=_fxMesAtual(), fechados=cols.filter(k=>k<atual), nF=fechados.length||cols.length, parcial=cols.length>fechados.length;
   const pm=(lista)=>{ const m={}; cols.forEach(k=>m[k]=0); lista.forEach(l=>{ const k=l.dt.slice(0,7); if(k in m) m[k]+=l.valor; }); return m; };
   const mE=pm(ent), mS=pm(sai), mR={}; cols.forEach(k=>mR[k]=mE[k]+mS[k]);
-  const neg=cols.filter(k=>mR[k]<0 && k<_fxMesAtual());
-  const maxS=cols.reduce((a,k)=>Math.abs(mS[k])>Math.abs(mS[a])?k:a, cols[0]);
+  const base=fechados.length?fechados:cols;
+  const mediaE=base.reduce((s,k)=>s+mE[k],0)/nF, mediaS=base.reduce((s,k)=>s+Math.abs(mS[k]),0)/nF;
+  const neg=base.filter(k=>mR[k]<0);
   const pct=(v,t)=>t?(v/t*100).toFixed(1).replace('.',',')+'%':'—';
-  // composição por grupo de 1º nível
+  const cob=tS?tE/tS*100:0;
   const g1=[...arvS.filhos.values()].sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot));
-  // contas (folhas) mais pesadas
   const folhas=[]; const anda=no=>no.filhos.forEach(f=>f.filhos.size?anda(f):folhas.push(f)); anda(arvS);
   folhas.sort((a,b)=>Math.abs(b.tot)-Math.abs(a.tot));
-  // variação: último mês × média dos anteriores (contas com peso)
-  // v242: compara o último mês FECHADO do período (o mês corrente está pela metade e daria tudo "abaixo da média")
-  const fechados=cols.filter(k=>k<_fxMesAtual()), parcial=cols.length>fechados.length;
   const ult=fechados[fechados.length-1], ant=fechados.slice(0,-1);
-  const varia=(ult && ant.length) ? folhas.map(f=>{ const media=ant.reduce((s,k)=>s+Math.abs(f.m[k]||0),0)/ant.length, u=Math.abs(f.m[ult]||0);
-      return {f, media, u, d:u-media}; }).filter(x=>x.media>0 && Math.abs(x.d)>=Math.max(1000, x.media*0.3)).sort((a,b)=>Math.abs(b.d)-Math.abs(a.d)).slice(0,5) : [];
-  const semPlano=sai.filter(l=>!l.cod), conc5=folhas.slice(0,5).reduce((s,f)=>s+Math.abs(f.tot),0);
-  const li=t=>`<li style="margin:3px 0">${t}</li>`;
-  const pontos=[];
-  pontos.push(`Entradas de <b>${fmt(tE)}</b> contra saídas de <b>${fmt(tS)}</b> → resultado <b style="color:${tE-tS<0?'var(--red)':'var(--green)'}">${fmt(tE-tS)}</b> (${tS?'cobertura '+pct(tE,tS)+' das saídas':''}).`);
-  if(parcial) pontos.push(`<span style="color:#b45309">${rotM(cols[n-1])} ainda está em andamento</span> — entra nos totais, mas fica fora das comparações.`);
-  pontos.push(`Média mensal: entradas ${fmt(tE/n)} · saídas ${fmt(tS/n)}. Maior saída em <b>${rotM(maxS)}</b> (${fmt(Math.abs(mS[maxS]))}).`);
-  if(neg.length) pontos.push(`<span style="color:var(--red)">${neg.length} mês(es) com resultado negativo</span>: ${neg.map(k=>`${rotM(k)} (${fmt(mR[k])})`).join(', ')}.`);
-  else pontos.push(`Nenhum mês com resultado negativo no período.`);
-  if(folhas.length) pontos.push(`As 5 maiores contas somam <b>${pct(conc5,tS)}</b> das saídas — ${folhas.slice(0,5).map(f=>`${_nvEsc(_fxNome(f,c))} (${pct(Math.abs(f.tot),tS)})`).join('; ')}.`);
-  if(semPlano.length) pontos.push(`<span style="color:#b45309">${semPlano.length} pagamento(s) sem plano de contas</span> (${fmt(Math.abs(soma(semPlano)))}) — classificar no ERP para entrarem no grupo certo.`);
-  return `<div class="card" style="margin-bottom:14px"><div class="card-header"><h2>🔎 Análise do período</h2></div><div class="card-body" style="padding:12px 18px;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;font-size:12.5px">
-    <div><div style="font-weight:700;margin-bottom:4px">Leitura</div><ul style="margin:0;padding-left:18px">${pontos.map(li).join('')}</ul></div>
-    <div><div style="font-weight:700;margin-bottom:6px">Para onde vai o dinheiro (grupos)</div>
-      ${g1.slice(0,8).map(g=>{ const p=Math.abs(g.tot)/(tS||1)*100; return `<div style="margin:4px 0"><div style="display:flex;justify-content:space-between;gap:8px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_nvEsc(_fxNome(g,c))}</span><b>${p.toFixed(1).replace('.',',')}%</b></div>
-        <div style="height:6px;background:var(--gray-1);border-radius:3px"><div style="height:6px;width:${Math.min(100,p)}%;background:var(--pink);border-radius:3px"></div></div></div>`; }).join('')}
-    </div>
-    ${ult && ant.length?`<div><div style="font-weight:700;margin-bottom:4px">Fora do padrão em ${rotM(ult)} (× média de ${ant.length} mês(es) anteriores)</div><ul style="margin:0;padding-left:18px">${varia.length?'':li('Nenhuma conta variou mais de 30% (e R$ 1.000) contra a média.')}${varia.map(x=>li(`${_nvEsc(_fxNome(x.f,c))}: ${fmt(x.u)} contra média ${fmt(x.media)} <b style="color:${x.d>0?'var(--red)':'var(--green)'}">${x.d>0?'▲':'▼'} ${fmt(Math.abs(x.d))}</b>`)).join('')}</ul></div>`:''}
-  </div></div>`;
+  const vv=(ult && ant.length) ? folhas.map(f=>{ const media=ant.reduce((s,k)=>s+Math.abs(f.m[k]||0),0)/ant.length, u=Math.abs(f.m[ult]||0); return {f, media, u, d:u-media}; })
+    .filter(x=>x.media>0 && Math.abs(x.d)>=Math.max(1000, x.media*0.3)) : [];
+  const subiu=vv.filter(x=>x.d>0 && x.u>0).sort((a,b)=>b.d-a.d).slice(0,5);
+  const caiu=vv.filter(x=>x.d<0 && x.u>0).sort((a,b)=>a.d-b.d).slice(0,5);
+  const sumiu=vv.filter(x=>x.u===0).sort((a,b)=>b.media-a.media).slice(0,5);
+  const semPlano=sai.filter(l=>!l.cod);
+  const nm=f=>{ const t=_fxNome(f,c); const p=t.indexOf(' · '); return p>0?{cod:t.slice(0,p), txt:t.slice(p+3)}:{cod:'', txt:t}; };
+  const chip=(t,cor,fundo)=>`<span style="display:inline-block;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:700;color:${cor};background:${fundo};white-space:nowrap">${t}</span>`;
+  const tile=(rot,val,sub,cor)=>`<div style="flex:1;min-width:150px;background:var(--gray-1);border-radius:10px;padding:10px 12px">
+      <div style="font-size:10.5px;color:var(--gray-5);font-weight:700;letter-spacing:.3px">${rot}</div>
+      <div style="font-size:19px;font-weight:800;margin:2px 0;color:${cor||'inherit'}">${val}</div>
+      <div style="font-size:11px;color:var(--gray-5)">${sub}</div></div>`;
+  const tit=t=>`<div style="font-size:11.5px;font-weight:800;color:var(--gray-6);letter-spacing:.3px;margin-bottom:8px">${t}</div>`;
+  const linhaVar=(x,cor,sinal)=>{ const n=nm(x.f); return `<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;padding:5px 0;border-bottom:1px dashed var(--gray-2)">
+      <div style="min-width:0"><div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_nvEsc(n.cod+' · '+n.txt)}">${_nvEsc(n.txt)}</div>
+        <div style="font-size:10.5px;color:var(--gray-5)">${n.cod} · ${fmt(x.u)} no mês · média ${fmt(x.media)}</div></div>
+      ${chip(sinal+' '+fmt(Math.abs(x.d)), cor, cor==='var(--red)'?'#fde8e8':'#e6f6ec')}</div>`; };
+  const bloco=(t,lista,f)=>lista.length?`<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;color:var(--gray-5);margin-bottom:2px">${t}</div>${lista.map(f).join('')}</div>`:'';
+  return `<div class="card" style="margin-bottom:14px"><div class="card-header"><h2>🔎 Análise do período</h2>
+      <span style="font-size:11.5px;color:var(--gray-5)">${rotM(cols[0])} a ${rotM(cols[cols.length-1])}${parcial?` · ${rotM(cols[cols.length-1])} em andamento (fora das médias)`:''}</span></div>
+    <div class="card-body" style="padding:14px 18px">
+      <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px">
+        ${tile('COBERTURA DAS SAÍDAS', cob.toFixed(0)+'%', `entradas ${fmt(tE)} · saídas ${fmt(tS)}`, cob<100?'var(--red)':'var(--green)')}
+        ${tile('MÉDIA MENSAL DE ENTRADAS', fmt(mediaE), `${nF} mês(es) fechado(s)`, 'var(--green)')}
+        ${tile('MÉDIA MENSAL DE SAÍDAS', fmt(mediaS), `resultado médio ${fmt(mediaE-mediaS)}`, 'var(--red)')}
+        ${tile('MESES NO NEGATIVO', `${neg.length} de ${nF}`, neg.length?'veja os meses abaixo':'nenhum mês negativo', neg.length?'var(--red)':'var(--green)')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px">
+        <div>${tit('PARA ONDE VAI O DINHEIRO')}
+          ${g1.slice(0,8).map(g=>{ const p=Math.abs(g.tot)/(tS||1)*100, n=nm(g); return `<div style="margin:0 0 9px">
+            <div style="display:flex;justify-content:space-between;gap:8px;font-size:12px;align-items:baseline">
+              <span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_nvEsc(n.cod+' · '+n.txt)}"><b style="color:var(--gray-4);margin-right:4px">${n.cod}</b>${_nvEsc(n.txt)}</span>
+              <span style="white-space:nowrap"><b>${p.toFixed(1).replace('.',',')}%</b> <span style="color:var(--gray-5);font-size:11px">${fmt(Math.abs(g.tot))}</span></span></div>
+            <div style="height:6px;background:var(--gray-1);border-radius:3px;margin-top:3px"><div style="height:6px;width:${Math.min(100,p)}%;background:var(--pink);border-radius:3px"></div></div></div>`; }).join('')}
+          <div style="font-size:11px;color:var(--gray-5);margin-top:4px">As 5 maiores contas somam <b>${pct(folhas.slice(0,5).reduce((s,f)=>s+Math.abs(f.tot),0),tS)}</b> das saídas. Para dar nome a um grupo, use o ✎ na tabela abaixo.</div>
+        </div>
+        <div>${tit('RESULTADO MÊS A MÊS')}
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${base.map(k=>`<div style="padding:5px 8px;border-radius:8px;min-width:92px;background:${mR[k]<0?'#fde8e8':'#e6f6ec'}">
+            <div style="font-size:10.5px;font-weight:700;color:var(--gray-5)">${rotM(k)}</div>
+            <div style="font-size:12px;font-weight:800;color:${mR[k]<0?'var(--red)':'var(--green)'}">${fmt(mR[k])}</div></div>`).join('')}</div>
+          ${semPlano.length?`<div style="margin-top:12px;font-size:11.5px;background:#fff7e6;border:1px solid #f5d9a8;border-radius:8px;padding:6px 10px;color:#92400e">⚠ ${semPlano.length} pagamento(s) sem plano de contas (${fmt(Math.abs(soma(semPlano)))}) — classificar no ERP.</div>`:''}
+        </div>
+        ${ult && ant.length?`<div>${tit(`${rotM(ult)} × MÉDIA DOS ${ant.length} MESES ANTERIORES`)}
+          ${bloco('▲ Subiram', subiu, x=>linhaVar(x,'var(--red)','▲'))}
+          ${bloco('▼ Caíram', caiu, x=>linhaVar(x,'var(--green)','▼'))}
+          ${sumiu.length?`<div style="margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:var(--gray-5);margin-bottom:4px">Sem lançamento em ${rotM(ult)} (costumam ter)</div>
+            <div style="display:flex;flex-wrap:wrap;gap:5px">${sumiu.map(x=>{ const n=nm(x.f); return chip(`${n.txt} · média ${fmt(x.media)}`,'#92400e','#fff1d6'); }).join('')}</div>
+            <div style="font-size:10.5px;color:var(--gray-5);margin-top:4px">Pode ser pagamento ainda não baixado na base.</div></div>`:''}
+          ${!subiu.length&&!caiu.length&&!sumiu.length?'<div style="font-size:12px;color:var(--gray-5)">Nenhuma conta variou mais de 30% (e R$ 1.000).</div>':''}
+        </div>`:''}
+      </div>
+    </div></div>`;
 }
 function _fxExcel(){
   const {sel, de, ate}=_fxDados();
