@@ -560,7 +560,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.267</span>
+      ">v2.14.268</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1240,7 +1240,7 @@ function _modoLeitura(){
   if(tudo && !R.length && !PT && !COLt.length) return;
   const pode=ac?_ACOES.filter(a=>ac[a]).map(a=>_ACOES_NOME[a].toLowerCase()):[], nao=ac?_ACOES.filter(a=>!ac[a]).map(a=>_ACOES_NOME[a].toLowerCase()):[];
   const nomeR=c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(c)); return r?(r.fantasia||r.nome):('rep '+c); };
-  const faixa=`<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600;text-transform:none">${ac&&!tudo?`👁 Neste módulo você pode: ${pode.join(', ')}${nao.length?` — sem permissão para: ${nao.join(', ')}`:''}.`:''}${R.length?`${ac&&!tudo?'<br>':''}👤 Você está vendo apenas: ${R.map(c=>_nvEsc(nomeR(c))).join(', ')}.`:''}${PT?`${(ac&&!tudo)||R.length?'<br>':''}📅 Meses liberados: ${_nvEsc(PT)}.`:''}${COLt.length?`<br>👗 Coleções liberadas: ${_nvEsc(COLt.join(', '))}.`:''}</div>`;
+  const faixa=`<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600;text-transform:none">${ac&&!tudo?`👁 Neste módulo você pode: ${pode.join(', ')}${nao.length?` — sem permissão para: ${nao.join(', ')}`:''}.`:''}${R.length?`${ac&&!tudo?'<br>':''}👤 Neste módulo você vê os dados de: ${R.map(c=>_nvEsc(nomeR(c))).join(', ')}.`:''}${PT?`${(ac&&!tudo)||R.length?'<br>':''}📅 Meses liberados: ${_nvEsc(PT)}.`:''}${COLt.length?`<br>👗 Coleções liberadas: ${_nvEsc(COLt.join(', '))}.`:''}</div>`;
   const aplica=()=>{ if(!document.getElementById('aviso-leitura')) c.insertAdjacentHTML('afterbegin',faixa); if(ac && !tudo) _travarEdicao(ac); };
   aplica();
   _leituraObs=new MutationObserver(()=>{ clearTimeout(_leituraObs._t); _leituraObs._t=setTimeout(aplica,60); });
