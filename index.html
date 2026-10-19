@@ -560,7 +560,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.268</span>
+      ">v2.14.269</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1284,9 +1284,10 @@ function _usuResumo(u, mods){
   const pmx=Object.keys(PMx).length?`<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#EDE9FE;color:#5B21B6">📅 ${_nvEsc(Object.entries(PMx).map(([m,o])=>((mods.find(x=>x.id===m)||{}).nome||m)+': '+_periodoModTexto(o)).join(' · '))}</span>`:'';
   // v264: resumo numa linha; os chips abrem só ao clicar
   const nMods=mods.filter(m=>_normAcoes((u.permissoes||{})[m.id])).length;
+  const vêTudo=!R.length && _normAcoes((u.permissoes||{}).comissoes);   // v269
   const COLs=(u.permissoes||{})._colecoes||[];
   const resumo=[`${nMods} módulo(s)`, R.length?`👤 ${R.length} representante(s)`:'', COLs.length?`👗 ${COLs.length} coleção(ões)`:'', LV.length&&R.length?'🌐 empresa toda em '+LV.length:'', PT?'📅 '+PT:'', Object.keys(PMx).length?'📅 '+Object.keys(PMx).length+' por módulo':''].filter(Boolean).join(' · ');
-  return `<details style="max-width:460px;white-space:normal"><summary style="cursor:pointer;font-size:12px;color:var(--gray-6)">${_nvEsc(resumo)} <span style="color:var(--pink);font-size:11px">ver ›</span></summary>
+  return `${vêTudo?'<div style="display:inline-block;margin-bottom:3px;padding:1px 7px;border-radius:8px;font-size:10.5px;font-weight:700;background:#FEE2E2;color:#B91C1C">⚠ vê a comissão de TODOS os representantes</div>':''}<details style="max-width:460px;white-space:normal"><summary style="cursor:pointer;font-size:12px;color:var(--gray-6)">${_nvEsc(resumo)} <span style="color:var(--pink);font-size:11px">ver ›</span></summary>
     <div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:4px">${(ls||'<span style="color:var(--red)">nenhum módulo</span>')+rp+lv+pp+pmx}${COLs.length?`<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#FFE4E6;color:#9F1239">👗 ${_nvEsc(COLs.join(', '))}</span>`:''}</div></details>`;
 }
 async function renderUsuarios(){
@@ -1521,6 +1522,12 @@ async function _usuSalvar(id){
     if(Object.keys(PM).length) permissoes._periodoMods=PM; }
   const _per=_usuPeriodoLer();   // v239
   if(_per){ for(const k in _per){ const f=_per[k]; if(f.de&&f.ate&&f.de>f.ate) return toast('No período, o mês "de" precisa ser antes do "até"','error'); } permissoes._periodo=_per; }
+  // v269: TRAVA DE SEGURANÇA — usuário comum com Comissões e sem representante marcado vê a comissão de TODOS
+  if(g('uu-perfil')!=='admin' && permissoes.comissoes && permissoes.comissoes.ver && !(permissoes._reps||[]).length){
+    const nomeU=g('uu-nome').trim()||'este usuário';
+    const repDele=(DB.representantes||[]).find(r=>{ const n=String(r.fantasia||r.nome||'').toUpperCase(); return n && nomeU.toUpperCase().split(' ')[0] && n.includes(nomeU.toUpperCase().split(' ')[0]); });
+    if(!confirm(`⚠ ATENÇÃO: ${nomeU} vai ver a COMISSÃO DE TODOS os representantes.\n\nEm "Representantes que este usuário enxerga" está marcado "Todos".${repDele?`\n\nExiste o representante ${repDele.codigo} · ${repDele.fantasia||repDele.nome} — se for dele(a), escolha "Somente os marcados" e marque só esse.`:''}\n\nOK = salvar mesmo assim · Cancelar = voltar e ajustar`)) return;
+  }
   const corpo={nome:g('uu-nome').trim(),email:g('uu-email').trim(),cpf:g('uu-cpf').replace(/\D/g,''),cargo:g('uu-cargo').trim(),perfil:g('uu-perfil'),ativo:!!(document.getElementById('uu-ativo')||{}).checked,permissoes};
   if(!_cpfOk(corpo.cpf)) return toast(corpo.cpf?'CPF inválido — confira os números':'Informe o CPF do usuário','error');   // v255
   const senha=g('uu-senha'); if(senha) corpo.senha=senha;
