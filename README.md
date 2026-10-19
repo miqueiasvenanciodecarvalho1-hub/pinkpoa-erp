@@ -116,6 +116,9 @@ flowchart LR
 - **👁 Prévia** (na linha de cada usuário): gera um PDF com as telas de cada módulo liberado exatamente como essa pessoa
   vê — mesmos dados que o servidor entrega a ela (módulos, ações e representantes) — com uma capa resumindo os acessos.
   Serve para conferir antes de enviar o convite. Nada é gravado.
+- **Meses que o usuário enxerga:** no cadastro, "Mês de fechamento" de/até (comissões, faturamento, vendas, recebidos, banco)
+  e "Mês de vencimento" de/até (recebíveis, duplicatas, contas a pagar). Em branco = todos. O servidor entrega só esses
+  meses e recusa gravar fora deles. A lista mostra "📅 …" e a pessoa vê no topo "Meses liberados: …".
 - **Acesso por representante:** no cadastro do usuário, em "Representantes que este usuário enxerga", escolha **Todos** ou
   **Somente os marcados** (com busca). Ele passa a ver só o faturamento, as comissões, os recebíveis, as vendas e os
   clientes desses representantes — os totais da empresa não aparecem — e o servidor recusa gravar registros de outros
