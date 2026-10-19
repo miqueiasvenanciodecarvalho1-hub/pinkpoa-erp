@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.234</span>
+      ">v2.14.235</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -637,6 +637,23 @@ const ORD_COLACAO = new Intl.Collator('pt-BR', {sensitivity:'base', numeric:true
 const ORD_MESES   = {jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12,
                      janeiro:1,fevereiro:2,'março':3,marco:3,abril:4,maio:5,junho:6,julho:7,agosto:8,setembro:9,outubro:10,novembro:11,dezembro:12};
 
+// v235: NOMES SEMPRE EM ORDEM ALFABÉTICA — toda <select class="ord-az"> (representantes, clientes, fornecedores, grupos,
+// coleções…) e toda lista .ord-az-lista é ordenada pelo texto que aparece, assim que entra na tela. A 1ª opção em branco
+// ("Todos", "— escolha —") fica no topo.
+function _ordAZ(raiz){
+  (raiz||document).querySelectorAll('select.ord-az:not([data-ord])').forEach(sel=>{
+    const ops=[...sel.options], fixas=ops.filter(o=>o.value===''), resto=ops.filter(o=>o.value!=='');
+    const v=sel.value; resto.sort((a,b)=>ordNome(a.textContent.trim(),b.textContent.trim()));
+    fixas.concat(resto).forEach(o=>sel.appendChild(o)); sel.value=v; sel.dataset.ord='1';
+  });
+  (raiz||document).querySelectorAll('.ord-az-lista:not([data-ord])').forEach(box=>{
+    const it=[...box.querySelectorAll(':scope > .ord-az-item')];
+    it.sort((a,b)=>ordNome(a.textContent.trim(),b.textContent.trim())).forEach(x=>box.appendChild(x));
+    box.querySelectorAll(':scope > .ord-az-fim').forEach(f=>box.appendChild(f));
+    box.dataset.ord='1';
+  });
+}
+new MutationObserver(()=>{ clearTimeout(window._ordAZt); window._ordAZt=setTimeout(()=>_ordAZ(),0); }).observe(document.documentElement,{childList:true,subtree:true});
 function ordNome(a,b){ return ORD_COLACAO.compare(String(a??''), String(b??'')); }
 function ordNum(a,b){ const x=Number(a),y=Number(b); return (isFinite(x)?x:0)-(isFinite(y)?y:0); }
 function ordAnoDesc(a,b){ return ordNum(b,a); }
@@ -1117,14 +1134,20 @@ function _travarEdicao(ac){
     el.title=`Sem permissão de ${_ACOES_NOME[k].toLowerCase()} neste módulo`;
   });
 }
+function _versaoCmp(a,b){ const x=String(a||'0').split('.').map(Number), y=String(b||'0').split('.').map(Number);
+  for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; }
 function _modoLeitura(){
   const c=document.getElementById('content'); if(!c) return;
   if(_leituraObs){ _leituraObs.disconnect(); _leituraObs=null; }
   const ac = CURRENT_PAGE && !_PAGINAS_ADMIN.includes(CURRENT_PAGE) ? _acoes(CURRENT_PAGE) : null;
-  if(!ac || _ACOES.every(a=>ac[a])) return;
-  const pode=_ACOES.filter(a=>ac[a]).map(a=>_ACOES_NOME[a].toLowerCase()), nao=_ACOES.filter(a=>!ac[a]).map(a=>_ACOES_NOME[a].toLowerCase());
-  const faixa=`<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600;text-transform:none">👁 Neste módulo você pode: ${pode.join(', ')}${nao.length?` — sem permissão para: ${nao.join(', ')}`:''}.</div>`;
-  const aplica=()=>{ if(!document.getElementById('aviso-leitura')) c.insertAdjacentHTML('afterbegin',faixa); _travarEdicao(ac); };
+  // v235: acesso restrito a representantes aparece sempre no topo da tela
+  const R=(!_ehAdmin() && USER && USER.permissoes && USER.permissoes._reps) || [];
+  const tudo=!ac || _ACOES.every(a=>ac[a]);
+  if(tudo && !R.length) return;
+  const pode=ac?_ACOES.filter(a=>ac[a]).map(a=>_ACOES_NOME[a].toLowerCase()):[], nao=ac?_ACOES.filter(a=>!ac[a]).map(a=>_ACOES_NOME[a].toLowerCase()):[];
+  const nomeR=c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(c)); return r?(r.fantasia||r.nome):('rep '+c); };
+  const faixa=`<div id="aviso-leitura" style="margin-bottom:10px;padding:8px 12px;border-radius:var(--radius);background:#EFF6FF;border:1px solid #93C5FD;color:#1E40AF;font-size:12px;font-weight:600;text-transform:none">${ac&&!tudo?`👁 Neste módulo você pode: ${pode.join(', ')}${nao.length?` — sem permissão para: ${nao.join(', ')}`:''}.`:''}${R.length?`${ac&&!tudo?'<br>':''}👤 Você está vendo apenas: ${R.map(c=>_nvEsc(nomeR(c))).join(', ')}.`:''}</div>`;
+  const aplica=()=>{ if(!document.getElementById('aviso-leitura')) c.insertAdjacentHTML('afterbegin',faixa); if(ac && !tudo) _travarEdicao(ac); };
   aplica();
   _leituraObs=new MutationObserver(()=>{ clearTimeout(_leituraObs._t); _leituraObs._t=setTimeout(aplica,60); });
   _leituraObs.observe(c,{childList:true,subtree:true});
@@ -1133,6 +1156,12 @@ function _modoLeitura(){
 async function _sessaoAtualizar(){
   try{
     const j=await _nvFetch('/me');
+    // v235: app desatualizado no navegador → recarrega sem cache (1 tentativa por versão exigida)
+    if(j.app_minimo && _versaoCmp(_versaoApp(), j.app_minimo)<0){
+      const k='pinkpoa_recarga_'+j.app_minimo;
+      if(!sessionStorage.getItem(k)){ sessionStorage.setItem(k,'1'); location.replace(location.pathname+'?v='+Date.now()+location.hash); return true; }
+      toast(`Atualize o app (Ctrl+F5): esta é a v${_versaoApp()} e o servidor pede a v${j.app_minimo} ou mais nova`,'error');
+    }
     const u=Object.assign({},j.usuario,{permissoes:j.permissoes,modulos:j.modulos});
     _nvGravar(NV_USER,JSON.stringify(u));
     const antes=JSON.stringify([USER&&USER.perfil,USER&&USER.permissoes]);
@@ -1831,7 +1860,7 @@ function modalNovoCliente() {
       <div class="form-group"><label>UF</label><select id="nc-uf" class="form-control">
         ${['SP','RJ','MG','PR','SC','RS','BA','GO','PE','CE','MA','PA','ES','MT','MS','RN','PB','AL','SE','PI','TO','AC','AM','RR','AP','RO','DF'].map(u=>`<option>${u}</option>`).join('')}
       </select></div>
-      <div class="form-group"><label>Representante</label><select id="nc-rep" class="form-control">
+      <div class="form-group"><label>Representante</label><select id="nc-rep" class="ord-az form-control">
         <option value="">Sem representante</option>
         ${DB.representantes.map(r=>`<option value="${r.id}">${r.nome}</option>`).join('')}
       </select></div>
@@ -2230,15 +2259,15 @@ function renderProdutos() {
         <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
           <input id="prod-busca" class="form-control" placeholder="Ref., descrição (Enter)..." style="width:170px"
             value="${busca}" onkeydown="if(event.key==='Enter'){event.preventDefault();mudaProdPag(1);renderProdutos();}">
-          <select id="prod-grp" class="form-control" style="width:120px" onchange="mudaProdPag(1);renderProdutos()">
+          <select id="prod-grp" class="ord-az form-control" style="width:120px" onchange="mudaProdPag(1);renderProdutos()">
             <option value="">Grupo</option>
             ${grupos.map(g=>`<option value="${g}" ${fGrp===g?'selected':''}>${g}</option>`).join('')}
           </select>
-          <select id="prod-col" class="form-control" style="width:130px" onchange="mudaProdPag(1);renderProdutos()">
+          <select id="prod-col" class="ord-az form-control" style="width:130px" onchange="mudaProdPag(1);renderProdutos()">
             <option value="">Coleção</option>
             ${colecoes.map(c=>`<option value="${c}" ${fCol===c?'selected':''}>${c}</option>`).join('')}
           </select>
-          <select id="prod-etiq" class="form-control" style="width:110px" onchange="mudaProdPag(1);renderProdutos()">
+          <select id="prod-etiq" class="ord-az form-control" style="width:110px" onchange="mudaProdPag(1);renderProdutos()">
             <option value="">Etiqueta</option>
             ${etiquetas.map(e=>`<option value="${e}" ${fEtiq===e?'selected':''}>${e}</option>`).join('')}
           </select>
@@ -2544,7 +2573,7 @@ function renderFaturamento() {
             <option value="">Ano</option>
             ${anos.map(a=>`<option value="${a}" ${fAno===a?'selected':''}>${a}</option>`).join('')}
           </select>
-          <select id="fat-rep" class="form-control" style="width:120px" onchange="mudaFatPag(1);renderFaturamento()">
+          <select id="fat-rep" class="ord-az form-control" style="width:120px" onchange="mudaFatPag(1);renderFaturamento()">
             <option value="">Representante</option>
             ${reps.map(r=>{const _man=(DB.faturamento||[]).some(f=>f.manual&&f.rep===r);return `<option value="${r}" ${fRep===r?'selected':''}>${nomeRep(r)}${_man?' (canal)':''}</option>`;}).join('')}
           </select>
@@ -3006,7 +3035,7 @@ function renderComissoes() {
               <button class="btn btn-secondary btn-sm" style="min-width:155px;text-align:left" onclick="toggleComiRepDropdown(event)">
                 <span>${filtReps.length===0?'Todos os reps':filtReps.length===1?((repInfo(filtReps[0]).fantasia||repInfo(filtReps[0]).nome)):`${filtReps.length} reps`}</span> ▾
               </button>
-              <div id="comirep-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:50;background:var(--white);border:1px solid var(--gray-2);border-radius:var(--radius);box-shadow:var(--shadow-md);min-width:240px;max-height:300px;overflow-y:auto;padding:6px 0">
+              <div id="comirep-dropdown" class="ord-az-lista" style="display:none;position:absolute;top:100%;left:0;z-index:50;background:var(--white);border:1px solid var(--gray-2);border-radius:var(--radius);box-shadow:var(--shadow-md);min-width:240px;max-height:300px;overflow-y:auto;padding:6px 0">
                 <div style="padding:6px 12px;font-size:11px;font-weight:700;color:var(--gray-5);border-bottom:1px solid var(--gray-2);display:flex;justify-content:space-between">
                   <span>Representantes (marque vários)</span>
                   <span style="cursor:pointer;color:var(--pink)" onclick="window._comiReps=[];renderComissoes()">Limpar</span>
@@ -3015,9 +3044,9 @@ function renderComissoes() {
                   <input id="comirep-busca" class="form-control no-up" style="flex:1;padding:5px 8px;font-size:12px" placeholder="Filtrar por nome ou código…" autocomplete="off" oninput="_comiRepFiltrar(this.value)">
                   <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px" title="Marcar todos os que aparecem" onclick="_comiRepMarcarVisiveis()">✓ visíveis</button>
                 </div>
-                ${reps.map(r=>{const ri=repInfo(r);return `<label class="comirep-op" data-busca="${_nvEsc((r+' '+(ri.fantasia||'')+' '+(ri.nome||'')).toLowerCase())}" style="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--gray-1)'" onmouseleave="this.style.background=''"><input type="checkbox" value="${r}" ${filtReps.includes(String(r))?'checked':''} onchange="toggleComiRep('${r}')"><span>${ri.fantasia||ri.nome} <span style="color:var(--gray-4);font-size:10.5px">${r}</span></span></label>`;}).join('')}
-                <div id="comirep-nada" style="display:none;padding:8px 12px;font-size:12px;color:var(--gray-5)">Nenhum representante com esse nome.</div>
-                <div style="border-top:1px solid var(--gray-2);padding:6px 12px;text-align:right;position:sticky;bottom:0;background:var(--white)">
+                ${reps.map(r=>{const ri=repInfo(r);return `<label class="comirep-op ord-az-item" data-busca="${_nvEsc((r+' '+(ri.fantasia||'')+' '+(ri.nome||'')).toLowerCase())}" style="display:flex;align-items:center;gap:8px;padding:5px 12px;cursor:pointer;font-size:12px" onmouseenter="this.style.background='var(--gray-1)'" onmouseleave="this.style.background=''"><input type="checkbox" value="${r}" ${filtReps.includes(String(r))?'checked':''} onchange="toggleComiRep('${r}')"><span>${ri.fantasia||ri.nome} <span style="color:var(--gray-4);font-size:10.5px">${r}</span></span></label>`;}).join('')}
+                <div id="comirep-nada" class="ord-az-fim" style="display:none;padding:8px 12px;font-size:12px;color:var(--gray-5)">Nenhum representante com esse nome.</div>
+                <div class="ord-az-fim" style="border-top:1px solid var(--gray-2);padding:6px 12px;text-align:right;position:sticky;bottom:0;background:var(--white)">
                   <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();document.getElementById('comirep-dropdown').style.display='none';window._comiRepsDirty=false;renderComissoes();">✓ Consolidar</button>
                 </div>
               </div>
@@ -3127,7 +3156,7 @@ function modalFecharComissoes() {
     <div class="form-grid">
       <div class="form-group"><label>De</label><input id="fc-di" class="form-control" type="date" value="2025-01-01"></div>
       <div class="form-group"><label>Até</label><input id="fc-df" class="form-control" type="date" value="2025-01-31"></div>
-      <div class="form-group"><label>Representante</label><select id="fc-rep" class="form-control">
+      <div class="form-group"><label>Representante</label><select id="fc-rep" class="ord-az form-control">
         <option value="">Todos</option>
         ${DB.representantes.map(r=>`<option value="${r.id}">${r.nome}</option>`).join('')}
       </select></div>
@@ -4480,7 +4509,7 @@ function renderRecebiveis() {
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <input id="rec-busca" class="form-control" placeholder="Título ou cliente (Enter)..." style="width:160px"
             value="${busca}" onkeydown="if(event.key==='Enter'){event.preventDefault();mudaPagRec(1);renderRecebiveis();}">
-          <select id="rec-rep" class="form-control" style="width:150px" onchange="mudaPagRec(1);renderRecebiveis()">
+          <select id="rec-rep" class="ord-az form-control" style="width:150px" onchange="mudaPagRec(1);renderRecebiveis()">
             <option value="">Rep.</option>
             ${reps.map(r=>`<option value="${r}" ${fRep===r?'selected':''}>${_ordRepNome(r)||'Rep '+r}</option>`).join('')}
           </select>
@@ -7211,7 +7240,7 @@ function gerarComissaoFatPDF(compRaw){
 function _rateioNome(cod){ return _ordRepNome(cod) || ('Rep '+cod); }
 
 function modalRateios(){
-  const reps = (DB.representantes||[]).slice().sort((a,b)=>ordNome(a.nome,b.nome));
+  const reps = (DB.representantes||[]).slice().sort((a,b)=>ordNome((a.fantasia&&a.fantasia!==a.nome?a.fantasia:a.nome),(b.fantasia&&b.fantasia!==b.nome?b.fantasia:b.nome)));   // v235: pelo nome que aparece
   // v233: listas começam em branco ("— escolha —"); a origem já vem com o representante filtrado na tela, se houver um só
   const _sel=(window._comiReps||[]).length===1 ? String(window._comiReps[0]) : '';
   const optsDe=sel=>'<option value="">— escolha —</option>'+reps.map(r=>`<option value="${r.codigo}" ${String(r.codigo)===sel?'selected':''}>${(r.fantasia&&r.fantasia!==r.nome?r.fantasia:r.nome)} (${r.codigo})</option>`).join('');
@@ -7231,16 +7260,16 @@ function modalRateios(){
     <div style="margin-top:12px;padding:10px 12px;background:var(--gray-1);border-radius:8px">
       <div style="font-weight:700;margin-bottom:8px">Dividir 50/50 (rápido)</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;align-items:end">
-        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Origem (quem tem a comissão)</label><select id="rt-orig" class="form-control" style="width:100%">${optsOrig}</select></div>
-        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Destino A (50%)</label><select id="rt-dA" class="form-control" style="width:100%">${opts}</select></div>
-        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Destino B (50%)</label><select id="rt-dB" class="form-control" style="width:100%">${opts}</select></div>
+        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Origem (quem tem a comissão)</label><select id="rt-orig" class="ord-az form-control" style="width:100%">${optsOrig}</select></div>
+        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Destino A (50%)</label><select id="rt-dA" class="ord-az form-control" style="width:100%">${opts}</select></div>
+        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Destino B (50%)</label><select id="rt-dB" class="ord-az form-control" style="width:100%">${opts}</select></div>
       </div>
       <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="_rateio5050()">Dividir 50% / 50%</button>
       <div style="border-top:1px solid var(--gray-2);margin:10px 0"></div>
       <div style="font-weight:700;margin-bottom:8px">Adicionar um destino (%)</div>
       <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto auto;gap:8px;align-items:end">
-        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Origem</label><select id="rt-o2" class="form-control" style="width:100%">${optsOrig}</select></div>
-        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Destino</label><select id="rt-d2" class="form-control" style="width:100%">${opts}</select></div>
+        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Origem</label><select id="rt-o2" class="ord-az form-control" style="width:100%">${optsOrig}</select></div>
+        <div style="min-width:0"><label style="font-size:11px;color:var(--gray-5)">Destino</label><select id="rt-d2" class="ord-az form-control" style="width:100%">${opts}</select></div>
         <div><label style="font-size:11px;color:var(--gray-5)">%</label><input id="rt-p2" class="form-control" style="width:70px" type="number" value="50"></div>
         <button class="btn btn-secondary btn-sm" onclick="_rateioAdd()">+ Adicionar</button>
       </div>
@@ -7465,7 +7494,7 @@ function cardSupervisaoComissoes(compRaw){
         <select id="sup-comp" class="form-control" style="width:130px" onchange="renderComissoes()">
           ${comps.map(c=>`<option value="${c}" ${c===sel?'selected':''}>${rotulo(c)}</option>`).join('')}
         </select>
-        <select id="sup-quem" class="form-control" style="width:160px" title="Escolha a supervisora para o relatório individual">
+        <select id="sup-quem" class="ord-az form-control" style="width:160px" title="Escolha a supervisora para o relatório individual">
           <option value="">Todas as supervisoras</option>
           ${teams.map(t=>`<option value="${t.key}">${t.nome}</option>`).join('')}
         </select>
@@ -8033,7 +8062,7 @@ function renderPagar(){
             <option value="vencido" ${fSt==='vencido'?'selected':''}>Vencidos</option>
             <option value="baixado" ${fSt==='baixado'?'selected':''}>Pagos</option>
           </select>
-          <select id="pg-pla" class="form-control" style="width:180px" onchange="_pgFiltrar()">
+          <select id="pg-pla" class="ord-az form-control" style="width:180px" onchange="_pgFiltrar()">
             <option value="">Plano de contas</option>
             ${planos.map(p=>`<option value="${p}" ${fPla===p?'selected':''}>${p}</option>`).join('')}
           </select>
@@ -8673,7 +8702,7 @@ function renderConciliacao() {
               ${t.label}</button>`).join('')}
         </div>
         <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
-          <select id="conc-cli" class="form-control" style="width:200px" onchange="mudaConcPag(1);renderConciliacao()">
+          <select id="conc-cli" class="ord-az form-control" style="width:200px" onchange="mudaConcPag(1);renderConciliacao()">
             <option value="">Todos os clientes</option>
             ${clisConc.map(c=>`<option value="${c}" ${fCli===c?'selected':''}>[${c}] ${nomeCl(c).slice(0,25)}</option>`).join('')}
           </select>
@@ -9071,11 +9100,11 @@ function renderVendas() {
     <div class="card" style="margin-bottom:14px">
       <div class="card-header" style="padding:10px 14px">
         <div style="display:flex;gap:7px;flex-wrap:wrap;align-items:center">
-          <select id="vd-col" class="form-control" style="width:150px" onchange="renderVendas()">
+          <select id="vd-col" class="ord-az form-control" style="width:150px" onchange="renderVendas()">
             <option value="">Coleção</option>
             ${colecoes.map(c=>`<option value="${c}" ${fCol===c?'selected':''}>${c}</option>`).join('')}
           </select>
-          <select id="vd-grp" class="form-control" style="width:130px" onchange="renderVendas()">
+          <select id="vd-grp" class="ord-az form-control" style="width:130px" onchange="renderVendas()">
             <option value="">Grupo</option>
             ${grupos.map(g=>`<option value="${g}" ${fGrp===g?'selected':''}>${g}</option>`).join('')}
           </select>
@@ -9083,7 +9112,7 @@ function renderVendas() {
             <option value="">Mês</option>
             ${mesesUniq.map(m=>`<option value="${m}" ${fMes===m?'selected':''}>${MESES_L[m]||m}</option>`).join('')}
           </select>
-          <select id="vd-rep" class="form-control" style="width:130px" onchange="renderVendas()">
+          <select id="vd-rep" class="ord-az form-control" style="width:130px" onchange="renderVendas()">
             <option value="">Representante</option>
             ${reps.map(r=>{const _man=(DB.faturamento||[]).some(f=>f.manual&&f.rep===r);return `<option value="${r}" ${fRep===r?'selected':''}>${nomeRep(r)}${_man?' (canal)':''}</option>`;}).join('')}
           </select>
@@ -9267,11 +9296,11 @@ function renderEstoques() {
         <div class="card-header" style="padding:10px 14px"><h3 style="font-size:13px">Filtros</h3></div>
         <div style="padding:10px 14px;display:flex;flex-direction:column;gap:8px">
           <input id="est-busca" class="form-control" placeholder="Produto, cor, referência (Enter)..." value="${busca}" onkeydown="if(event.key==='Enter'){event.preventDefault();mudaEstPag(1);renderEstoques();}">
-          <select id="est-grp" class="form-control" onchange="mudaEstPag(1);renderEstoques()">
+          <select id="est-grp" class="ord-az form-control" onchange="mudaEstPag(1);renderEstoques()">
             <option value="">Todos os grupos</option>
             ${grupos.map(g=>`<option value="${g}" ${fGrp===g?'selected':''}>${g}</option>`).join('')}
           </select>
-          <select id="est-col" class="form-control" onchange="mudaEstPag(1);renderEstoques()">
+          <select id="est-col" class="ord-az form-control" onchange="mudaEstPag(1);renderEstoques()">
             <option value="">Todas as coleções</option>
             ${colecoes.map(c=>`<option value="${c}" ${fCol===c?'selected':''}>${c}</option>`).join('')}
           </select>
@@ -13098,7 +13127,7 @@ function renderCompras(){
   const filterBar = tab==='detalhe' ? '' : `
     <div class="card" style="margin-bottom:12px"><div style="padding:10px 12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
       <input id="cmp-f-busca" class="form-control" style="width:180px" placeholder="Nº, chave, CNPJ, fornecedor ou produto (Enter)…" value="${_cesc(f.busca)}" onkeydown="if(event.key==='Enter'){event.preventDefault();renderCompras();}">
-      <select id="cmp-f-forn" class="form-control" style="width:210px" onchange="renderCompras()"><option value="">Todos fornecedores</option>${fornOpts.map(([k,nm])=>`<option value="${_cesc(k)}" ${f.forn===k?'selected':''}>${_cesc(nm)}</option>`).join('')}</select>
+      <select id="cmp-f-forn" class="ord-az form-control" style="width:210px" onchange="renderCompras()"><option value="">Todos fornecedores</option>${fornOpts.map(([k,nm])=>`<option value="${_cesc(k)}" ${f.forn===k?'selected':''}>${_cesc(nm)}</option>`).join('')}</select>
       <select id="cmp-f-ano" class="form-control" style="width:88px" onchange="renderCompras()"><option value="">Ano</option>${anos.map(a=>`<option ${f.ano===a?'selected':''}>${a}</option>`).join('')}</select>
       <select id="cmp-f-mes" class="form-control" style="width:110px" onchange="renderCompras()"><option value="">Mês (de)</option>${meses.map(m=>`<option value="${m}" ${f.mes===m?'selected':''}>${_CMP_MES[m]||m}</option>`).join('')}</select><select id="cmp-f-mes-fim" class="form-control" style="width:100px" onchange="renderCompras()"><option value="">até…</option>${meses.map(m=>`<option value="${m}" ${f.mesFim===m?'selected':''}>${_CMP_MES[m]||m}</option>`).join('')}</select>
       <select id="cmp-f-tipo" class="form-control" style="width:130px" onchange="renderCompras()"><option value="">Todos os tipos</option><option value="compra" ${f.tipo==='compra'?'selected':''}>Compras</option><option value="devolucao" ${f.tipo==='devolucao'?'selected':''}>Devoluções</option></select>
