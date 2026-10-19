@@ -559,7 +559,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.257</span>
+      ">v2.14.258</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1303,7 +1303,7 @@ function _usuRepsHtml(u){
         return `<div style="margin-top:10px;padding:8px 10px;border:1px dashed var(--gray-3);border-radius:var(--radius);background:var(--gray-1)">
           <div style="font-size:12.5px;font-weight:700">Módulos com os dados da EMPRESA TODA <span style="font-weight:400;color:var(--gray-5);font-size:11px">(a trava acima não vale neles — ex.: gestor vê Vendas e Compras completos e só a comissão dele)</span></div>
           <div style="display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:6px">${ms.map(m=>`<label style="display:inline-flex;gap:5px;align-items:center;font-size:12px;cursor:pointer"><input type="checkbox" class="uu-livre" value="${m.id}" ${liv.has(m.id)?'checked':''}> ${_nvEsc(m.nome)}</label>`).join('')}</div>
-          <div style="font-size:10.5px;color:var(--gray-5);margin-top:4px">Comissões fica sempre travada. Dado que um módulo travado também usa (ex.: faturamento, que a Comissão lê) continua travado. O módulo também precisa estar liberado em "Acessos por módulo".</div></div>`; })()}
+          <div style="font-size:10.5px;color:var(--gray-5);margin-top:4px">Comissão de outro representante NUNCA aparece: Comissões, supervisões, rateios e gestores ficam sempre travados, e os dados liberados vão sem a comissão/taxa de cada nota e sem a taxa e o banco dos outros representantes. O módulo também precisa estar liberado em "Acessos por módulo".</div></div>`; })()}
     </div></div>`;
 }
 // v228: busca no cadastro (representantes do banco + usuários já criados) para preencher o novo acesso
