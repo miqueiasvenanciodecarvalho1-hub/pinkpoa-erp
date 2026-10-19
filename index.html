@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.236</span>
+      ">v2.14.237</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -11084,7 +11084,15 @@ function _rzCompLinhas(r, fmt, cols){
       ? `<tr style="background:#f0fbf9"><td></td><td style="padding-left:18px;font-size:11.5px;color:#0d9488">↳ compartilhada de ${it.nome} (${it.pct}%)</td><td style="text-align:right;font-size:11.5px">${fmt(it.fat)}</td><td style="text-align:right;font-size:11.5px;font-weight:600">${fmt(it.valor)}</td><td style="text-align:right;font-size:11.5px">${med.toFixed(2).replace('.',',')}%</td></tr>`
       : `<tr style="background:#f0fbf9"><td class="nm" style="padding-left:20px;color:#0d9488;font-weight:600">↳ compartilhada de ${it.nome} (${it.pct}%)</td><td class="r pk">${fmt(it.fat)}</td><td class="r nv">${fmt(it.valor)}</td><td class="r nv">${med.toFixed(2).replace('.',',')}%</td></tr>`; }).join('');
 }
-function _rzNotaOrigem(r, fmt){ return (r.rateadoItens||[]).length?`<br><span style="font-size:9.5px;color:#0d9488;font-weight:600">dividida: ${(r.rateadoItens||[]).map(it=>`${it.pct}% ${it.nome} (fat. ${fmt(it.fat)} · ${fmt(it.valor)})`).join(' · ')}</span>`:''; }
+function _rzNotaOrigem(r, fmt){
+  if(!(r.rateadoItens||[]).length) return '';
+  // v237: com filtro de representantes, quem está fora do filtro não aparece pelo nome
+  const f=(window._comiReps||[]).map(String), noFiltro=nome=>!f.length || f.some(c=>(_ordRepNome(c)||'')===nome);
+  const vis=r.rateadoItens.filter(it=>noFiltro(it.nome)), out=r.rateadoItens.filter(it=>!noFiltro(it.nome));
+  const partes=vis.map(it=>`${it.pct}% ${it.nome} (fat. ${fmt(it.fat)} · ${fmt(it.valor)})`);
+  if(out.length) partes.push(`${out.reduce((x,it)=>x+it.pct,0)}% outros representantes`);
+  return `<br><span style="font-size:9.5px;color:#0d9488;font-weight:600">dividida: ${partes.join(' · ')}</span>`;
+}
 function modalResumoComissoes(){
   const _n = v=>{const x=Number(v);return isFinite(x)?x:0;};
   const _fmt = v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(_n(v));
@@ -13719,9 +13727,15 @@ function gerarRelatorioComiPDF(comId) {
         u.v=+(_saldoC-ov.reduce((x,p)=>x+p.v,0)).toFixed(2); u.f=+(_fatC-ov.reduce((x,p)=>x+p.f,0)).toFixed(2);
       }
       const _divV=_partes.reduce((x,p)=>x+p.v,0), _divF=_partes.reduce((x,p)=>x+p.f,0);
+      // v237: com filtro de representantes, só aparece (nome e valores) a parte de quem está no filtro;
+      // a parte dos outros vira uma linha sem nome, só para a conta da origem fechar — e fica fora dos totais
+      const _noRel=d=>(comId!==undefined&&comId!==null&&comId!=='') || !filtReps.length || filtReps.includes(String(d));
+      const _pVis=_partes.filter(p=>_noRel(p.dst)), _pOut=_partes.filter(p=>!_noRel(p.dst));
+      const _outV=_pOut.reduce((x,p)=>x+p.v,0), _outF=_pOut.reduce((x,p)=>x+p.f,0), _outPct=_pOut.reduce((x,p)=>x+p.pct,0);
       const _tabRt=(tit,lin,rod)=>`<div style="margin-top:12px;font-weight:700;color:#0d9488;font-size:11px">${tit}</div><table style="margin-top:4px"><colgroup><col style="width:70%"><col style="width:15%"><col style="width:15%"></colgroup><thead><tr><th>${tit.indexOf('RECEBIDA')>=0?'De':'Para'}</th><th class="r">Fat Líq. (R$)</th><th class="r">Comissão (R$)</th></tr></thead><tbody>${lin}</tbody>${rod?`<tfoot>${rod}</tfoot>`:''}</table>`;
       if(_partes.length){
-        const blk=_tabRt('DIVISÃO DA COMISSÃO (RATEIO)', _partes.map(p=>`<tr><td>→ ${p.nome} (${p.pct}%)</td><td class="r">${_fmt(p.f)}</td><td class="r">${_fmt(p.v)}</td></tr>`).join(''),
+        const blk=_tabRt('DIVISÃO DA COMISSÃO (RATEIO)', _pVis.map(p=>`<tr><td>→ ${p.nome} (${p.pct}%)</td><td class="r">${_fmt(p.f)}</td><td class="r">${_fmt(p.v)}</td></tr>`).join('')
+            +(_pOut.length?`<tr><td>→ parte de outros representantes (${_outPct}%)</td><td class="r">${_fmt(_outF)}</td><td class="r">${_fmt(_outV)}</td></tr>`:''),
           `<tr><td>Fica com ${nomeEmit}</td><td class="r">${_fmt(_fatC-_divF)}</td><td class="r">${_fmt(_saldoC-_divV)}</td></tr>`);
         paginaReps=paginaReps.replace(/<\/div>$/, blk+'</div>');
       }
@@ -13742,10 +13756,10 @@ function gerarRelatorioComiPDF(comId) {
           `<tr><td>Total ${nomeEmit} (própria ${_fmt(_saldoC-_divV)} + compartilhada ${_fmt(tv)})</td><td class="r"></td><td class="r">${_fmt(_saldoC-_divV+tv)}</td></tr>`);
         paginaReps=paginaReps.replace(/<\/div>$/, blk+'</div>');
       }
-      resumo.push({rep:nomeEmit+(_partes.length?` (após divisão: ${_partes.map(p=>p.pct+'% '+p.nome).join(', ')})`:''),cod:rep.cod,comp:c.competencia,notas:fatNotas.length,
+      resumo.push({rep:nomeEmit+(_partes.length?` (após divisão${_pVis.length?': '+_pVis.map(p=>p.pct+'% '+p.nome).join(', '):''})`:''),cod:rep.cod,comp:c.competencia,notas:fatNotas.length,
         fat:tLiqRep-_divF,fatAbat:tAbatVal,dev:(c.val_devolucoes||0),bruta:_n(c.total_comissao)-_divV,abat:_n(c.comi_liquida),saldo:_saldoC-_divV});
       // a parte compartilhada entra na totalização como linha do destino (uma vez só: pela origem, ou pelo destino se a origem não está no relatório)
-      _partes.forEach(p=>resumo.push({rep:`${p.nome} — compartilhada de ${nomeEmit} (${p.pct}%)`,cod:p.dst,comp:c.competencia,notas:0,fat:p.f,fatAbat:0,dev:0,bruta:p.v,abat:0,saldo:p.v}));
+      _pVis.forEach(p=>resumo.push({rep:`${p.nome} — compartilhada de ${nomeEmit} (${p.pct}%)`,cod:p.dst,comp:c.competencia,notas:0,fat:p.f,fatAbat:0,dev:0,bruta:p.v,abat:0,saldo:p.v}));
       _recebe.filter(p=>!porRep[p.orig]).forEach(p=>resumo.push({rep:`${nomeEmit} — compartilhada de ${p.nome} (${p.pct}%)`,cod:rep.cod,comp:c.competencia,notas:0,fat:p.f,fatAbat:0,dev:0,bruta:p.v,abat:0,saldo:p.v}));
       first=false;
     });
