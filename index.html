@@ -543,7 +543,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.237</span>
+      ">v2.14.238</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1134,6 +1134,8 @@ function _travarEdicao(ac){
     el.title=`Sem permissão de ${_ACOES_NOME[k].toLowerCase()} neste módulo`;
   });
 }
+// v238: usuário com acesso restrito a representantes (lista) ou null
+function _escopoReps(){ const r=!_ehAdmin() && USER && USER.permissoes && USER.permissoes._reps; return (r&&r.length)?r.map(String):null; }
 function _versaoCmp(a,b){ const x=String(a||'0').split('.').map(Number), y=String(b||'0').split('.').map(Number);
   for(let i=0;i<Math.max(x.length,y.length);i++){ const d=(x[i]||0)-(y[i]||0); if(d) return d; } return 0; }
 function _modoLeitura(){
@@ -3002,10 +3004,10 @@ function renderComissoes() {
       <div class="kpi-card" style="border-left:3px solid var(--gray-4);padding:12px">
         <div class="kpi-label" style="font-size:10px">Base Comissões (títulos)</div>
         <div class="kpi-value" style="font-size:16px">${fmt(tVendas)}</div>
-        <div class="kpi-sub">reps + canais · vp42541</div>
+        <div class="kpi-sub">${_escopoReps()?'seus representantes':'reps + canais'} · vp42541</div>
       </div>
       <div class="kpi-card green" style="padding:12px">
-        <div class="kpi-label" style="font-size:10px">Faturamento Líquido</div>
+        <div class="kpi-label" style="font-size:10px">${_escopoReps()?'Faturamento líquido — seus representantes':'Faturamento Líquido'}</div>
         <div class="kpi-value" style="font-size:16px">${fmt(tFatLiqKPI)}</div>
         <div class="kpi-sub">notas − troca (vpfatu)${_flCompKPI?` · ${_flCompKPI}`:''}</div>
       </div>
@@ -3072,17 +3074,17 @@ function renderComissoes() {
             </select>
             <button class="btn btn-secondary btn-sm" onclick="window._comiReps=[];['filtro-comp','filtro-mes-com','filtro-ano-com'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderComissoes();">✕</button>
             <button class="btn btn-secondary btn-sm" onclick="exportarComissoesXLSX()">⬇ Excel</button>
-            <button class="btn btn-secondary btn-sm" onclick="modalComissaoFat()">💼 Comissão s/ Faturamento</button>
+            ${_escopoReps()?'':`<button class="btn btn-secondary btn-sm" onclick="modalComissaoFat()">💼 Comissão s/ Faturamento</button>`}
             <button class="btn btn-secondary btn-sm" onclick="modalRelatorioVendas()">📊 Relatório de Vendas</button>
             <button class="btn btn-secondary btn-sm" onclick="exportarSnapshotComissoes()" title="Exportar snapshot das comissões (fechadas) do mês">📸 Exportar mês</button>
             <button class="btn btn-secondary btn-sm" onclick="document.getElementById('comi-snap-file').click()" title="Comparar com um snapshot salvo">🔍 Comparar</button>
             <input type="file" id="comi-snap-file" accept=".json,application/json" style="display:none" onchange="compararSnapshotComissoes(this)">
             <button class="btn btn-secondary btn-sm" onclick="modalResumoComissoes()">📋 Resumo</button>
-            <button class="btn btn-secondary btn-sm" onclick="modalAddEcommerce()">🛒 E-commerce</button>
-            <button class="btn btn-secondary btn-sm" onclick="modalAddProntaEntrega()">🏷 Pronta Entrega</button>
-            <button class="btn btn-secondary btn-sm" onclick="_puxarCanaisFatTodos(false)" title="Puxar Pronta Entrega (série RO) e E-commerce do faturamento">🔄 Puxar canais</button>
+            ${_escopoReps()?'':`<button class="btn btn-secondary btn-sm" onclick="modalAddEcommerce()">🛒 E-commerce</button>`}
+            ${_escopoReps()?'':`<button class="btn btn-secondary btn-sm" onclick="modalAddProntaEntrega()">🏷 Pronta Entrega</button>`}
+            ${_escopoReps()?'':`<button class="btn btn-secondary btn-sm" onclick="_puxarCanaisFatTodos(false)" title="Puxar Pronta Entrega (série RO) e E-commerce do faturamento">🔄 Puxar canais</button>`}
             <button class="btn btn-secondary btn-sm" style="color:var(--red)" onclick="gerarRelatorioComiPDF()">🖨 PDF</button>
-            <button class="btn btn-primary btn-sm" onclick="modalFecharComissoes()">Fechar Período</button>
+            ${_escopoReps()?'':`<button class="btn btn-primary btn-sm" onclick="modalFecharComissoes()">Fechar Período</button>`}
           </div>
           ${temFiltro?`<div style="font-size:11px;color:var(--gray-5);margin-top:6px">${labelFiltro}</div>`:''}
         </div>
@@ -11203,7 +11205,7 @@ function gerarResumoComiPDF(){
   // Gestores (Comissão sobre Faturamento) — ex. Andrea Miranda — entram no resumo quando não há filtro de grupo específico
   const _grpSel = (typeof _resumoGrupoSel!=='undefined')?_resumoGrupoSel:'';
   let _gest=[];
-  if(!_grpSel && (DB.comissaoFat||[]).length && typeof calcComissaoFat==='function'){
+  if(!_grpSel && !_escopoReps() && (DB.comissaoFat||[]).length && typeof calcComissaoFat==='function'){
     const _m=(document.getElementById('filtro-mes-com')||{}).value||''; const _a=(document.getElementById('filtro-ano-com')||{}).value||'';
     let _cr; if(_m&&_a) _cr=_a+'-'+_m; else _cr=[...new Set((DB.faturamento||[]).map(f=>f.mes).filter(Boolean))].sort().reverse()[0]||'';
     const _o=(typeof _cfOpts==='function')?_cfOpts():{};
