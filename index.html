@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.286</span>
+      ">v2.14.287</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2741,6 +2741,7 @@ function _fatNatsPadrao(){
 function renderFaturamento() {
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();   // reaplica a troca (vpdpcl2) sempre — idempotente
   if(typeof _sincronizarFaturamentoManual==='function') _sincronizarFaturamentoManual();
+  try{ _sincronizarDevolXML(); }catch(e){ console.warn('devolXML',e); }
   // v250: a seleção fica MARCADA (tipo, mês, ano, representante, filial e naturezas) — ao sair e voltar, ou ao recarregar,
   // continua a mesma; só muda quando o usuário alterar ou clicar em Limpar. Fica neste aparelho (não vai para os outros usuários).
   const _ffSalvo=(()=>{ try{ return JSON.parse(localStorage.getItem('pinkpoa_fat_filtros')||'{}')||{}; }catch(e){ return {}; } })();
@@ -2760,7 +2761,7 @@ function renderFaturamento() {
   const fPag   = parseInt(document.getElementById('fat-pag')?.value||'1');
   const POR_PAG = 50;
 
-  function nomeCli(cod){const c=DB.clientes.find(x=>x.codigo===String(cod));return c?(c.razao_social||c.nome_fantasia||`Cód.${cod}`):`Cód.${cod}`;}
+  function nomeCli(cod){const c=DB.clientes.find(x=>x.codigo===String(cod));if(!c && /^CNPJ /.test(String(cod))){const n=(DB.devol_vendas_xml||[]).find(x=>String((x.forn||{}).cnpj||'').replace(/\D/g,'')===String(cod).slice(5));if(n)return String(n.forn.nome||'').replace(/&amp;/g,'&');}return c?(c.razao_social||c.nome_fantasia||`Cód.${cod}`):`Cód.${cod}`;}
   function nomeRep(cod){const r=DB.representantes.find(x=>x.codigo===String(cod));if(!r)return `Rep ${cod}`;return r.fantasia&&r.fantasia!==r.nome?r.fantasia:r.nome.split(' ')[0];}
   function nomeNat(cod){const n=(DB.naturezas||[]).find(x=>x.codigo===cod);return n?n.descricao:cod;}
 
@@ -12345,6 +12346,7 @@ function _sincronizarFaturamentoManual(){
   });
 }
 try{ _sincronizarFaturamentoManual(); }catch(e){}
+try{ setTimeout(()=>{ try{ _sincronizarDevolXML(); }catch(e){} },0); }catch(e){}
 try{ _pmAutoCorrigir(); }catch(e){}   // cartão antigo (backup pré-v177) é trocado pela carteira embutida
 
 function salvarEcommerce(){
@@ -12958,12 +12960,68 @@ const _COMPRAS_GRP_KEY='pinkpoa_compras_grupos';
 const _COMPRAS_FGRP_KEY='pinkpoa_compras_forn_grupos';
 const _COMPRAS_EXCL_KEY='pinkpoa_compras_forn_excl';
 
+// v2.14.287: DEVOLUÇÃO DE VENDA que chega como XML no Compras (a cliente emite NF de devolução para a Pink, finNFe=4)
+// não é compra: sai do Compras (DB.devol_vendas_xml) e entra no FATURAMENTO como devolução de cliente — só quando o ERP
+// ainda não lançou essa devolução (mesmo cliente e valor, ou a venda original marcada como devolvida).
+const _DEVXML_KEY='pinkpoa_devol_vendas_xml';
+function _pinkRaizes(){ const r=new Set(['60705616','05362103']); const e=String((DB.empresa||{}).cnpj||'').replace(/\D/g,''); if(e.length>=8) r.add(e.slice(0,8)); return r; }
+function _ehDevolVenda(n){
+  if(!n || n.tipo!=='devolucao') return false;
+  const R=_pinkRaizes(), raiz=c=>String(c||'').replace(/\D/g,'').slice(0,8);
+  if(R.has(raiz(n.forn&&n.forn.cnpj))) return false;                    // emitida pela Pink = devolução de compra (para o fornecedor)
+  if((n.refs||[]).some(k=>R.has(String(k).slice(6,14)))) return true;     // cita nota emitida pela Pink
+  return R.has(raiz(n.dest&&n.dest.cnpj));                                // cliente devolvendo para a Pink
+}
+function _devolXmlLoad(){
+  if(!Array.isArray(DB.devol_vendas_xml)){ try{ DB.devol_vendas_xml=JSON.parse(localStorage.getItem(_DEVXML_KEY)||'[]'); }catch(e){ DB.devol_vendas_xml=[]; } }
+  if(!Array.isArray(DB.compras)) return 0;
+  const mov=DB.compras.filter(_ehDevolVenda); if(!mov.length) return 0;
+  const ex=new Set(DB.devol_vendas_xml.map(n=>n.chave));
+  mov.forEach(n=>{ n.tipo='devolucao_venda'; if(!ex.has(n.chave)){ DB.devol_vendas_xml.push(n); ex.add(n.chave); } else { const i=DB.devol_vendas_xml.findIndex(x=>x.chave===n.chave); DB.devol_vendas_xml[i]=n; } });
+  DB.compras=DB.compras.filter(n=>n.tipo!=='devolucao_venda');
+  try{ localStorage.setItem(_DEVXML_KEY, JSON.stringify(DB.devol_vendas_xml)); }catch(e){}
+  try{ localStorage.setItem(_COMPRAS_KEY, JSON.stringify(DB.compras)); }catch(e){}
+  return mov.length;
+}
+function _sincronizarDevolXML(){
+  if(!DB.faturamento) DB.faturamento=[];
+  DB.faturamento=DB.faturamento.filter(f=>!f.xmlDev);
+  try{ _comprasLoad(); }catch(e){}
+  const L=DB.devol_vendas_xml||[]; if(!L.length) return {lanc:0, erp:0};
+  const dig=c=>String(c||'').replace(/\D/g,''), z=v=>String(v==null?'':v).trim().replace(/^0+/,'');
+  const cliPorCnpj={}; (DB.clientes||[]).forEach(c=>{ const d=dig(c.cnpj); if(d) cliPorCnpj[d]=c; });
+  const iso=br=>{ const p=String(br||'').split('/'); return p.length===3?`${p[2]}-${p[1]}-${p[0]}`:''; };
+  const dias=(a,b)=>Math.abs((new Date(a+'T12:00')-new Date(b+'T12:00'))/864e5);
+  let lanc=0, erp=0;
+  L.forEach(n=>{
+    if(n.cancelada) return;
+    const cnpj=dig(n.forn&&n.forn.cnpj), cli=cliPorCnpj[cnpj], cod=cli?String(cli.codigo):'', dt=iso(n.dataBR), v=+((n.totais||{}).vNF||0);
+    if(!dt || !v) return;
+    // venda original (pela NF-e referenciada) → representante, filial e taxa
+    let orig=null;
+    (n.refs||[]).some(k=>{ const nf=z(String(k).slice(25,34)); orig=(DB.faturamento||[]).find(f=>f.tp==='venda' && z(f.nf)===nf && (!cod || String(f.cli)===cod)); return !!orig; });
+    if(!orig && cod) orig=(DB.faturamento||[]).filter(f=>f.tp==='venda' && String(f.cli)===cod && f.dt<=dt).sort((a,b)=>String(b.dt).localeCompare(String(a.dt)))[0]||null;
+    // já lançada pelo ERP? (devolução do mesmo cliente com o mesmo valor, ou a venda original inteira devolvida)
+    const jaErp=(DB.faturamento||[]).some(f=>!f.xmlDev && String(f.cli)===cod && cod && Math.abs(Math.abs(Number(f.vn)||0)-v)<=1 && dias(f.dt||dt,dt)<=45 && (f.tp==='devolucao' || f.sit==='D'));
+    n._noErp=jaErp; if(jaErp){ erp++; return; }
+    const tx=orig&&Number(orig.taxa)>0?Number(orig.taxa):0;
+    DB.faturamento.push({ id:'dxml_'+n.chave, xmlDev:true, origem:'xml_devolucao', chaveXml:n.chave,
+      fil:orig?orig.fil:'', nf:n.nNF, sr:n.serie||'', dt, mes:dt.slice(0,7), nat:'DV1', op:'DEVOLUÇÃO (XML)', tp:'devolucao', sit:'',
+      cli:cod||('CNPJ '+cnpj), uf:(n.forn&&n.forn.uf)||'', rep:orig?String(orig.rep):'', taxa:tx||undefined,
+      vb:v, vn:v, vi:+((n.imp||{}).icms||0), pis:+((n.imp||{}).pis||0), cof:+((n.imp||{}).cofins||0),
+      qtd:(n.itens||[]).reduce((a,it)=>a+(Number(it.qCom)||0),0), comi:tx?-(v*tx/100).toFixed(2):undefined,
+      refVenda:orig?orig.nf:'', nomeXml:(n.forn&&n.forn.nome)||'' });
+    lanc++;
+  });
+  return {lanc, erp};
+}
 function _comprasLoad(){
   // v261: lista vazia na cópia do servidor mas com as notas nas configurações locais (onde as compras moram) → usa as locais
   if(Array.isArray(DB.compras) && !DB.compras.length){ try{ const l=JSON.parse(localStorage.getItem(_COMPRAS_KEY)||'[]'); if(Array.isArray(l) && l.length) DB.compras=l; }catch(e){} }
   if(!Array.isArray(DB.compras)){
     try{ DB.compras = JSON.parse(localStorage.getItem(_COMPRAS_KEY)||'[]'); }catch(e){ DB.compras=[]; }
   }
+  try{ _devolXmlLoad(); }catch(e){ console.warn('devolXml',e); }
   if(!DB.compras_map){
     try{ DB.compras_map = JSON.parse(localStorage.getItem(_COMPRAS_MAP_KEY)||'{}'); }catch(e){ DB.compras_map={}; }
   }
@@ -12978,6 +13036,7 @@ function _comprasLoad(){
   }
 }
 function _comprasSave(){
+  try{ const nmv=_devolXmlLoad(); if(nmv && typeof toast==='function') setTimeout(()=>toast(`${nmv} devolução(ões) de CLIENTE foram para o Faturamento (não são compra)`),400); }catch(e){}
   try{ localStorage.setItem(_COMPRAS_KEY, JSON.stringify(DB.compras||[])); }catch(e){ toast('Não consegui salvar compras (armazenamento cheio?)','error'); }
   try{ localStorage.setItem(_COMPRAS_MAP_KEY, JSON.stringify(DB.compras_map||{})); }catch(e){}
   try{ localStorage.setItem(_COMPRAS_GRP_KEY, JSON.stringify(DB.compras_grupos||{})); }catch(e){}
@@ -13074,6 +13133,7 @@ function parseNFeXML(xmlText){
 
   return {
     chave, tipo, finNFe, tpNF:T(ide,'tpNF'), nNF:T(ide,'nNF'), serie:T(ide,'serie'),
+    refs:Array.from(GEBT(ide,'refNFe')).map(x=>(x.textContent||'').trim()).filter(Boolean),
     dhEmi:dh, dataBR, natOp:T(ide,'natOp'),
     forn:{ cnpj:T(emit,'CNPJ')||T(emit,'CPF'), nome:T(emit,'xNome'), uf:(function(){const e=first(emit,'enderEmit');return e?T(e,'UF'):'';})(), ie:T(emit,'IE') },
     dest:{ cnpj:T(dest,'CNPJ')||T(dest,'CPF'), nome:T(dest,'xNome') },
