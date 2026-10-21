@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.277</span>
+      ">v2.14.278</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2660,8 +2660,8 @@ function _fatConsolDrill(k){
   const dimLbl={cli:'Cliente',fil:'Filial',rep:'Representante',nat:'Natureza',mes:'Mês',tp:'Tipo'}[dim]||dim;
   const grpLbl=dim==='cli'?_nc(k):dim==='rep'?_nr(k):dim==='fil'?('Filial '+k):String(k);
   const _n=v=>Number(v)||0;
-  const tot=notas.reduce((t,f)=>{const sg=f.tp==='devolucao'?-1:1;t.vnB+=sg*_n(f.vnBruto!=null?f.vnBruto:f.vn);t.ab+=_n(f.abatRepo);t.vn+=sg*_n(f.vn);t.comi+=sg*_n(f.comi);return t;},{vnB:0,ab:0,vn:0,comi:0});
-  const rows=notas.map(f=>`<tr onclick="closeModal();modalVerNota(${f.id})" style="cursor:pointer"><td style="font-family:monospace">${f.nf}/${f.sr}</td><td>${_fd(f.dt)}</td><td>${dim==='cli'?_nr(f.rep):_nc(f.cli)}</td><td><span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:10px">${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devol.':'Entr.'}</span></td><td style="text-align:right;color:${f.tp==='devolucao'?'var(--red)':'var(--gray-5)'}">${f.tp==='devolucao'?'−':''}${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td><td style="text-align:right;color:${(f.abatRepo||0)>0?'#b45309':'var(--gray-3)'}">${(f.abatRepo||0)>0?'−'+fmt(f.abatRepo):'—'}</td><td style="text-align:right;font-weight:700;color:${f.tp==='devolucao'?'var(--red)':'inherit'}">${f.tp==='devolucao'?'−':''}${fmt(f.vn)}</td><td style="text-align:right;color:var(--pink)">${f.tp==='devolucao'?'−':''}${fmt(f.comi)}</td></tr>`).join('');
+  const tot=notas.reduce((t,f)=>{const sg=f.tp==='devolucao'?-1:1;t.vnB+=sg*_n(f.vnBruto!=null?f.vnBruto:f.vn);t.ab+=_n(f.abatRepo);t.vn+=sg*_n(f.vn);t.comi+=_n(_comiNota(f));return t;},{vnB:0,ab:0,vn:0,comi:0});
+  const rows=notas.map(f=>`<tr onclick="closeModal();modalVerNota(${f.id})" style="cursor:pointer"><td style="font-family:monospace">${f.nf}/${f.sr}</td><td>${_fd(f.dt)}</td><td>${dim==='cli'?_nr(f.rep):_nc(f.cli)}</td><td><span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:10px">${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devol.':'Entr.'}</span></td><td style="text-align:right;color:${f.tp==='devolucao'?'var(--red)':'var(--gray-5)'}">${f.tp==='devolucao'?'−':''}${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td><td style="text-align:right;color:${(f.abatRepo||0)>0?'#b45309':'var(--gray-3)'}">${(f.abatRepo||0)>0?'−'+fmt(f.abatRepo):'—'}</td><td style="text-align:right;font-weight:700;color:${f.tp==='devolucao'?'var(--red)':'inherit'}">${f.tp==='devolucao'?'−':''}${fmt(f.vn)}</td><td style="text-align:right;color:var(--pink)">${f.tp==='devolucao'?'−':''}${fmt(_comiNota(f))}</td></tr>`).join('');
   const html=`<div style="font-size:12px;color:var(--gray-5);margin-bottom:8px">${dimLbl}: <strong>${grpLbl}</strong> · ${notas.length} nota(s) · clique numa nota para ver o detalhe</div>`
     + `<div class="card-table" style="max-height:60vh;overflow:auto"><table style="font-size:12px"><thead><tr><th>Nota/Sér.</th><th>Data</th><th>${dim==='cli'?'Rep.':'Cliente'}</th><th>Tipo</th><th style="text-align:right">NF Bruto</th><th style="text-align:right">Troca</th><th style="text-align:right">NF Líq.</th><th style="text-align:right">Comissão</th></tr></thead>`
     + `<tbody>${rows||'<tr><td colspan=8>Sem notas</td></tr>'}</tbody>`
@@ -2680,7 +2680,7 @@ function _fatConsolHtml(dados){
   (dados||[]).forEach(f=>{ if(f.sit) return; const k=_key(f); if(!G[k]) G[k]={k,n:0,vb:0,desc:0,repo:0,dev:0,vn:0,vi:0,pis:0,cof:0,comi:0,qtd:0}; const g=G[k]; g.n++;
     const _sg=f.tp==='devolucao'?-1:1;
     if(f.tp==='devolucao') g.dev+=_n(f.vn); else { g.vb+=_n(f.vb); g.desc+=_n(f.desc); g.repo+=_n(f.abatRepo); }
-    g.vn+=_sg*_n(f.vn); g.vi+=_n(f.vi); g.pis+=_n(f.pis); g.cof+=_n(f.cof); g.comi+=_sg*_n(f.comi); g.qtd+=_n(f.qtd);
+    g.vn+=_sg*_n(f.vn); g.vi+=_n(f.vi); g.pis+=_n(f.pis); g.cof+=_n(f.cof); g.comi+=_n(_comiNota(f)); g.qtd+=_n(f.qtd);
   });
   const arr=Object.values(G).sort((a,b)=>b.vn-a.vn);
   if(!arr.length) return '<div class="empty-state" style="padding:24px"><div class="es-text">Sem dados para consolidar</div></div>';
@@ -3049,7 +3049,7 @@ function exportarFatXLSX() {
     'ICMS': f.vi,
     'PIS': f.pis,
     'COFINS': f.cof,
-    'Comissão Estimada': f.comi,
+    'Comissão Estimada': _comiNota(f),
     'Qtd. Peças': f.qtd,
   }));
 
@@ -3072,7 +3072,7 @@ function exportarFatXLSX() {
     {Métrica:'ICMS Total', Valor:_efx.reduce((s,f)=>s+_ex(f.vi),0)},
     {Métrica:'PIS Total', Valor:_efx.reduce((s,f)=>s+_ex(f.pis),0)},
     {Métrica:'COFINS Total', Valor:_efx.reduce((s,f)=>s+_ex(f.cof),0)},
-    {Métrica:'Comissão Estimada', Valor:_efx.reduce((s,f)=>s+_ex(f.comi),0)},
+    {Métrica:'Comissão Estimada', Valor:_efx.reduce((s,f)=>s+_ex(_comiNota(f)),0)},
     {Métrica:'Total de Peças', Valor:_efx.reduce((s,f)=>s+_ex(f.qtd),0)},
   ];
   const ws2 = XLSX.utils.json_to_sheet(tots);
@@ -3117,7 +3117,7 @@ function gerarNotaPDF(id){
     + `${(f.abatRepo||0)>0?`<div class="card"><div class="lbl">NF Bruto</div><div class="val">${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</div></div><div class="card"><div class="lbl">Abat. Troca</div><div class="val" style="color:#b45309">−${fmt(f.abatRepo)}</div></div>`:''}`
     + `<div class="card"><div class="lbl">${(f.abatRepo||0)>0?'NF Líquida':'Valor NF'}</div><div class="val" style="color:#E8368F">${fmt(f.vn)}</div></div>`
     + `<div class="card"><div class="lbl">ICMS</div><div class="val">${fmt(f.vi)}</div></div><div class="card"><div class="lbl">PIS</div><div class="val">${fmt(f.pis)}</div></div><div class="card"><div class="lbl">COFINS</div><div class="val">${fmt(f.cof)}</div></div>`
-    + `${f.qtd?`<div class="card"><div class="lbl">Peças</div><div class="val">${Number(f.qtd).toLocaleString('pt-BR')}</div></div>`:''}${f.comi?`<div class="card"><div class="lbl">Comissão</div><div class="val">${fmt(f.comi)}</div></div>`:''}`
+    + `${f.qtd?`<div class="card"><div class="lbl">Peças</div><div class="val">${Number(f.qtd).toLocaleString('pt-BR')}</div></div>`:''}${_comiNota(f)?`<div class="card"><div class="lbl">Comissão</div><div class="val">${fmt(_comiNota(f))}</div></div>`:''}`
     + `</div>` + repoBloco + `</body></html>`;
   abrirPDFOverlay(html);
 }
@@ -8038,11 +8038,11 @@ function gerarNaturezaPDF(codigo){
   const _nRep=cod=>{const r=DB.representantes.find(x=>x.codigo===String(cod));return r?(r.fantasia||r.nome):'Rep '+cod;};
   const TIPO_LABEL={venda:'Venda',devolucao:'Devolução',entrada:'Entrada',consignacao:'Consignação',bonificacao:'Bonificação',outros:'Outros'};
   const T={vb:0,desc:0,vn:0,vi:0,pis:0,cof:0,comi:0,qtd:0};
-  notas.forEach(f=>{T.vb+=_n(f.vb);T.desc+=_n(f.desc);T.vn+=_n(f.vn);T.vi+=_n(f.vi);T.pis+=_n(f.pis);T.cof+=_n(f.cof);T.comi+=_n(f.comi);T.qtd+=_n(f.qtd);});
+  notas.forEach(f=>{T.vb+=_n(f.vb);T.desc+=_n(f.desc);T.vn+=_n(f.vn);T.vi+=_n(f.vi);T.pis+=_n(f.pis);T.cof+=_n(f.cof);T.comi+=_n(_comiNota(f));T.qtd+=_n(f.qtd);});
   const porMes={}; notas.forEach(f=>{ porMes[f.mes||'—']=(porMes[f.mes||'—']||0)+_n(f.vn); });
   const logoSrc=_logoRel()||'';
 
-  const linhas=notas.map(f=>`<tr><td class="m">${f.nf}/${f.sr}</td><td>${_fmtD(f.dt)}</td><td>${f.fil}</td><td>${_nCli(f.cli)}</td><td>${f.uf||''}</td><td>${_nRep(f.rep)}</td><td class="r">${_fmt(f.vb)}</td><td class="r">${_n(f.desc)?'-'+_fmt(f.desc):'—'}</td><td class="r"><strong>${_fmt(f.vn)}</strong></td><td class="r">${_n(f.vi)?_fmt(f.vi):'—'}</td><td class="r">${_n(f.comi)?_fmt(f.comi):'—'}</td><td class="r">${_n(f.qtd)?_n(f.qtd).toLocaleString('pt-BR'):'—'}</td></tr>`).join('');
+  const linhas=notas.map(f=>`<tr><td class="m">${f.nf}/${f.sr}</td><td>${_fmtD(f.dt)}</td><td>${f.fil}</td><td>${_nCli(f.cli)}</td><td>${f.uf||''}</td><td>${_nRep(f.rep)}</td><td class="r">${_fmt(f.vb)}</td><td class="r">${_n(f.desc)?'-'+_fmt(f.desc):'—'}</td><td class="r"><strong>${_fmt(f.vn)}</strong></td><td class="r">${_n(f.vi)?_fmt(f.vi):'—'}</td><td class="r">${_n(_comiNota(f))?_fmt(_comiNota(f)):'—'}</td><td class="r">${_n(f.qtd)?_n(f.qtd).toLocaleString('pt-BR'):'—'}</td></tr>`).join('');
   const linhasMes=Object.keys(porMes).sort(ordNome).map(m=>`<tr><td>${m}</td><td class="r">${_fmt(porMes[m])}</td></tr>`).join('');
 
   const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Natureza ${n.codigo}</title><style>@page{size:A4 landscape;margin:0}*{box-sizing:border-box;margin:0;padding:0}html{background:#525659;color-scheme:light}body{font-family:Arial,sans-serif;font-size:9px;color:#1a1a1a;background:#525659;padding:18px 12px 0}.page{width:297mm;max-width:100%;background:#fff;margin:0 auto 18px;padding:10mm 8mm;box-shadow:0 3px 14px rgba(0,0,0,.45)}.hdr{display:flex;justify-content:space-between;align-items:center;gap:10px;padding-bottom:7px;border-bottom:2px solid #C85E8A;margin-bottom:10px}.hdr img{height:32px}.hdr h1{font-size:13px;font-weight:700;color:#C85E8A;text-align:center}.dt{font-size:8px;color:#888;text-align:right;white-space:nowrap}.res{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-bottom:10px}.res-c{border:1px solid #eee;border-radius:3px;padding:6px;text-align:center}.res-c .lb{font-size:7px;color:#999;text-transform:uppercase}.res-c .vl{font-size:11px;font-weight:700;margin-top:1px}table{width:100%;table-layout:fixed;border-collapse:collapse;margin-bottom:10px}thead tr{background:#C85E8A;color:#fff}th{padding:4px 5px;font-size:8px;font-weight:700}td{padding:3px 5px;font-size:8px;border-bottom:1px solid #f2f2f2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#fdf7fb}.m{font-family:monospace}th.r,td.r{text-align:right}tfoot tr{background:#f5e0ec;font-weight:700;border-top:1.5px solid #C85E8A}tfoot td{padding:4px 5px;font-size:8px}.mini{width:auto;min-width:180px}.no-print{margin:0 0 20px;text-align:center}@media print{html,body{background:#fff;padding:0}.page{width:auto;max-width:none;margin:0;padding:8mm;box-shadow:none}.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>
@@ -11516,7 +11516,7 @@ function _fatConsolGrupos(dados, dim){
   (dados||[]).forEach(f=>{ if(f.sit) return; const k=_key(f); if(!G[k]) G[k]={k,n:0,vb:0,desc:0,repo:0,dev:0,vn:0,vi:0,pis:0,cof:0,comi:0,qtd:0}; const g=G[k]; g.n++;
     const _sg=f.tp==='devolucao'?-1:1;
     if(f.tp==='devolucao') g.dev+=_n(f.vn); else { g.vb+=_n(f.vb); g.desc+=_n(f.desc); g.repo+=_n(f.abatRepo); }
-    g.vn+=_sg*_n(f.vn); g.vi+=_n(f.vi); g.pis+=_n(f.pis); g.cof+=_n(f.cof); g.comi+=_sg*_n(f.comi); g.qtd+=_n(f.qtd);
+    g.vn+=_sg*_n(f.vn); g.vi+=_n(f.vi); g.pis+=_n(f.pis); g.cof+=_n(f.cof); g.comi+=_n(_comiNota(f)); g.qtd+=_n(f.qtd);
   });
   const arr=Object.values(G).sort((a,b)=>b.vn-a.vn);
   const T=arr.reduce((t,g)=>{['n','vb','desc','repo','dev','vn','vi','pis','cof','comi','qtd'].forEach(k=>t[k]=(t[k]||0)+g[k]); return t;}, {n:0,vb:0,desc:0,repo:0,dev:0,vn:0,vi:0,pis:0,cof:0,comi:0,qtd:0});
@@ -11560,8 +11560,8 @@ function gerarFatPDF() {
   const filtrosDesc=[fTipo?'Tipo: '+(TIPO_TXT[fTipo]||fTipo):'',fFil?'Filial '+fFil:'',_fRs.length?'Rep.: '+_fRs.map(_nRep).join(', '):'',fNats.length?'Nat.: '+fNats.join(', '):'',fBusca?'Busca: '+fBusca:'',fMes?MESES[fMes]:'',fAno||''].filter(Boolean).join(' · ')||'Sem filtros';
   const BADGE={venda:['Vda','#e8f5ee','#1b6b3a'],devolucao:['Dev','#fdecec','#a51c1c'],entrada:['Ent','#e7f0fb','#1253aa'],consignacao:['Cons','#fef3c7','#92400e'],bonificacao:['Bon','#fef3c7','#92400e'],cancelada:['Canc','#eee','#666'],outros:['Out','#f0f0f0','#666']};
   const linhaFat = f=>{const isDev=f.tp==='devolucao';const b=BADGE[f.tp]||BADGE.outros;const sit=f.sit?(f.sit==='C'?'Cancelada':'Devolvida'):'';
-    return `<tr class="${isDev?'dev':''}${f.sit?' out':''}"><td class="m">${f.nf}/${f.sr}</td><td>${_fmtD(f.dt)}</td><td class="c">${f.fil}</td><td>${_nCli(f.cli)}${sit?` <span class="sit">${sit}</span>`:''}</td><td class="c">${f.uf||''}</td><td>${_nRep(f.rep)}</td><td class="m c">${f.nat||''}</td><td class="c"><span class="bg" style="background:${b[1]};color:${b[2]}">${b[0]}</span></td><td class="r">${_fmt(f.vb)}</td><td class="r ${_nn(f.desc)>0?'am':'mut'}">${_nn(f.desc)>0?'-'+_fmt(f.desc):'—'}</td><td class="r b ${isDev?'vm':''}">${_fmt(f.vn)}</td><td class="r mut">${_nn(f.vi)?_fmt(f.vi):'—'}</td><td class="r mut">${_nn(f.pis)?_fmt(f.pis):'—'}</td><td class="r mut">${_nn(f.cof)?_fmt(f.cof):'—'}</td><td class="r pk">${_nn(f.comi)?_fmt(f.comi):'—'}</td><td class="r">${_nn(f.qtd)?_nn(f.qtd).toLocaleString('pt-BR'):'—'}</td></tr>`;};
-  const _somaFat = rows => rows.reduce((t,f)=>({vb:t.vb+_nn(f.vb),desc:t.desc+_nn(f.desc),vn:t.vn+_nn(f.vn),vi:t.vi+_nn(f.vi),pis:t.pis+_nn(f.pis),cof:t.cof+_nn(f.cof),comi:t.comi+_nn(f.comi),qtd:t.qtd+_nn(f.qtd)}),{vb:0,desc:0,vn:0,vi:0,pis:0,cof:0,comi:0,qtd:0});
+    return `<tr class="${isDev?'dev':''}${f.sit?' out':''}"><td class="m">${f.nf}/${f.sr}</td><td>${_fmtD(f.dt)}</td><td class="c">${f.fil}</td><td>${_nCli(f.cli)}${sit?` <span class="sit">${sit}</span>`:''}</td><td class="c">${f.uf||''}</td><td>${_nRep(f.rep)}</td><td class="m c">${f.nat||''}</td><td class="c"><span class="bg" style="background:${b[1]};color:${b[2]}">${b[0]}</span></td><td class="r">${_fmt(f.vb)}</td><td class="r ${_nn(f.desc)>0?'am':'mut'}">${_nn(f.desc)>0?'-'+_fmt(f.desc):'—'}</td><td class="r b ${isDev?'vm':''}">${_fmt(f.vn)}</td><td class="r mut">${_nn(f.vi)?_fmt(f.vi):'—'}</td><td class="r mut">${_nn(f.pis)?_fmt(f.pis):'—'}</td><td class="r mut">${_nn(f.cof)?_fmt(f.cof):'—'}</td><td class="r pk">${_nn(_comiNota(f))?_fmt(_comiNota(f)):'—'}</td><td class="r">${_nn(f.qtd)?_nn(f.qtd).toLocaleString('pt-BR'):'—'}</td></tr>`;};
+  const _somaFat = rows => rows.reduce((t,f)=>({vb:t.vb+_nn(f.vb),desc:t.desc+_nn(f.desc),vn:t.vn+_nn(f.vn),vi:t.vi+_nn(f.vi),pis:t.pis+_nn(f.pis),cof:t.cof+_nn(f.cof),comi:t.comi+_nn(_comiNota(f)),qtd:t.qtd+_nn(f.qtd)}),{vb:0,desc:0,vn:0,vi:0,pis:0,cof:0,comi:0,qtd:0});
   const _linhaSub = (rot,rows,cls) => {const t=_somaFat(rows);return `<tr class="${cls}"><td colspan="8">${rot} — ${rows.length} nota(s)</td><td class="r">${_fmt(t.vb)}</td><td class="r">${_fmt(t.desc)}</td><td class="r">${_fmt(t.vn)}</td><td class="r">${_fmt(t.vi)}</td><td class="r">${_fmt(t.pis)}</td><td class="r">${_fmt(t.cof)}</td><td class="r">${_fmt(t.comi)}</td><td class="r">${t.qtd.toLocaleString('pt-BR')}</td></tr>`;};
 
   const subtotal = !!document.getElementById('fat-sub')?.checked;
