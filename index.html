@@ -562,7 +562,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.274</span>
+      ">v2.14.275</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2695,7 +2695,7 @@ const FAT_COLS=[
   {k:'icms', rot:'ICMS', td:f=>`<td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.vi?fmt(f.vi):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.vi))},
   {k:'pis', rot:'PIS', td:f=>`<td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.pis?fmt(f.pis):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.pis))},
   {k:'cof', rot:'COFINS', td:f=>`<td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.cof?fmt(f.cof):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.cof))},
-  {k:'comi', rot:'Comissão', td:f=>{ const v=_comiNota(f); return `<td style="text-align:right;font-weight:600;color:${v<0?'var(--red)':'var(--pink)'}" title="${f.comi?'gravada na importação':'calculada: líquido × taxa do representante'}">${v?fmt(v):'—'}</td>`; }, tot:a=>_fcm(_fsum(a,f=>_comiNota(f))), cor:'var(--pink)'},
+  {k:'comi', rot:'Comissão', td:f=>{ const v=_comiNota(f); return `<td style="text-align:right;font-weight:600;color:${v<0?'var(--red)':'var(--pink)'}" title="${_comiTitIdx().has(String(f.rep)+'|'+String(f.mes||'').slice(0,7)+'|'+String(f.nf==null?'':f.nf).trim().replace(/^0+/,''))?'do módulo Comissões (título da nota)':f.comi?'gravada na importação':'calculada: líquido × taxa do representante'}">${v?fmt(v):'—'}</td>`; }, tot:a=>_fcm(_fsum(a,f=>_comiNota(f))), cor:'var(--pink)'},
   {k:'qtd', rot:'Peças', td:f=>`<td style="text-align:right">${f.qtd?f.qtd.toLocaleString('pt-BR'):'—'}</td>`, tot:a=>_fsum(a,f=>f.qtd).toLocaleString('pt-BR')},
 ];
 function _fatColsVis(){ let h=[]; try{ h=JSON.parse(localStorage.getItem(FAT_COLS_KEY)||'[]')||[]; }catch(e){} const oc=new Set(h);
@@ -2856,7 +2856,7 @@ function renderFaturamento() {
       <div class="so-master" style="background:var(--pink-lt);border-radius:var(--radius);padding:12px;box-shadow:var(--shadow);border-top:3px solid var(--pink)">
         <div class="kpi-label">Comissão Estimada</div>
         <div style="font-size:16px;font-weight:700;margin:3px 0;color:var(--pink)">${fmt(tComi)}</div>
-        <div class="kpi-sub">${_comiOf.ok ? pctComi+'% · fonte oficial (Comissões)' : pctComi+'% · estimada: líquido × taxa de cada representante'}</div>
+        <div class="kpi-sub">${_comiOf.ok ? pctComi+'% · fonte oficial (Comissões)' : pctComi+'% · nota a nota pelo módulo Comissões'}</div>
       </div>
     </div>
 
@@ -6816,8 +6816,19 @@ function _taxaRepMes(rep, mes){
   const r=(DB.representantes||[]).find(x=>String(x.codigo)===rep); if(r && Number(r.taxa_comissao)>0) return Number(r.taxa_comissao);
   const m=String((r&&(r.fantasia||r.nome))||'').match(/(\d+(?:[.,]\d+)?)\s*%/); return m?parseFloat(m[1].replace(',','.')):0;
 }
+// v275: índice da comissão por TÍTULO do módulo Comissões (arquivo vp42541): rep|mês|nota → comissão a vencer
+function _comiTitIdx(){
+  const lista=DB.comissoes||[], sig=lista.length+'|'+lista.reduce((s,c)=>s+(Number(c.total_comissao)||0),0);
+  if(window._ctIdx && window._ctIdx.sig===sig) return window._ctIdx.m;
+  const m=new Map(), z=v=>String(v==null?'':v).trim().replace(/^0+/,'');
+  lista.forEach(c=>{ if(c.manual) return; (c.titulos||[]).forEach(t=>{ const k=String(c.codigo_rep)+'|'+c.competencia_raw+'|'+z(t.titulo); m.set(k,(m.get(k)||0)+(Number(t.comivenc)||0)); }); });
+  window._ctIdx={sig,m}; return m;
+}
 function _comiNota(f){
   if(!f || !_veComissao()) return 0;
+  if(f.sit==='C') return 0;
+  { const k=String(f.rep)+'|'+String(f.mes||'').slice(0,7)+'|'+String(f.nf==null?'':f.nf).trim().replace(/^0+/,''); const v=_comiTitIdx().get(k);   // 1º: o valor do módulo Comissões
+    if(v!=null) return f.tp==='devolucao' ? -Math.abs(v) : +v.toFixed(2); }
   if(f.comi!=null && Number(f.comi)!==0) return Number(f.comi);
   if(f.sit==='C') return 0;
   const tx=Number(f.taxa)>0?Number(f.taxa):_taxaRepMes(f.rep, String(f.mes||'').slice(0,7)); if(!tx) return 0;
