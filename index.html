@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.276</span>
+      ">v2.14.277</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2640,7 +2640,7 @@ function _comiOficialFat(f){
     return {ok:false, comi:0, base:0};
   let comi=0, base=0;
   (DB.comissoes||[]).forEach(c=>{
-    if(f.fRep && rn(c.codigo_rep)!==rn(f.fRep)) return;
+    if(f.fReps && f.fReps.length ? !f.fReps.map(rn).includes(rn(c.codigo_rep)) : (f.fRep && rn(c.codigo_rep)!==rn(f.fRep))) return;
     const raw=String(c.competencia_raw||'');
     if(f.fMes && raw.slice(5,7)!==f.fMes) return;
     if(f.fAno && raw.slice(0,4)!==f.fAno) return;
@@ -2749,11 +2749,14 @@ function renderFaturamento() {
   const fBusca = (document.getElementById('fat-busca')?.value||'').toLowerCase();
   const fTipo  = _ffv('fat-tipo','tipo');
   const fFil   = _ffv('fat-filial','fil');
-  const fRep   = _ffv('fat-rep','rep');
+  // v277: REPRESENTANTES em seleção múltipla (caixinhas) — window._fatReps, salvo como reps[] (aceita o rep antigo)
+  if(!Array.isArray(window._fatReps)) window._fatReps=Array.isArray(_ffSalvo.reps)?_ffSalvo.reps.map(String):(_ffSalvo.rep?[String(_ffSalvo.rep)]:[]);
+  const fReps  = window._fatReps.slice();
+  const fRep   = fReps.length===1?fReps[0]:'';
   const fMes   = _ffv('fat-mes','mes');
   const fAno   = _ffv('fat-ano','ano');
   const fNats  = window._fatNats||[];
-  try{ localStorage.setItem('pinkpoa_fat_filtros', JSON.stringify({tipo:fTipo, fil:fFil, rep:fRep, mes:fMes, ano:fAno, nats:fNats})); }catch(e){}
+  try{ localStorage.setItem('pinkpoa_fat_filtros', JSON.stringify({tipo:fTipo, fil:fFil, reps:fReps, mes:fMes, ano:fAno, nats:fNats})); }catch(e){}
   const fPag   = parseInt(document.getElementById('fat-pag')?.value||'1');
   const POR_PAG = 50;
 
@@ -2764,7 +2767,7 @@ function renderFaturamento() {
   let dados = DB.faturamento;
   if(fTipo)       dados=dados.filter(f=>f.tp===fTipo);
   if(fFil)        dados=dados.filter(f=>f.fil===fFil);
-  if(fRep)        dados=dados.filter(f=>f.rep===fRep);
+  if(fReps.length){ const _rs=new Set(fReps); dados=dados.filter(f=>_rs.has(String(f.rep))); }
   if(fMes)        dados=dados.filter(f=>f.mes&&f.mes.slice(5,7)===fMes);
   if(fAno)        dados=dados.filter(f=>f.mes&&f.mes.slice(0,4)===fAno);
   if(fNats.length)dados=dados.filter(f=>f.manual||fNats.includes(f.nat));
@@ -2792,7 +2795,7 @@ function renderFaturamento() {
   const tIcms     = base.reduce((s,f)=>s+(f.vi||0),0);
   const tPis      = base.reduce((s,f)=>s+(f.pis||0),0);
   const tCof      = base.reduce((s,f)=>s+(f.cof||0),0);
-  const _comiOf   = _comiOficialFat({fTipo,fFil,fRep,fMes,fAno,fNats,fBusca});
+  const _comiOf   = _comiOficialFat({fTipo,fFil,fRep,fReps,fMes,fAno,fNats,fBusca});
   const _comiCalc = base.reduce((s,f)=>s+_comiNota(f),0);   // v274: estimativa nota a nota (líquido × taxa)
   const tComi     = _comiOf.ok ? _comiOf.comi : _comiCalc;
   const tQtd      = base.reduce((s,f)=>s+(f.qtd||0),0);
@@ -2801,7 +2804,7 @@ function renderFaturamento() {
   const pctTrib   = tLiquido ? (tTributos/tLiquido*100).toFixed(1) : 0;
   const pctComi   = (_comiOf.ok && _comiOf.base) ? (_comiOf.comi/_comiOf.base*100).toFixed(2) : (tFatLiq ? (_comiCalc/tFatLiq*100).toFixed(2) : 0);
   const pctDevol  = tBruto ? (tDevol/tBruto*100).toFixed(1) : 0;
-  const temFiltro = !!(fTipo||fFil||fRep||fMes||fAno||fNats.length||fBusca);
+  const temFiltro = !!(fTipo||fFil||fReps.length||fMes||fAno||fNats.length||fBusca);
   const avisoSit = (nExcluidas && fTipo!=='cancelada')
     ? `<div style="font-size:11px;color:var(--amber);margin-bottom:8px">⚠ ${nExcluidas} nota(s) cancelada(s)/devolvida(s) fora dos totais — filtre por <strong>Tipo: Cancelada</strong> para vê-las.</div>` : '';
 
@@ -2918,10 +2921,15 @@ function renderFaturamento() {
             <option value="">Ano</option>
             ${anos.map(a=>`<option value="${a}" ${fAno===a?'selected':''}>${a}</option>`).join('')}
           </select>
-          <select id="fat-rep" class="ord-az form-control" style="width:120px" onchange="mudaFatPag(1);renderFaturamento()">
-            <option value="">Representante</option>
-            ${reps.map(r=>{const _man=(DB.faturamento||[]).some(f=>f.manual&&f.rep===r);return `<option value="${r}" ${fRep===r?'selected':''}>${nomeRep(r)}${_man?' (canal)':''}</option>`;}).join('')}
-          </select>
+          <div style="position:relative;display:inline-block" id="fatrep-wrap">
+            <button class="btn btn-secondary btn-sm" style="min-width:130px;justify-content:space-between" onclick="_fatRepDropdown(event)">
+              <span id="fatrep-label">${fReps.length===0?'Representante':fReps.length===1?_nvEsc(nomeRep(fReps[0])):fReps.length+' representantes'}</span> ▾</button>
+            <div id="fatrep-dropdown" style="display:none;position:absolute;top:100%;left:0;z-index:50;background:var(--white);border:1px solid var(--gray-2);border-radius:var(--radius);box-shadow:var(--shadow-md);min-width:260px;max-height:360px;overflow:auto;padding:6px 0">
+              <div style="padding:4px 10px 6px;display:flex;gap:6px;align-items:center;border-bottom:1px solid var(--gray-1)"><input id="fatrep-busca" class="form-control" style="flex:1;font-size:12px;padding:3px 6px" placeholder="Buscar…" oninput="_fatRepFiltrar(this.value)">
+                <span style="cursor:pointer;color:var(--pink);font-size:11px" onclick="_fatRepTodos(true)">marcar</span><span style="cursor:pointer;color:var(--pink);font-size:11px" onclick="_fatRepTodos(false)">limpar</span></div>
+              ${reps.slice().sort((a,b)=>String(nomeRep(a)).localeCompare(String(nomeRep(b)),'pt-BR')).map(r=>{const _man=(DB.faturamento||[]).some(f=>f.manual&&f.rep===r);return `<label class="fatrep-op" data-busca="${_nvEsc((r+' '+nomeRep(r)).toLowerCase())}" style="display:flex;gap:8px;align-items:center;padding:4px 12px;font-size:12.5px;cursor:pointer"><input type="checkbox" value="${_nvEsc(r)}" ${fReps.includes(String(r))?'checked':''} onchange="_fatRepToggle(this.value)"> ${_nvEsc(nomeRep(r))}${_man?' <span style="color:var(--gray-4);font-size:10px">(canal)</span>':''}</label>`;}).join('')}
+              <div style="padding:6px 10px;border-top:1px solid var(--gray-1);text-align:right"><button class="btn btn-primary btn-sm" onclick="event.stopPropagation();document.getElementById('fatrep-dropdown').style.display='none';window._fatRepsDirty=false;mudaFatPag(1);renderFaturamento()">✓ Aplicar</button></div>
+            </div></div>
           <select id="fat-filial" class="form-control" style="width:76px" onchange="mudaFatPag(1);renderFaturamento()">
             <option value="">Filial</option>
             ${filiais.map(f=>`<option value="${f}" ${fFil===f?'selected':''}>Fil. ${f}</option>`).join('')}
@@ -2952,7 +2960,7 @@ function renderFaturamento() {
           <button class="btn btn-primary btn-sm" onclick="mudaFatPag(1);renderFaturamento()">🔍 Aplicar</button>
           <button class="btn btn-secondary btn-sm" onclick="
             ['fat-busca','fat-tipo','fat-mes','fat-ano','fat-rep','fat-filial'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-            window._fatNats=[];mudaFatPag(1);renderFaturamento();">✕ Limpar</button>
+            window._fatNats=[];window._fatReps=[];mudaFatPag(1);renderFaturamento();">✕ Limpar</button>
         </div>
         ${temFiltro?`<div style="font-size:11px;color:var(--gray-5);border-top:1px solid var(--gray-2);padding-top:6px">
           Filtrado: <strong>${fmt(tFatLiq)}</strong> fat. líquido (bruto − troca)${tTroca?` · ${fmt(tTroca)} troca`:''}${(()=>{const n=Object.keys(DB.abat_repo||{}).length;const v=Object.values(DB.abat_repo||{}).flat().reduce((s,x)=>s+(Number(x.valor)||0),0);return n?` · <span style="color:#1b6b3a">troca carregada: ${n} nota(s) · ${fmt(v)} (vpdpcl2)</span>`:` · <span style="color:#c0392b;font-weight:700">⚠ TROCA NÃO CARREGADA</span> <button onclick="importarTrocaDireto()" style="background:#c0392b;color:#fff;border:none;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;font-weight:700">📥 Importar vpdpcl2 agora</button>`;})()} · ${fmt(tDevol)} devol. · ${fmt(tTributos)} tributos · ${_veComissao()?fmt(tComi)+(_comiOf.ok?' comissão':' comissão (estimada)'):''} · ${tQtd.toLocaleString('pt-BR')} peças
@@ -2997,7 +3005,7 @@ function mudaFatPag(pag) {
 function exportarFatXLSX() {
   const fBusca = (document.getElementById('fat-busca')?.value||'').toLowerCase();
   const fTipo  = document.getElementById('fat-tipo')?.value||'';
-  const fRep   = document.getElementById('fat-rep')?.value||'';
+  const _fRs   = (window._fatReps||[]).map(String), fRep=_fRs.length===1?_fRs[0]:'';   // v277: vários representantes
   const fMes   = document.getElementById('fat-mes')?.value||'';
   const fAno   = document.getElementById('fat-ano')?.value||'';
   const fNats  = (window._fatNats||[]);
@@ -3008,7 +3016,7 @@ function exportarFatXLSX() {
   let dados = DB.faturamento;
   if(fTipo)  dados=dados.filter(f=>f.tp===fTipo);
   if(fFil)   dados=dados.filter(f=>f.fil===fFil);
-  if(fRep)   dados=dados.filter(f=>f.rep===fRep);
+  if(_fRs.length) dados=dados.filter(f=>_fRs.includes(String(f.rep)));
   if(fMes)   dados=dados.filter(f=>f.mes&&f.mes.slice(5,7)===fMes);
   if(fAno)   dados=dados.filter(f=>f.mes&&f.mes.slice(0,4)===fAno);
   if(fNats.length) dados=dados.filter(f=>fNats.includes(f.nat));
@@ -3705,6 +3713,18 @@ function toggleComiRepDropdown(e){
   if(abrindo) setTimeout(()=>{ const b=document.getElementById('comirep-busca'); if(b){ b.value=''; _comiRepFiltrar(''); b.focus(); } },0);
   const aplicar=()=>{ if(window._comiRepsDirty){ window._comiRepsDirty=false; renderComissoes(); } };
   if(abrindo){ const close=ev=>{ if(!dd.contains(ev.target)){ dd.style.display='none'; document.removeEventListener('click',close); aplicar(); } }; setTimeout(()=>document.addEventListener('click',close),0); }
+  else aplicar();
+}
+function _fatRepToggle(cod){ cod=String(cod); window._fatReps=window._fatReps||[]; const i=window._fatReps.indexOf(cod); if(i>=0) window._fatReps.splice(i,1); else window._fatReps.push(cod); window._fatRepsDirty=true;
+  const l=document.getElementById('fatrep-label'); if(l){ const n=window._fatReps.length; l.textContent=n===0?'Representante':n===1?(_ordRepNome(window._fatReps[0])||window._fatReps[0]):n+' representantes'; } }
+function _fatRepFiltrar(t){ t=String(t||'').toLowerCase().trim(); document.querySelectorAll('#fatrep-dropdown .fatrep-op').forEach(l=>{ l.style.display=!t||l.dataset.busca.includes(t)?'flex':'none'; }); }
+function _fatRepTodos(on){ document.querySelectorAll('#fatrep-dropdown .fatrep-op').forEach(l=>{ if(l.style.display==='none') return; const c=l.querySelector('input'); if(c.checked!==!!on){ c.checked=!!on; _fatRepToggle(c.value); } }); }
+function _fatRepDropdown(e){
+  e.stopPropagation(); const dd=document.getElementById('fatrep-dropdown'); if(!dd) return;
+  const abrindo=dd.style.display==='none'; dd.style.display=abrindo?'block':'none';
+  const aplicar=()=>{ if(window._fatRepsDirty){ window._fatRepsDirty=false; mudaFatPag(1); renderFaturamento(); } };
+  if(abrindo){ setTimeout(()=>{ const b=document.getElementById('fatrep-busca'); if(b) b.focus(); },0);
+    const close=ev=>{ if(!dd.contains(ev.target)){ dd.style.display='none'; document.removeEventListener('click',close); aplicar(); } }; setTimeout(()=>document.addEventListener('click',close),0); }
   else aplicar();
 }
 function toggleNatDropdown(e) {
@@ -11506,7 +11526,7 @@ function gerarFatPDF() {
   const fBusca = (document.getElementById('fat-busca')?.value||'').toLowerCase();
   const fTipo  = document.getElementById('fat-tipo')?.value||'';
   const fFil   = document.getElementById('fat-filial')?.value||'';
-  const fRep   = document.getElementById('fat-rep')?.value||'';
+  const _fRs   = (window._fatReps||[]).map(String), fRep=_fRs.length===1?_fRs[0]:'';   // v277: vários representantes
   const fMes   = document.getElementById('fat-mes')?.value||'';
   const fAno   = document.getElementById('fat-ano')?.value||'';
   const fNats  = window._fatNats||[];
@@ -11519,7 +11539,7 @@ function gerarFatPDF() {
   let dados = DB.faturamento;
   if(fTipo)        dados=dados.filter(f=>f.tp===fTipo);
   if(fFil)         dados=dados.filter(f=>f.fil===fFil);
-  if(fRep)         dados=dados.filter(f=>f.rep===fRep);
+  if(_fRs.length)  dados=dados.filter(f=>_fRs.includes(String(f.rep)));
   if(fMes)         dados=dados.filter(f=>f.mes&&f.mes.slice(5,7)===fMes);
   if(fAno)         dados=dados.filter(f=>f.mes&&f.mes.slice(0,4)===fAno);
   if(fNats.length) dados=dados.filter(f=>fNats.includes(f.nat));
@@ -11537,7 +11557,7 @@ function gerarFatPDF() {
   const tQtd=dados.reduce((s,f)=>s+_nn(f.qtd),0);
   const logoSrc=_logoRel()||'';
   const TIPO_TXT={venda:'Venda',devolucao:'Devolução',entrada:'Entrada',consignacao:'Consignação',bonificacao:'Bonificação',cancelada:'Cancelada',outros:'Outros'};
-  const filtrosDesc=[fTipo?'Tipo: '+(TIPO_TXT[fTipo]||fTipo):'',fFil?'Filial '+fFil:'',fRep?'Rep.: '+_nRep(fRep):'',fNats.length?'Nat.: '+fNats.join(', '):'',fBusca?'Busca: '+fBusca:'',fMes?MESES[fMes]:'',fAno||''].filter(Boolean).join(' · ')||'Sem filtros';
+  const filtrosDesc=[fTipo?'Tipo: '+(TIPO_TXT[fTipo]||fTipo):'',fFil?'Filial '+fFil:'',_fRs.length?'Rep.: '+_fRs.map(_nRep).join(', '):'',fNats.length?'Nat.: '+fNats.join(', '):'',fBusca?'Busca: '+fBusca:'',fMes?MESES[fMes]:'',fAno||''].filter(Boolean).join(' · ')||'Sem filtros';
   const BADGE={venda:['Vda','#e8f5ee','#1b6b3a'],devolucao:['Dev','#fdecec','#a51c1c'],entrada:['Ent','#e7f0fb','#1253aa'],consignacao:['Cons','#fef3c7','#92400e'],bonificacao:['Bon','#fef3c7','#92400e'],cancelada:['Canc','#eee','#666'],outros:['Out','#f0f0f0','#666']};
   const linhaFat = f=>{const isDev=f.tp==='devolucao';const b=BADGE[f.tp]||BADGE.outros;const sit=f.sit?(f.sit==='C'?'Cancelada':'Devolvida'):'';
     return `<tr class="${isDev?'dev':''}${f.sit?' out':''}"><td class="m">${f.nf}/${f.sr}</td><td>${_fmtD(f.dt)}</td><td class="c">${f.fil}</td><td>${_nCli(f.cli)}${sit?` <span class="sit">${sit}</span>`:''}</td><td class="c">${f.uf||''}</td><td>${_nRep(f.rep)}</td><td class="m c">${f.nat||''}</td><td class="c"><span class="bg" style="background:${b[1]};color:${b[2]}">${b[0]}</span></td><td class="r">${_fmt(f.vb)}</td><td class="r ${_nn(f.desc)>0?'am':'mut'}">${_nn(f.desc)>0?'-'+_fmt(f.desc):'—'}</td><td class="r b ${isDev?'vm':''}">${_fmt(f.vn)}</td><td class="r mut">${_nn(f.vi)?_fmt(f.vi):'—'}</td><td class="r mut">${_nn(f.pis)?_fmt(f.pis):'—'}</td><td class="r mut">${_nn(f.cof)?_fmt(f.cof):'—'}</td><td class="r pk">${_nn(f.comi)?_fmt(f.comi):'—'}</td><td class="r">${_nn(f.qtd)?_nn(f.qtd).toLocaleString('pt-BR'):'—'}</td></tr>`;};
