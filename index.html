@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.291</span>
+      ">v2.14.292</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -14844,11 +14844,17 @@ function _comprasRelatorioDoc(opts){
   </div>` : '';
 
   // ---- Gráficos (estilos inline; iframe não tem CSS vars) ----
-  const _rbarV=(e)=>{ const mx=Math.max(1,...e.map(x=>x.val)); const few=e.length<=4; return `<div style="display:flex;align-items:flex-end;gap:14px;height:118px;padding:8px 4px;border-bottom:1px solid #eee;${few?'justify-content:flex-start':''}">${e.map(x=>`<div style="${few?'flex:0 0 auto;width:60px':'flex:1;min-width:26px'};display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-size:9px;color:#666;margin-bottom:3px;font-weight:600">${x.val>=1000?(x.val/1000).toFixed(1)+'k':Math.round(x.val)}</div><div style="width:36px;max-width:100%;background:linear-gradient(#E8368F,#f79ac8);border-radius:3px 3px 0 0;height:${Math.max(3,Math.round(x.val/mx*94))}px"></div><div style="font-size:9px;color:#888;margin-top:4px;white-space:nowrap">${_cesc(x.label)}</div></div>`).join('')}</div>`; };
+  const _kfmt=v=>Math.abs(v)>=1e6?(v/1e6).toFixed(1).replace('.',',')+'mi':Math.abs(v)>=1000?Math.round(v/1000)+'k':String(Math.round(v));
+  const _rbarV=(e)=>{ const mx=Math.max(1,...e.map(x=>x.val)); const few=e.length<=4; const gap=e.length>12?4:e.length>8?8:14; return `<div style="display:flex;align-items:flex-end;gap:${gap}px;height:130px;padding:8px 4px;border-bottom:1px solid #eee;overflow:hidden;${few?'justify-content:flex-start':''}">${e.map(x=>`<div style="${few?'flex:0 0 auto;width:60px':'flex:1 1 0;min-width:0'};display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-size:8.5px;color:#666;margin-bottom:3px;font-weight:600;white-space:nowrap">${x.val?_kfmt(x.val):''}</div><div style="width:80%;max-width:36px;background:linear-gradient(#E8368F,#f79ac8);border-radius:3px 3px 0 0;height:${x.val>0?Math.max(2,Math.round(x.val/mx*94)):0}px"></div><div style="font-size:8.5px;color:#888;margin-top:4px;white-space:nowrap">${_cesc(x.label)}</div></div>`).join('')}</div>`; };
+  const _rbarVold=(e)=>{ const mx=Math.max(1,...e.map(x=>x.val)); const few=e.length<=4; return `<div style="display:flex;align-items:flex-end;gap:14px;height:118px;padding:8px 4px;border-bottom:1px solid #eee;${few?'justify-content:flex-start':''}">${e.map(x=>`<div style="${few?'flex:0 0 auto;width:60px':'flex:1;min-width:26px'};display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%"><div style="font-size:9px;color:#666;margin-bottom:3px;font-weight:600">${x.val>=1000?(x.val/1000).toFixed(1)+'k':Math.round(x.val)}</div><div style="width:36px;max-width:100%;background:linear-gradient(#E8368F,#f79ac8);border-radius:3px 3px 0 0;height:${Math.max(3,Math.round(x.val/mx*94))}px"></div><div style="font-size:9px;color:#888;margin-top:4px;white-space:nowrap">${_cesc(x.label)}</div></div>`).join('')}</div>`; };
   const _rbarH=(e,cor)=>{ const mx=Math.max(1,...e.map(x=>x.val)); return e.map(x=>`<div style="margin-bottom:5px"><div style="display:flex;justify-content:space-between;font-size:10px"><span style="max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_cesc(x.label)}</span><b>${_cf(x.val)}</b></div><div style="background:#eee;border-radius:3px;height:11px"><div style="width:${Math.max(2,Math.round(x.val/mx*100))}%;height:100%;background:${cor};border-radius:3px"></div></div></div>`).join(''); };
   const secGraficos = opts.graficos ? `<h3>Gráficos</h3>
     <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:6px">
-      <div style="flex:1;min-width:260px"><div style="font-size:11px;font-weight:700;margin-bottom:2px">Compras por mês</div>${_meses.length?_rbarV(_meses):'<div style="color:#999;font-size:11px">—</div>'}</div>
+      <div style="flex:1;min-width:260px;overflow:hidden">${(()=>{ if(!_meses.length) return '<div style="font-size:11px;font-weight:700;margin-bottom:2px">Compras por mês</div><div style="color:#999;font-size:11px">—</div>';
+        if(_meses.length<=14) return '<div style="font-size:11px;font-weight:700;margin-bottom:2px">Compras por mês</div>'+_rbarV(_meses);
+        const A={}; Object.keys(_mesM).forEach(k=>{ const y=k.slice(0,4); A[y]=(A[y]||0)+_mesM[k]; });
+        const anos=Object.keys(A).sort().map(y=>({label:y,val:A[y]}));
+        return '<div style="font-size:11px;font-weight:700;margin-bottom:2px">Compras por ano</div>'+_rbarV(anos.slice(-10))+'<div style="font-size:11px;font-weight:700;margin:10px 0 2px">Últimos 12 meses</div>'+_rbarV(_meses.slice(-12)); })()}</div>
       <div style="flex:1;min-width:220px"><div style="font-size:11px;font-weight:700;margin-bottom:2px">Por grupo${_f.grupo?' · '+_cesc(_f.grupo):''}</div>${_grp.length?_rbarH(_grp.map(g=>({label:g.grupo+(g.subs&&g.subs.length&&_f.grupo?'':''),val:g.valor})),'#E8368F'):'<div style="color:#999;font-size:11px">—</div>'}</div>
       <div style="flex:1;min-width:220px"><div style="font-size:11px;font-weight:700;margin-bottom:2px">Top fornecedores</div>${_topF.length?_rbarH(_topF.slice(0,TN?Math.min(TN,12):6),'#20304A'):'<div style="color:#999;font-size:11px">—</div>'}</div>
     </div>
@@ -14891,7 +14897,8 @@ function _comprasRelatorioDoc(opts){
   const dataJson=JSON.stringify(xls).replace(/</g,'\\u003c');
 
   const html=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório de Compras — ${_cesc(nomeEmp)}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1a1a;font-size:12px;padding:22px}
+<style>*{box-sizing:border-box;margin:0;padding:0}html{background:#525659}body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1a1a1a;font-size:12px;padding:22px 26px;background:#fff;max-width:1100px;margin:16px auto;box-shadow:0 3px 14px rgba(0,0,0,.45);min-height:calc(100vh - 32px)}
+@media print{html{background:#fff}body{max-width:none;margin:0;box-shadow:none;min-height:0}}
 .hd{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #E8368F;padding-bottom:10px;margin-bottom:14px}.hd h1{font-size:20px;color:#E8368F;letter-spacing:.3px}.hd .sub{font-size:11px;color:#666;margin-top:3px}.hd .rt{text-align:right;font-size:11px;color:#555}
 .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:18px}.k{border:1px solid #eee;border-radius:8px;padding:9px 11px}.k.hl{background:#fdf2f8;border-color:#f7cfe3}.k .l{font-size:9px;text-transform:uppercase;letter-spacing:.4px;color:#888}.k .v{font-size:16px;font-weight:700;margin-top:2px}
 h3{font-size:13px;color:#20304A;margin:18px 0 6px;border-left:3px solid #E8368F;padding-left:8px}h3 .c{color:#aaa;font-weight:400}
