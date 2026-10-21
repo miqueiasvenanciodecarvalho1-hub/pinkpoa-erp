@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.293</span>
+      ">v2.14.294</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -13827,7 +13827,7 @@ function _comprasPainelDados(notas){
   const meses=Object.keys(M).sort().map(k=>{ const p=k.split('-'); return {key:k, label:(_CMP_MES[p[1]]||p[1]).slice(0,3)+'/'+String(p[0]).slice(2), compra:M[k]}; });
   const F={};
   compras.forEach(n=>{ const k=_fornKey(n.forn); if(!F[k])F[k]={key:k,nome:_fornNome(n.forn),cnpj:n.forn.cnpj,uf:n.forn.uf,valor:0,nNotas:0,ult:''}; F[k].valor+=_nVal(n); F[k].nNotas++; if(!F[k].ult||_cmpIso(n.dataBR)>_cmpIso(F[k].ult))F[k].ult=n.dataBR; });
-  const topForn=Object.values(F).sort((a,b)=>b.valor-a.valor);
+  const topForn=Object.values(F).filter(f=>Math.abs(f.valor||0)>0.005).sort((a,b)=>b.valor-a.valor);   // v2.14.294: sem movimento no filtro não aparece
   const imp={icms:0,ipi:0,st:0,pis:0,cofins:0,total:0,notas:0};
   compras.forEach(n=>{ if(n.imp){ imp.icms+=n.imp.icms||0; imp.ipi+=n.imp.ipi||0; imp.st+=n.imp.st||0; imp.pis+=n.imp.pis||0; imp.cofins+=n.imp.cofins||0; imp.notas++; } });
   imp.total=imp.icms+imp.ipi+imp.st+imp.pis+imp.cofins;
@@ -14817,7 +14817,7 @@ function _comprasRelatorioDoc(opts){
   const totLiq=totC-totD;
   const _ccM={};
   notas.forEach(n=>{ const k=_fornKey(n.forn); if(!_ccM[k])_ccM[k]={nome:_fornNome(n.forn),cnpj:n.forn.cnpj,uf:n.forn.uf,compras:0,devolucoes:0,nNotas:0}; const v=_nVal(n); if(n.tipo==='devolucao')_ccM[k].devolucoes+=v; else _ccM[k].compras+=v; _ccM[k].nNotas++; });
-  const cc=Object.values(_ccM).map(o=>({...o,saldo:o.compras-o.devolucoes})).sort((a,b)=>b.saldo-a.saldo);
+  const cc=Object.values(_ccM).filter(o=>Math.abs(o.compras||0)>0.005||Math.abs(o.devolucoes||0)>0.005).map(o=>({...o,saldo:o.compras-o.devolucoes})).sort((a,b)=>b.saldo-a.saldo);
   const prods=_comprasPorProduto('compra', notas);
   const _grp=_comprasPorGrupo(notas).grupos;
   const _mesM={}; compras.forEach(n=>{ const k=_cmpIso(n.dataBR).slice(0,7); if(!k)return; _mesM[k]=(_mesM[k]||0)+_nVal(n); });
