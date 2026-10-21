@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.279</span>
+      ">v2.14.280</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2876,6 +2876,7 @@ function renderFaturamento() {
         <div class="kpi-label">Comissão Estimada</div>
         <div style="font-size:16px;font-weight:700;margin:3px 0;color:var(--pink)">${fmt(tComi)}</div>
         <div class="kpi-sub">${_comiOf.ok ? pctComi+'% · fonte oficial (Comissões)' : pctComi+'% · nota a nota pelo módulo Comissões'}</div>
+        ${(fReps.length && fMes && fAno)?`<button class="btn btn-secondary btn-sm" style="margin-top:6px;font-size:11px" onclick="modalConciliarFatComi(${JSON.stringify(fReps).replace(/"/g,"'")},'${fAno}-${fMes}')">⚖ Conciliar com Comissões</button>`:`<div class="kpi-sub" style="margin-top:4px">Escolha representante(s), mês e ano para conciliar</div>`}
       </div>
     </div>
 
@@ -3447,6 +3448,7 @@ function renderComissoes() {
               <td><span class="badge ${c.status==='fechado'?'badge-green':c.status==='pago'?'badge-blue':'badge-amber'}">${c.status}</span></td>
               <td><div style="display:flex;gap:4px;justify-content:flex-end;white-space:nowrap">
                 <button class="btn btn-secondary btn-sm" onclick="modalDetalheComissao(${c.id})">${(c.abatimentos||[]).length?`<span class='badge badge-amber' style='font-size:10px;margin-right:4px'>${c.abatimentos.length} abat.</span>`:''} Ver</button>
+                ${c.manual?'':`<button class="btn btn-secondary btn-sm" title="Conciliar com o Faturamento — ${c.competencia}" onclick="event.stopPropagation();modalConciliarFatComi(['${c.codigo_rep}'],'${c.competencia_raw}')">⚖</button>`}
                 <button class="btn btn-secondary btn-sm" title="Imprimir relatório de ${c.competencia}" onclick="event.stopPropagation();gerarRelatorioComiPDF(${c.id})">🖨</button>
                 <button class="btn btn-secondary btn-sm" title="Extrato / link do representante — ${c.competencia}" onclick="event.stopPropagation();gerarExtratoRep(${c.id})">🔗</button>
                 <button class="btn btn-secondary btn-sm" title="Enviar comissão de ${c.competencia}" onclick="event.stopPropagation();modalEnviarComissao(${c.id})">📤</button>
@@ -6896,6 +6898,54 @@ function _comiNota(f){
   const tx=Number(f.taxa)>0?Number(f.taxa):_taxaRepMes(f.rep, String(f.mes||'').slice(0,7)); if(!tx) return 0;
   const v=+((Number(f.vn)||0)*tx/100).toFixed(2);
   return f.tp==='devolucao' || f.sit==='D' ? -Math.abs(v) : v;
+}
+// v2.14.280: CONCILIAÇÃO Faturamento × Comissões, nota a nota (mesmo(s) representante(s) e competência).
+// Faturamento = NF líquida (após desconto e troca) − devoluções do mês; Comissões = títulos (vlorvenc) + abatimentos (vlorliqu).
+function modalConciliarFatComi(reps, comp, soDif){
+  reps=(reps||[]).map(String); const RS=new Set(reps), z=v=>String(v==null?'':v).trim().replace(/^0+/,'');
+  window._concArgs=[reps,comp];
+  const _nc=cod=>{ const c=(DB.clientes||[]).find(x=>String(x.codigo)===String(cod)); return c?(c.razao_social||c.nome_fantasia||'CÓD.'+cod):(cod?'CÓD.'+cod:''); };
+  const _nr=cod=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(cod)); return r?(r.fantasia||r.nome):'REP '+cod; };
+  const natsD=(typeof _natsDevolucao==='function')?_natsDevolucao():new Set(['DV1','ENT']);
+  const L=new Map(), lin=k=>{ if(!L.has(k)) L.set(k,{k,rep:'',nf:'',cli:'',fat:0,fatN:0,troca:0,devol:0,tit:0,abat:0,titN:0,obs:[]}); return L.get(k); };
+  (DB.faturamento||[]).forEach(f=>{
+    if(f.sit || !RS.has(String(f.rep)) || String(f.mes||'').slice(0,7)!==comp) return;
+    if(f.tp==='devolucao' && !natsD.has(String(f.nat||'').toUpperCase())) return;
+    if(f.tp!=='venda' && f.tp!=='devolucao') return;
+    const k=f.manual?('MANUAL|'+f.rep):(f.rep+'|'+z(f.nf)), l=lin(k); l.rep=f.rep; l.nf=f.manual?'MANUAL':f.nf; l.cli=l.cli||(f.manual?'Lançamento manual':_nc(f.cli)); l.fatN++;
+    if(f.tp==='devolucao'){ l.devol+=Math.abs(Number(f.vn)||0); l.fat-=Math.abs(Number(f.vn)||0); }
+    else { l.troca+=Number(f.abatRepo)||0; l.fat+=Number(f.vn)||0; }
+  });
+  (DB.comissoes||[]).forEach(c=>{
+    if(c.competencia_raw!==comp || !RS.has(String(c.codigo_rep)) || c.origem==='gestor') return;
+    (c.titulos||[]).forEach(t=>{ const k=c.manual?('MANUAL|'+c.codigo_rep):(c.codigo_rep+'|'+z(t.titulo)), l=lin(k); l.rep=c.codigo_rep; l.nf=l.nf||(c.manual?'MANUAL':t.titulo); l.cli=l.cli||t.cli_nome||_nc(t.cli_cod); l.tit+=Number(t.vlorvenc)||0; l.titN++; });
+    (c.abatimentos||[]).forEach(a=>{ const k=c.manual?('MANUAL|'+c.codigo_rep):(c.codigo_rep+'|'+z(a.titulo)), l=lin(k); l.rep=c.codigo_rep; l.nf=l.nf||(c.manual?'MANUAL':a.titulo); l.cli=l.cli||a.cli_nome||_nc(a.cli_cod); l.abat+=-Math.abs(Number(a.vlorliqu)||0); l.titN++; });
+  });
+  const arr=[...L.values()].map(l=>{ l.base=+(l.tit+l.abat).toFixed(2); l.fat=+l.fat.toFixed(2); l.dif=+(l.fat-l.base).toFixed(2);
+    if(!l.fatN){ const o=(DB.faturamento||[]).find(f=>String(f.rep)===String(l.rep) && z(f.nf)===z(l.nf));
+      l.obs.push(o ? `Nota faturada em ${String(o.mes||'').slice(5,7)}/${String(o.mes||'').slice(0,4)}${o.sit?` (${o.sit==='C'?'cancelada':'devolvida'})`:''} — entrou na comissão deste mês` : 'Só na comissão (não está no faturamento importado)'); }
+    else if(!l.titN) l.obs.push('Só no faturamento — sem título de comissão neste mês');
+    else if(Math.abs(l.dif)>=0.01){ if(l.troca && Math.abs(Math.abs(l.dif)-l.troca)<0.02) l.obs.push('Troca descontada só de um lado');
+      else if(l.devol && Math.abs(Math.abs(l.dif)-l.devol)<0.02) l.obs.push('Devolução descontada só de um lado');
+      else l.obs.push('Valor diferente (desconto, frete/IPI ou parcela)'); }
+    return l; }).sort((a,b)=>(Math.abs(b.dif)>=0.01)-(Math.abs(a.dif)>=0.01) || String(a.rep).localeCompare(String(b.rep)) || (Number(z(a.nf))||0)-(Number(z(b.nf))||0));
+  const T=arr.reduce((t,l)=>{ t.fat+=l.fat; t.base+=l.base; t.tit+=l.tit; t.abat+=l.abat; t.troca+=l.troca; t.devol+=l.devol; if(Math.abs(l.dif)>=0.01) t.nd++; return t; },{fat:0,base:0,tit:0,abat:0,troca:0,devol:0,nd:0});
+  const ver=soDif?arr.filter(l=>Math.abs(l.dif)>=0.01):arr;
+  const rot=(_MABR[comp.slice(5,7)]||comp.slice(5,7))+'/'+comp.slice(0,4), dif=+(T.fat-T.base).toFixed(2);
+  const td=(v,c)=>`<td style="text-align:right;${c?'color:'+c:''}">${v?fmt(v):'—'}</td>`;
+  openModal('⚖ Conciliação Faturamento × Comissões', `
+    <div style="font-size:12px;color:var(--gray-5);margin-bottom:8px">${rot} · ${reps.map(_nr).sort().join(', ')}</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-bottom:10px">
+      <div class="card" style="padding:8px"><div class="kpi-label">Base Faturamento</div><div style="font-weight:700">${fmt(T.fat)}</div><div class="kpi-sub">NF líq. − devoluções</div></div>
+      <div class="card" style="padding:8px"><div class="kpi-label">Base Comissões</div><div style="font-weight:700">${fmt(T.base)}</div><div class="kpi-sub">títulos ${fmt(T.tit)} − abat. ${fmt(Math.abs(T.abat))}</div></div>
+      <div class="card" style="padding:8px;border-top:3px solid ${Math.abs(dif)<0.01?'var(--green)':'var(--red)'}"><div class="kpi-label">Diferença</div><div style="font-weight:700;color:${Math.abs(dif)<0.01?'var(--green)':'var(--red)'}">${Math.abs(dif)<0.01?'✓ bate':fmt(dif)}</div><div class="kpi-sub">${T.nd} nota(s) com diferença</div></div>
+    </div>
+    <label style="font-size:12px;cursor:pointer;display:inline-flex;gap:6px;align-items:center;margin-bottom:6px"><input type="checkbox" ${soDif?'checked':''} onchange="modalConciliarFatComi(window._concArgs[0],window._concArgs[1],this.checked)"> Mostrar só as notas com diferença</label>
+    <div class="card-table" style="max-height:55vh;overflow:auto"><table class="tb-cartao" style="font-size:11.5px"><thead><tr><th>Nota</th><th>Cliente</th>${reps.length>1?'<th>Repr.</th>':''}<th style="text-align:right">Fat. (NF líq.)</th><th style="text-align:right">Troca</th><th style="text-align:right">Devol.</th><th style="text-align:right">Comissão: títulos</th><th style="text-align:right">Abatim.</th><th style="text-align:right">Base comissão</th><th style="text-align:right">Diferença</th><th>Motivo</th></tr></thead>
+    <tbody>${ver.map(l=>`<tr style="${Math.abs(l.dif)>=0.01?'background:#fff4f4':''}"><td style="font-family:monospace">${l.nf}</td><td>${String(l.cli||'').toUpperCase()}</td>${reps.length>1?`<td>${_nr(l.rep)}</td>`:''}${td(l.fat)}${td(l.troca,'#b45309')}${td(l.devol,'var(--red)')}${td(l.tit)}${td(l.abat,'var(--red)')}<td style="text-align:right;font-weight:600">${fmt(l.base)}</td><td style="text-align:right;font-weight:700;color:${Math.abs(l.dif)>=0.01?'var(--red)':'var(--green)'}">${Math.abs(l.dif)>=0.01?fmt(l.dif):'✓'}</td><td style="font-size:11px;color:var(--gray-5)">${l.obs.join('; ')}</td></tr>`).join('')||`<tr><td colspan="11" style="text-align:center;color:var(--gray-5)">Nenhuma nota${soDif?' com diferença':''}.</td></tr>`}</tbody>
+    <tfoot style="background:var(--gray-1);font-weight:700"><tr><td colspan="${reps.length>1?3:2}">TOTAL (${arr.length})</td>${td(T.fat)}${td(T.troca,'#b45309')}${td(T.devol,'var(--red)')}${td(T.tit)}${td(T.abat,'var(--red)')}<td style="text-align:right">${fmt(T.base)}</td><td style="text-align:right;color:${Math.abs(dif)<0.01?'var(--green)':'var(--red)'}">${Math.abs(dif)<0.01?'✓':fmt(dif)}</td><td></td></tr></tfoot></table></div>
+    <div style="font-size:11px;color:var(--gray-5);margin-top:8px">Faturamento: notas emitidas no mês (data da NF), já com desconto e troca abatidos, menos as devoluções do mês. Comissões: títulos e abatimentos do arquivo de comissão (vp42541) dessa competência — pode trazer nota de outro mês e lança a troca/devolução como abatimento.</div>`,
+    `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>`);
 }
 function _taxaDoRep(cod){
   const r = DB.representantes.find(x => String(x.codigo) === String(cod));
