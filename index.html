@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.289</span>
+      ">v2.14.290</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3257,6 +3257,84 @@ function _abatTaxaVenda(){
     if(mud){ c.comi_liquida=+c.abatimentos.reduce((s,a)=>s+(Number(a.comiliqu)||0),0).toFixed(2); n++; } });
   return n;
 }
+// v2.14.290: VÍNCULO Contas a Pagar (pagamentos) × Comissões. Título de comissão (plano/C.custo/obs com "COMISS")
+// → representante (CPF/CNPJ do cadastro ou nome; mesmo GRUPO conta junto) → competência (a que bate o valor com o saldo,
+// procurando no mês anterior ao vencimento, no próprio mês e 2 meses antes). Vínculo manual salvo em DB.comi_pag_vinc.
+const _CPV_KEY='pinkpoa_comi_pag_vinc';
+function _cpvManual(){ if(!DB.comi_pag_vinc || typeof DB.comi_pag_vinc!=='object'){ try{ DB.comi_pag_vinc=JSON.parse(localStorage.getItem(_CPV_KEY)||'{}')||{}; }catch(e){ DB.comi_pag_vinc={}; } } return DB.comi_pag_vinc; }
+function _cpvSalvar(){ try{ localStorage.setItem(_CPV_KEY, JSON.stringify(DB.comi_pag_vinc||{})); }catch(e){} window._cpvCache=null; }
+function _pgEhComissao(p){ return /COMISS/i.test([p.planoDesc,p.plano,p.cc,p.obs,p.cob].join(' ')); }
+function _pgChave(p){ return [p.emp,p.doc||p.nf,p.np,p.venc,p.valor,p.forn].join('|'); }
+function _cpvUp(t){ return String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase().replace(/[^A-Z0-9 ]/g,' ').replace(/\s+/g,' ').trim(); }
+function _cpvGrupoDe(cod){ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(cod)); const gm=(typeof _lerGruposRep==='function')?_lerGruposRep():{}; const g=String((r&&r.grupo)||gm[String(cod)]||'').trim().toUpperCase(); return g?('G:'+g):('R:'+cod); }
+function _cpvRotulo(k){ if(k.startsWith('G:')) return k.slice(2); const r=(DB.representantes||[]).find(x=>String(x.codigo)===k.slice(2)); return r?String(r.fantasia||r.nome||k.slice(2)).toUpperCase():k.slice(2); }
+function _cpvSaldo(c){ const n=v=>{const x=Number(v);return isFinite(x)?x:0;}; return n(c.total_comissao)+n(c.comi_liquida)-n(c.val_devolucoes)*(n(c.taxa)||7)/100; }
+function _cpvDados(){
+  const sig=(DB.pagar||[]).length+'|'+(DB.comissoes||[]).length+'|'+JSON.stringify(_cpvManual()).length+'|'+(DB.comissoes||[]).reduce((s,c)=>s+(Number(c.total_comissao)||0),0).toFixed(2);
+  if(window._cpvCache && window._cpvCache.sig===sig) return window._cpvCache;
+  const dig=v=>String(v||'').replace(/\D/g,'');
+  // saldo por grupo|competência
+  const S={}; (DB.comissoes||[]).forEach(c=>{ if(!c.competencia_raw) return; const k=_cpvGrupoDe(c.codigo_rep)+'|'+c.competencia_raw; S[k]=(S[k]||0)+_cpvSaldo(c); });
+  const reps=(DB.representantes||[]).map(r=>({cod:String(r.codigo), doc:dig(r.documento||r.cnpj||r.cpf), nome:_cpvUp(r.nome), fant:_cpvUp(r.fantasia)}));
+  const repDe=p=>{ const d=dig(p.cnpj), f=_cpvUp(p.forn);
+    let r=d.length>=11 && reps.find(x=>x.doc && x.doc===d); if(r) return r.cod;
+    r=reps.find(x=>x.nome && x.nome.split(' ').length>=2 && (f.includes(x.nome) || x.nome.includes(f) && f.split(' ').length>=2)); if(r) return r.cod;
+    r=reps.find(x=>x.fant && x.fant.length>=6 && /^[A-Z ]+$/.test(x.fant) && x.fant.split(' ').length>=2 && f.includes(x.fant)); return r?r.cod:''; };
+  const addM=(m,n)=>{ let y=+m.slice(0,4), mm=+m.slice(5,7)+n; while(mm<1){mm+=12;y--;} while(mm>12){mm-=12;y++;} return y+'-'+String(mm).padStart(2,'0'); };
+  const man=_cpvManual(), tit=[], V={};
+  (DB.pagar||[]).forEach(p=>{
+    if(!_pgEhComissao(p) || p.cancfin) return;
+    const ch=_pgChave(p), mv=man[ch]; let k='', comp='', modo='';
+    if(mv && mv.ignorar){ tit.push({p,ch,k:'',comp:'',modo:'ignorado'}); return; }
+    if(mv && mv.k){ k=mv.k; comp=mv.comp; modo='manual'; }
+    else { const cod=repDe(p); if(cod){ k=_cpvGrupoDe(cod); const m=String(p.venc||p.pgmto||'').slice(0,7);
+        if(/^\d{4}-\d{2}$/.test(m)){ const cand=[-1,0,-2,1].map(o=>addM(m,o)).filter(cp=>S[k+'|'+cp]!=null);
+          const ex=cand.find(cp=>Math.abs(S[k+'|'+cp]-p.valor)<=1); comp=ex||cand[0]||addM(m,-1); modo=ex?'valor':'mês'; } } }
+    tit.push({p,ch,k,comp,modo});
+    if(k && comp){ const kk=k+'|'+comp; V[kk]=V[kk]||{k,comp,aPagar:S[kk]||0,pago:0,aberto:0,tits:[]};
+      const vp=p.status==='baixado'?(p.pago||p.valor):0; V[kk].pago+=vp; if(p.status!=='baixado') V[kk].aberto+=p.valor; V[kk].tits.push({p,ch,modo}); }
+  });
+  Object.keys(S).forEach(kk=>{ if(!V[kk]){ const [k,comp]=[kk.slice(0,kk.lastIndexOf('|')), kk.slice(kk.lastIndexOf('|')+1)]; V[kk]={k,comp,aPagar:S[kk],pago:0,aberto:0,tits:[]}; } });
+  Object.values(V).forEach(v=>{ const d=+(v.aPagar-v.pago).toFixed(2); v.dif=d;
+    v.status = v.aPagar<=0.005 && !v.pago ? 'sem' : Math.abs(d)<=1 ? 'pago' : v.pago>0 ? (d>0?'parcial':'amais') : v.aberto>0 ? 'lancado' : 'pendente'; });
+  window._cpvCache={sig,tit,V}; return window._cpvCache;
+}
+function _cpvDeComissao(c){ if(!c || !c.competencia_raw) return null; return _cpvDados().V[_cpvGrupoDe(c.codigo_rep)+'|'+c.competencia_raw]||null; }
+function _cpvBadge(v){ if(!v) return ''; const f=x=>fmt(x);
+  const t={pago:['badge-blue','💳 pago'],parcial:['badge-amber','💳 parcial'],amais:['badge-red','💳 pago a mais'],lancado:['badge-amber','💳 título em aberto'],pendente:['badge-gray',''],sem:['badge-gray','']}[v.status]||['',''];
+  if(!t[1]) return ''; const dt=v.tits.map(x=>x.p.pgmto).filter(Boolean).sort().pop();
+  return `<span class="badge ${t[0]}" style="font-size:9.5px;margin-left:3px;cursor:pointer" title="Contas a Pagar — ${_cpvRotulo(v.k)} ${v.comp}: a pagar ${f(v.aPagar)} · pago ${f(v.pago)}${v.aberto?' · em aberto '+f(v.aberto):''}${dt?' · último pgto '+fmtDate(dt):''}" onclick="event.stopPropagation();modalComiPagamentos('${v.comp}')">${t[1]}</span>`; }
+function modalComiPagamentos(comp){
+  const D=_cpvDados(); const comps=[...new Set(Object.values(D.V).map(v=>v.comp))].sort().reverse();
+  comp=comp||window._cpvComp||comps[0]||''; window._cpvComp=comp;
+  const rot=r=>(({'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'})[String(r).slice(5,7)]||'')+'/'+String(r).slice(0,4);
+  const L=Object.values(D.V).filter(v=>v.comp===comp && (v.aPagar>0.005||v.pago||v.aberto)).sort((a,b)=>_cpvRotulo(a.k).localeCompare(_cpvRotulo(b.k)));
+  const st={pago:'<span class="badge badge-blue">✓ pago</span>',parcial:'<span class="badge badge-amber">parcial</span>',amais:'<span class="badge badge-red">pago a mais</span>',lancado:'<span class="badge badge-amber">título em aberto</span>',pendente:'<span class="badge badge-gray">sem pagamento</span>',sem:'—'};
+  const T=L.reduce((t,v)=>({a:t.a+v.aPagar,p:t.p+v.pago,o:t.o+v.aberto}),{a:0,p:0,o:0});
+  const semV=D.tit.filter(x=>!x.k || !x.comp); const grupos=[...new Set((DB.comissoes||[]).map(c=>_cpvGrupoDe(c.codigo_rep)))].sort((a,b)=>_cpvRotulo(a).localeCompare(_cpvRotulo(b)));
+  window._cpvSemV=semV;
+  openModal('💳 Pagamentos de comissão × Comissões', `
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap"><label style="font-size:12px">Competência</label>
+      <select class="form-control" style="width:130px" onchange="modalComiPagamentos(this.value)">${comps.map(c=>`<option value="${c}" ${c===comp?'selected':''}>${rot(c)}</option>`).join('')}</select>
+      <span style="font-size:11px;color:var(--gray-5)">Títulos do Contas a Pagar com "COMISS" no plano/C.custo, ligados pelo CPF/CNPJ ou nome do representante.</span></div>
+    <div class="card-table" style="max-height:46vh;overflow:auto"><table class="tb-cartao" style="font-size:12px"><thead><tr><th>Representante / grupo</th><th style="text-align:right">Comissão a pagar</th><th style="text-align:right">Pago</th><th style="text-align:right">Em aberto</th><th style="text-align:right">Diferença</th><th>Situação</th><th>Títulos</th></tr></thead>
+    <tbody>${L.map(v=>`<tr><td style="font-weight:600">${_cpvRotulo(v.k)}</td><td style="text-align:right">${fmt(v.aPagar)}</td><td style="text-align:right;color:var(--blue)">${v.pago?fmt(v.pago):'—'}</td><td style="text-align:right;color:var(--amber)">${v.aberto?fmt(v.aberto):'—'}</td><td style="text-align:right;font-weight:700;color:${Math.abs(v.dif)<=1?'var(--green)':'var(--red)'}">${Math.abs(v.dif)<=1?'✓':fmt(v.dif)}</td><td>${st[v.status]||''}</td>
+      <td style="font-size:10.5px;color:var(--gray-5)">${v.tits.map(x=>`${x.p.doc||x.p.nf||'s/doc'} · ${fmt(x.p.valor)} · ${x.p.pgmto?'pg '+fmtDate(x.p.pgmto):'venc '+fmtDate(x.p.venc)}${x.modo==='manual'?' (manual)':x.modo==='mês'?' (pelo mês)':''}`).join('<br>')||'—'}</td></tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--gray-5)">Nada nesta competência.</td></tr>'}</tbody>
+    <tfoot style="font-weight:700;background:var(--gray-1)"><tr><td>TOTAL</td><td style="text-align:right">${fmt(T.a)}</td><td style="text-align:right">${fmt(T.p)}</td><td style="text-align:right">${fmt(T.o)}</td><td style="text-align:right">${fmt(T.a-T.p)}</td><td colspan="2"></td></tr></tfoot></table></div>
+    ${semV.length?`<div style="margin-top:12px"><div style="font-weight:700;font-size:13px;margin-bottom:4px">⚠ ${semV.length} título(s) de comissão sem representante identificado — vincule:</div>
+      <div class="card-table" style="max-height:26vh;overflow:auto"><table style="font-size:11.5px"><tbody>${semV.slice(0,200).map((x,i)=>`<tr><td>${x.p.forn}<div style="color:var(--gray-5);font-size:10.5px">${x.p.planoDesc||x.p.plano||''} · ${x.p.doc||''} · venc ${fmtDate(x.p.venc)}</div></td><td style="text-align:right">${fmt(x.p.valor)}</td>
+        <td><select class="form-control" style="width:170px;font-size:11px" id="cpv-g-${i}"><option value="">Representante…</option>${grupos.map(g=>`<option value="${g}">${_cpvRotulo(g)}</option>`).join('')}</select></td>
+        <td><select class="form-control" style="width:100px;font-size:11px" id="cpv-c-${i}">${comps.map(c=>`<option value="${c}" ${c===comp?'selected':''}>${rot(c)}</option>`).join('')}</select></td>
+        <td style="white-space:nowrap"><button class="btn btn-primary btn-sm" onclick="_cpvVincular(${i})">Vincular</button> <button class="btn btn-secondary btn-sm" title="Não é comissão de representante" onclick="_cpvVincular(${i},true)">Ignorar</button></td></tr>`).join('')}</tbody></table></div></div>`:''}
+    ${D.tit.some(x=>x.modo==='manual'||x.modo==='ignorado')?`<div style="margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="if(confirm('Desfazer todos os vínculos manuais?')){DB.comi_pag_vinc={};_cpvSalvar();modalComiPagamentos('${comp}')}">Desfazer vínculos manuais</button></div>`:''}`,
+    `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>`);
+}
+function _cpvVincular(i, ignorar){
+  const x=(window._cpvSemV||[])[i]; if(!x) return; const man=_cpvManual();
+  if(ignorar) man[x.ch]={ignorar:true};
+  else { const k=(document.getElementById('cpv-g-'+i)||{}).value, c=(document.getElementById('cpv-c-'+i)||{}).value; if(!k) return toast('Escolha o representante','error'); man[x.ch]={k,comp:c}; }
+  _cpvSalvar(); modalComiPagamentos(window._cpvComp);
+}
 function renderComissoes() {
   try{ _abatTaxaVenda(); }catch(e){ console.warn('abatTaxa',e); }
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();   // garante a troca aplicada p/ a base da comissão
@@ -3420,6 +3498,7 @@ function renderComissoes() {
             </select>
             <button class="btn btn-secondary btn-sm" onclick="window._comiReps=[];['filtro-comp','filtro-mes-com','filtro-ano-com'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderComissoes();">✕</button>
             <button class="btn btn-secondary btn-sm" onclick="exportarComissoesXLSX()">⬇ Excel</button>
+            ${(DB.pagar||[]).length && !_escopoReps()?`<button class="btn btn-secondary btn-sm" onclick="modalComiPagamentos()" title="Cruza os pagamentos (Contas a Pagar) com as comissões">💳 Pagamentos</button>`:''}
             ${_escopoReps()?'':`<button class="btn btn-secondary btn-sm" onclick="modalComissaoFat()">💼 Comissão s/ Faturamento</button>`}
             <button class="btn btn-secondary btn-sm" onclick="modalRelatorioVendas()">📊 Relatório de Vendas</button>
             <button class="btn btn-secondary btn-sm" onclick="exportarSnapshotComissoes()" title="Exportar snapshot das comissões (fechadas) do mês">📸 Exportar mês</button>
@@ -3469,7 +3548,7 @@ function renderComissoes() {
               <td style="text-align:right;color:var(--red)">${(c.comi_liquida||0)<0?`(${fmt(Math.abs(c.comi_liquida||0))})`:'-'}</td>
               <td style="text-align:right;font-weight:600;color:${(c.total_comissao+(c.comi_liquida||0)-(c.val_devolucoes||0)*(Number(c.taxa)||7)/100)>=0?'var(--green)':'var(--red)'}">${fmt(c.total_comissao+(c.comi_liquida||0)-(c.val_devolucoes||0)*(Number(c.taxa)||7)/100)}</td>
               <td style="text-align:right;font-weight:700;color:var(--blue)">${fmt(comAdj)}</td>
-              <td><span class="badge ${c.status==='fechado'?'badge-green':c.status==='pago'?'badge-blue':'badge-amber'}">${c.status}</span></td>
+              <td><span class="badge ${c.status==='fechado'?'badge-green':c.status==='pago'?'badge-blue':'badge-amber'}">${c.status}</span>${(DB.pagar||[]).length?_cpvBadge(_cpvDeComissao(c)):''}</td>
               <td><div style="display:flex;gap:4px;justify-content:flex-end;white-space:nowrap">
                 <button class="btn btn-secondary btn-sm" onclick="modalDetalheComissao(${c.id})">${(c.abatimentos||[]).length?`<span class='badge badge-amber' style='font-size:10px;margin-right:4px'>${c.abatimentos.length} abat.</span>`:''} Ver</button>
                 ${c.manual?'':`<button class="btn btn-secondary btn-sm" title="Conciliar com o Faturamento — ${c.competencia}" onclick="event.stopPropagation();modalConciliarFatComi(['${c.codigo_rep}'],'${c.competencia_raw}')">⚖</button>`}
@@ -8705,7 +8784,7 @@ function renderPagar(){
             <td><div style="font-weight:500;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.forn}</div>
               <div style="font-size:11px;color:var(--gray-5)">${p.emp}${p.obs?' · '+p.obs.slice(0,26):''}</div></td>
             <td style="font-family:monospace;font-size:11px">${p.doc||p.nf||'—'}${p.npt&&p.npt!=='1'?`<span style="color:var(--gray-3)"> ${p.np}/${p.npt}</span>`:''}</td>
-            <td style="font-size:11px"><div>${p.planoDesc||p.plano||'—'}</div><div style="color:var(--gray-5)">${p.cc||''}</div></td>
+            <td style="font-size:11px"><div>${p.planoDesc||p.plano||'—'}</div><div style="color:var(--gray-5)">${p.cc||''}</div>${_pgEhComissao(p)?(()=>{ const t=_cpvDados().tit.find(x=>x.p===p); if(!t||t.modo==='ignorado') return ''; if(!t.k) return `<div style="color:var(--red);font-size:10px;cursor:pointer" onclick="modalComiPagamentos()">⚠ comissão sem representante — vincular</div>`; const v=_cpvDados().V[t.k+'|'+t.comp]; const ok=v&&Math.abs(v.dif)<=1; return `<div style="font-size:10px;cursor:pointer;color:${ok?'var(--green)':'#b45309'}" onclick="modalComiPagamentos('${t.comp}')">↔ Comissão ${t.comp.slice(5,7)}/${t.comp.slice(0,4)} · ${_cpvRotulo(t.k)} ${ok?'✓':'≠ dif. '+fmt(v?v.dif:0)}</div>`; })():''}</td>
             <td style="white-space:nowrap;font-size:12px">${fmtDate(p.emissao)}</td>
             <td style="white-space:nowrap;font-size:12px;color:${venc?'var(--red)':'inherit'}">${fmtDate(p.venc)}</td>
             <td style="text-align:right;font-weight:600">${fmt(p.valor)}</td>
