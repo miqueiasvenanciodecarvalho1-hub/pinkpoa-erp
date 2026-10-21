@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.288</span>
+      ">v2.14.289</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -9921,6 +9921,70 @@ function _vazioPorAcesso(mod, nomeMod){
     <div style="font-size:15px;font-weight:700;margin-bottom:6px">Nada para mostrar em ${_nvEsc(nomeMod)} com o seu acesso</div>
     <div style="font-size:13px;color:var(--gray-6);line-height:1.7">${itens.map(t=>'• '+t).join('<br>')}</div></div></div>`;
 }
+// v2.14.289: COMPRAS × VENDAS — cruza o que foi comprado (NF-e do Compras) com os pedidos e o faturamento da coleção/filtro.
+// Compra não tem coleção na nota: o vínculo é pelo PERÍODO de compras (padrão: 3 meses antes do 1º pedido até o último mês
+// de faturamento), que o usuário ajusta e fica salvo por coleção neste aparelho.
+function _vdCmpPer(col){ try{ return (JSON.parse(localStorage.getItem('pinkpoa_vd_cmp_per')||'{}')||{})[col||'*']||null; }catch(e){ return null; } }
+function _vdCmpPerSet(col, de, ate){ try{ const o=JSON.parse(localStorage.getItem('pinkpoa_vd_cmp_per')||'{}')||{}; if(de||ate) o[col||'*']={de,ate}; else delete o[col||'*']; localStorage.setItem('pinkpoa_vd_cmp_per', JSON.stringify(o)); }catch(e){} renderVendas(); }
+function _vdComprasHTML(mctx, tVd, tFt, tQtv, tQtf, fCol){
+  try{ _comprasLoad(); }catch(e){}
+  const ms=Object.keys(mctx||{}).map(m=>String(m).slice(0,7)).filter(m=>/^\d{4}-\d{2}$/.test(m)).sort();
+  const add=(m,n)=>{ let y=+m.slice(0,4), mm=+m.slice(5,7)+n; while(mm<1){mm+=12;y--;} while(mm>12){mm-=12;y++;} return y+'-'+String(mm).padStart(2,'0'); };
+  const padrao={ de: ms.length?add(ms[0],-3):'', ate: ms.length?ms[ms.length-1]:'' };
+  const sv=_vdCmpPer(fCol), de=(sv&&sv.de)||padrao.de, ate=(sv&&sv.ate)||padrao.ate;
+  if(!(DB.compras||[]).length) return `<div class="empty-state" style="padding:30px"><div class="es-icon">🛒</div><div class="es-text">Nenhuma nota de compra importada — importe os XML em Compras para cruzar com as vendas.</div></div>`;
+  const soDir=window._vdCmpSoDireto!==false;
+  const M={}, G={}; let tCom=0, tDev=0, tFrete=0, nN=0;
+  (DB.compras||[]).forEach(n=>{
+    if(n.cancelada) return; const m=_cmpIso(n.dataBR).slice(0,7); if(!m || (de && m<de) || (ate && m>ate)) return;
+    if(n.tipo==='frete'){ tFrete+=(n.totais||{}).vNF||0; return; }
+    if(n.tipo!=='compra' && n.tipo!=='devolucao') return;
+    const sg=n.tipo==='devolucao'?-1:1; let v=0;
+    (n.itens||[]).forEach(it=>{ const g=_classificarCompra(it.ncm,it.xProd,it.cProd).g||'OUTROS'; if(soDir && !_custoDireto(g)) return; const x=sg*(Number(it.custoLiqItem)||0); v+=x; G[g]=(G[g]||0)+x; });
+    if(!v) return; nN++; M[m]=M[m]||{com:0}; M[m].com+=v; if(sg>0) tCom+=v; else tDev+=-v;
+  });
+  const liq=tCom-tDev;
+  ms.forEach(m=>{ M[m]=M[m]||{com:0}; });
+  const meses=Object.keys(M).sort();
+  const pct=(a,b)=>b?(a/b*100).toFixed(1).replace('.',',')+'%':'—';
+  const rot=m=>({'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'}[m.slice(5,7)]||m.slice(5,7))+'/'+m.slice(2,4);
+  const _todos=[].concat(meses,[de,ate],(DB.compras||[]).map(n=>_cmpIso(n.dataBR).slice(0,7))).filter(m=>/^\d{4}-\d{2}$/.test(m||'')).sort();
+  const opM=[]; if(_todos.length){ let m=_todos[0]; const fim=_todos[_todos.length-1]; while(m<=fim && opM.length<240){ opM.push(m); m=add(m,1); } }
+  const sel=(id,val)=>`<select id="${id}" class="form-control" style="width:110px;display:inline-block">${opM.map(m=>`<option value="${m}" ${m===val?'selected':''}>${rot(m)}</option>`).join('')}</select>`;
+  const colJs=String(fCol||'').replace(/'/g,"\\'");
+  const kp=(l,v,sub,cor)=>`<div class="kpi-card" style="padding:12px;border-top:3px solid ${cor}"><div class="kpi-label" style="font-size:10px">${l}</div><div class="kpi-value" style="font-size:16px">${v}</div><div class="kpi-sub">${sub}</div></div>`;
+  const gArr=Object.entries(G).sort((a,b)=>b[1]-a[1]);
+  return `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;font-size:12px">
+      <b>Compras de</b> ${sel('vdc-de',de)} <b>até</b> ${sel('vdc-ate',ate)}
+      <button class="btn btn-primary btn-sm" onclick="_vdCmpPerSet('${colJs}',document.getElementById('vdc-de').value,document.getElementById('vdc-ate').value)">Aplicar</button>
+      ${sv?`<button class="btn btn-secondary btn-sm" onclick="_vdCmpPerSet('${colJs}','','')">Período padrão</button>`:''}
+      <label style="display:inline-flex;gap:5px;align-items:center;margin-left:8px;cursor:pointer"><input type="checkbox" ${soDir?'checked':''} onchange="window._vdCmpSoDireto=this.checked;renderVendas()"> Só custo direto (tecidos + aviamentos)</label>
+      <span style="color:var(--gray-5)">${fCol?`Coleção <b>${_cesc(fCol)}</b> · `:''}${sv?'período ajustado (salvo para '+(fCol?'esta coleção':'a visão geral')+')':'período padrão'}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px">
+      ${kp('Compras líquidas',fmt(liq),`${nN} nota(s)${tDev?` · devol. ${fmt(tDev)}`:''}`,'#20304A')}
+      ${kp('Pedidos',fmt(tVd),`${(tQtv||0).toLocaleString('pt-BR')} peças`,'var(--pink)')}
+      ${kp('Faturado',fmt(tFt),`${(tQtf||0).toLocaleString('pt-BR')} peças`,'var(--green)')}
+      ${kp('Compras ÷ Pedidos',pct(liq,tVd),'quanto do pedido foi comprado','#b7791f')}
+      ${kp('Compras ÷ Faturado',pct(liq,tFt),'peso da compra no faturamento','#c0392b')}
+      ${kp('Compra por peça',tQtv?fmt(liq/tQtv):'—','compras ÷ peças pedidas','#534AB7')}
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px">
+      <div style="overflow-x:auto"><div style="font-weight:700;margin-bottom:6px">Mês a mês</div>
+        <table style="font-size:12px"><thead><tr><th>Mês</th><th style="text-align:right">Compras</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Faturado</th><th style="text-align:right">Compras acum.</th><th style="text-align:right">Fat. acum.</th><th style="text-align:right">Compra/Fat. acum.</th></tr></thead><tbody>
+        ${(()=>{ let ac=0, af=0; return meses.map(m=>{ const c=M[m].com||0, x=(mctx[m]||Object.entries(mctx).filter(([k])=>String(k).slice(0,7)===m).reduce((o,[,v])=>({vd:o.vd+(v.vd||0),ft:o.ft+(v.ft||0)}),{vd:0,ft:0})); ac+=c; af+=(x.ft||0);
+          return `<tr><td>${rot(m)}</td><td style="text-align:right">${c?fmt(c):'—'}</td><td style="text-align:right">${x.vd?fmt(x.vd):'—'}</td><td style="text-align:right">${x.ft?fmt(x.ft):'—'}</td><td style="text-align:right">${fmt(ac)}</td><td style="text-align:right">${fmt(af)}</td><td style="text-align:right;font-weight:600">${pct(ac,af)}</td></tr>`; }).join(''); })()}
+        </tbody><tfoot style="font-weight:700;background:var(--gray-1)"><tr><td>TOTAL</td><td style="text-align:right">${fmt(liq)}</td><td style="text-align:right">${fmt(tVd)}</td><td style="text-align:right">${fmt(tFt)}</td><td></td><td></td><td style="text-align:right">${pct(liq,tFt)}</td></tr></tfoot></table></div>
+      <div style="overflow-x:auto"><div style="font-weight:700;margin-bottom:6px">Compras por grupo</div>
+        <table style="font-size:12px"><thead><tr><th>Grupo</th><th style="text-align:right">Valor</th><th style="text-align:right">% pedidos</th><th style="text-align:right">% faturado</th></tr></thead><tbody>
+        ${gArr.map(([g,v])=>`<tr><td>${_cesc(g)}</td><td style="text-align:right">${fmt(v)}</td><td style="text-align:right">${pct(v,tVd)}</td><td style="text-align:right">${pct(v,tFt)}</td></tr>`).join('')||'<tr><td colspan="4" style="color:var(--gray-5)">Sem compras no período.</td></tr>'}
+        </tbody></table>
+        ${tFrete?`<div style="font-size:11px;color:var(--gray-5);margin-top:6px">Fretes (CT-e) no período, fora da conta: ${fmt(tFrete)}</div>`:''}
+      </div>
+    </div>
+    <div style="font-size:11px;color:var(--gray-5);margin-top:10px">As notas de compra não trazem a coleção: entram as compras do <b>período escolhido</b> (padrão: 3 meses antes do 1º pedido até o último mês com pedido/faturamento do filtro). Valores de compra = custo líquido dos itens (com IPI/ST/frete rateados, menos desconto); devoluções de compra abatem.</div>`;
+}
 function renderVendas() {
   if(!(DB.vendas_linhas||[]).length && !((DB.vendas_agr||{}).tots||{}).vd){ const v=_vazioPorAcesso('vendas','Vendas'); if(v){ document.getElementById('content').innerHTML=v; return; } }
   const agr  = DB.vendas_agr||{};
@@ -10040,7 +10104,7 @@ function renderVendas() {
     <div class="card">
       <div class="card-header" style="flex-direction:column;gap:0;align-items:stretch;padding-bottom:0">
         <div style="display:flex;gap:3px;flex-wrap:wrap;border-bottom:2px solid var(--gray-2);padding:10px 16px 0">
-          ${[{id:'resumo',l:'📊 Resumo'},{id:'grupos',l:'👗 Grupos'},{id:'colecoes',l:'🎨 Coleções'},{id:'meses',l:'📅 Meses'},{id:'reps',l:'🤝 Reps'},{id:'produtos',l:'📦 Produtos'},{id:'clientes',l:'👥 Clientes'}]
+          ${[{id:'resumo',l:'📊 Resumo'},{id:'grupos',l:'👗 Grupos'},{id:'colecoes',l:'🎨 Coleções'},{id:'meses',l:'📅 Meses'},{id:'reps',l:'🤝 Reps'},{id:'produtos',l:'📦 Produtos'},{id:'clientes',l:'👥 Clientes'}].concat((_ehAdmin()||((_acoes('compras')||{}).ver))?[{id:'compras',l:'🛒 Compras × Vendas'}]:[])
             .map(t=>`<button onclick="mudaVendasTab('${t.id}')" style="padding:6px 10px;border:none;border-radius:4px 4px 0 0;cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;margin-bottom:-2px;background:${fAba===t.id?'var(--pink)':'var(--gray-1)'};color:${fAba===t.id?'#fff':'var(--gray-5)'};border-bottom:${fAba===t.id?'2px solid var(--pink)':'none'}">${t.l}</button>`).join('')}
         </div>
       </div>
@@ -10061,6 +10125,7 @@ function renderVendas() {
           </div>
         </div>`
 
+        :fAba==='compras'?_vdComprasHTML(porMesChart, tVd, tFt, tQtv, tQtf, fCol)
         :fAba==='grupos'?`<table><thead><tr><th>Grupo</th><th style="text-align:right">Pedidos</th><th style="text-align:right">Pç.</th><th style="text-align:right">Faturado</th><th style="text-align:right">Saldo</th><th style="text-align:right">Cancel.</th><th style="text-align:right">Margem</th><th style="text-align:right">% Fat.</th></tr></thead>
           <tbody>${Object.entries(gruposFilt).filter(([,d])=>d).sort((a,b)=>(b[1].vd||0)-(a[1].vd||0)).map(([g,d])=>`
             <tr><td style="font-weight:600">${g}</td><td style="text-align:right">${fmt(d.vd||0)}</td><td style="text-align:right;color:var(--gray-5)">${(d.qtv||0).toLocaleString('pt-BR')}</td><td style="text-align:right;color:var(--green)">${fmt(d.ft||0)}</td><td style="text-align:right;color:var(--amber)">${fmt(d.sd||0)}</td><td style="text-align:right;color:var(--red)">${fmt(d.cn||0)}</td>
