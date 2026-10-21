@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.285</span>
+      ">v2.14.286</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -12999,7 +12999,36 @@ function parseNFeXML(xmlText){
   try{ doc=new DOMParser().parseFromString(xmlText,'application/xml'); }catch(e){ window._nfeErr='XML malformado (não pôde ser lido)'; return null; }
   if(!doc || doc.getElementsByTagName('parsererror').length){ window._nfeErr='XML malformado (encoding/estrutura inválida)'; return null; }
   const GEBT=(el,tag)=> (el&&el.getElementsByTagNameNS?el.getElementsByTagNameNS('*',tag):(el?el.getElementsByTagName(tag):[]));
-  const inf=GEBT(doc,'infNFe')[0];
+  // v2.14.286: CT-e (conhecimento de transporte, modelo 57) — entra em Compras como FRETE. Antes o leitor achava o
+  // <infNFe> da nota transportada (dentro de infDoc) e acusava "NF-e sem chave".
+  const infC=GEBT(doc,'infCte')[0];
+  if(infC){
+    const T2=(el,tag)=>{ if(!el)return ''; const n=GEBT(el,tag)[0]; return n&&n.textContent?n.textContent.trim():''; };
+    const f2=(el,tag)=> el?GEBT(el,tag)[0]:null;
+    const ide=f2(infC,'ide'), emit=f2(infC,'emit'), vPrest=f2(infC,'vPrest');
+    const chave=(infC.getAttribute('Id')||'').replace(/^CTe/,'') || T2(doc,'chCTe');
+    const tomaCod=T2(f2(ide,'toma03')||f2(ide,'toma3')||f2(ide,'toma4')||f2(ide,'toma'),'toma');
+    const quem={'0':'rem','1':'exped','2':'receb','3':'dest'}[tomaCod]||'dest';
+    const tomEl=f2(infC,quem)||f2(infC,'toma4')||f2(infC,'dest');
+    const dh=T2(ide,'dhEmi')||T2(ide,'dEmi'), dataBR=dh?(dh.slice(8,10)+'/'+dh.slice(5,7)+'/'+dh.slice(0,4)):'';
+    const v=_cmpN(T2(vPrest,'vTPrest')), icms=_cmpN(T2(f2(infC,'imp'),'vICMS'));
+    const nfes=Array.from(GEBT(infC,'infNFe')).map(x=>T2(x,'chave')).filter(Boolean);
+    const rem=f2(infC,'rem'), dst=f2(infC,'dest');
+    const rota=(T2(ide,'xMunIni')+'/'+T2(ide,'UFIni'))+' → '+(T2(ide,'xMunFim')+'/'+T2(ide,'UFFim'));
+    window._nfeErr='';
+    return { chave, tipo:'frete', modelo:'57', finNFe:'', tpNF:'', nNF:T2(ide,'nCT'), serie:T2(ide,'serie'), dhEmi:dh, dataBR,
+      natOp:T2(ide,'natOp')||'TRANSPORTE',
+      forn:{ cnpj:T2(emit,'CNPJ')||T2(emit,'CPF'), nome:T2(emit,'xNome'), uf:T2(f2(emit,'enderEmit'),'UF'), ie:T2(emit,'IE') },
+      dest:{ cnpj:T2(tomEl,'CNPJ')||T2(tomEl,'CPF'), nome:T2(tomEl,'xNome') },
+      totais:{vProd:v, vFrete:0, vDesc:0, vIPI:0, vST:0, vNF:v}, imp:{icms, ipi:0, st:0, pis:0, cofins:0},
+      itens:[{ nItem:'1', cProd:'CTE', xProd:'FRETE '+rota+(T2(f2(infC,'compl'),'xCaracAd')?' ('+T2(f2(infC,'compl'),'xCaracAd')+')':''), ncm:'', cfop:T2(ide,'CFOP'),
+        uCom:'UN', qCom:1, vUnCom:v, vProd:v, custoLiqItem:v, custoLiqUnit:v, custoPeca:v, fator:1 }],
+      vencimentos:[],
+      cte:{ nfes, rem:{cnpj:T2(rem,'CNPJ')||T2(rem,'CPF'), nome:T2(rem,'xNome')}, destinatario:{cnpj:T2(dst,'CNPJ')||T2(dst,'CPF'), nome:T2(dst,'xNome')},
+        vCarga:_cmpN(T2(f2(infC,'infCarga'),'vCarga')), rota, tomador:quem } };
+  }
+  // NF-e: o <infNFe> da própria nota (o que tem Id/ide) — não um infNFe citado dentro de outro documento
+  const inf=Array.from(GEBT(doc,'infNFe')).find(x=>x.getAttribute('Id')||GEBT(x,'ide').length) || GEBT(doc,'infNFe')[0];
   if(!inf){
     const has=t=>GEBT(doc,t).length>0;
     window._nfeErr = has('resNFe') ? 'Resumo de NF-e (sem itens) — importe o XML completo (nfeProc) da nota'
@@ -14160,7 +14189,7 @@ function renderCompras(){
   const custoDir=compras.reduce((s,n)=>s+(n.itens||[]).reduce((a,it)=>a+(_custoDireto(_classificarCompra(it.ncm,it.xProd,it.cProd).g)?(it.custoLiqItem||0):0),0),0);
   const f=_cmpFiltros();
 
-  const badgeTipo=t=> t==='devolucao'
+  const badgeTipo=t=> t==='frete' ? '<span class="badge badge-blue" style="font-size:10px">🚚 Frete (CT-e)</span>' : t==='devolucao'
     ? '<span class="badge badge-amber" style="font-size:10px">↩ Devolução</span>'
     : '<span class="badge badge-green" style="font-size:10px">🛒 Compra</span>';
 
@@ -14179,7 +14208,7 @@ function renderCompras(){
       <select id="cmp-f-forn" class="ord-az form-control" style="width:210px" onchange="renderCompras()"><option value="">Todos fornecedores</option>${fornOpts.map(([k,nm])=>`<option value="${_cesc(k)}" ${f.forn===k?'selected':''}>${_cesc(nm)}</option>`).join('')}</select>
       <select id="cmp-f-ano" class="form-control" style="width:88px" onchange="renderCompras()"><option value="">Ano</option>${anos.map(a=>`<option ${f.ano===a?'selected':''}>${a}</option>`).join('')}</select>
       <select id="cmp-f-mes" class="form-control" style="width:110px" onchange="renderCompras()"><option value="">Mês (de)</option>${meses.map(m=>`<option value="${m}" ${f.mes===m?'selected':''}>${_CMP_MES[m]||m}</option>`).join('')}</select><select id="cmp-f-mes-fim" class="form-control" style="width:100px" onchange="renderCompras()"><option value="">até…</option>${meses.map(m=>`<option value="${m}" ${f.mesFim===m?'selected':''}>${_CMP_MES[m]||m}</option>`).join('')}</select>
-      <select id="cmp-f-tipo" class="form-control" style="width:130px" onchange="renderCompras()"><option value="">Todos os tipos</option><option value="compra" ${f.tipo==='compra'?'selected':''}>Compras</option><option value="devolucao" ${f.tipo==='devolucao'?'selected':''}>Devoluções</option></select>
+      <select id="cmp-f-tipo" class="form-control" style="width:130px" onchange="renderCompras()"><option value="">Todos os tipos</option><option value="compra" ${f.tipo==='compra'?'selected':''}>Compras</option><option value="devolucao" ${f.tipo==='devolucao'?'selected':''}>Devoluções</option><option value="frete" ${f.tipo==='frete'?'selected':''}>Fretes (CT-e)</option></select>
       <select id="cmp-f-custo" class="form-control" style="width:150px" onchange="renderCompras()"><option value="">Todo custo</option><option value="direto" ${f.custo==='direto'?'selected':''}>Custo direto</option><option value="indireto" ${f.custo==='indireto'?'selected':''}>Indireto</option></select>
       <select id="cmp-f-grupo" class="form-control" style="width:150px" onchange="window._cmpFGrupo=this.value;window._cmpFSub='';renderCompras()"><option value="">Todos os grupos</option>${cmpGrupos.map(g=>`<option value="${_cesc(g)}" ${f.grupo===g?'selected':''}>${_cesc(g)}</option>`).join('')}</select>
       <select id="cmp-f-subgrupo" class="form-control" style="width:170px" ${f.grupo?'':'disabled'} onchange="window._cmpFSub=this.value;renderCompras()"><option value="">${f.grupo?'Todos os subgrupos':'— subgrupo —'}</option>${cmpSubs.map(sg=>`<option value="${_cesc(sg)}" ${f.subgrupo===sg?'selected':''}>${_cesc(sg)}</option>`).join('')}</select>
@@ -14423,7 +14452,7 @@ function renderCompras(){
 
   document.getElementById('content').innerHTML = `
     <div class="kpi-grid" style="grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px">
-      <div class="kpi-card pink"><div class="kpi-label">Notas</div><div class="kpi-value">${_ci(notas.length)}</div><div class="kpi-sub">${_ci(compras.length)} compra · ${_ci(devol.length)} devol.</div></div>
+      <div class="kpi-card pink"><div class="kpi-label">Notas</div><div class="kpi-value">${_ci(notas.length)}</div><div class="kpi-sub">${_ci(compras.length)} compra · ${_ci(devol.length)} devol.${(()=>{const fr=notas.filter(n=>n.tipo==='frete');return fr.length?` · ${_ci(fr.length)} frete (${_cf(fr.reduce((a,n)=>a+((n.totais||{}).vNF||0),0))})`:'';})()}</div></div>
       <div class="kpi-card green"><div class="kpi-label">Total Comprado</div><div class="kpi-value" style="font-size:18px">${_cf(totComprado)}</div><div class="kpi-sub">custo real (NF-e)</div></div>
       <div class="kpi-card amber"><div class="kpi-label">Devoluções</div><div class="kpi-value" style="font-size:18px">${_cf(totDevol)}</div><div class="kpi-sub">produto retornado</div></div>
       <div class="kpi-card" style="border-left:3px solid #E8368F"><div class="kpi-label">Líquido</div><div class="kpi-value" style="font-size:18px;color:#E8368F">${_cf(totLiq)}</div><div class="kpi-sub">comprado − devol.</div></div>
@@ -14471,7 +14500,7 @@ function gerarRelatorioCompras(){
       <div style="background:#fff;border-radius:12px;padding:20px;width:min(400px,92vw);box-shadow:0 10px 40px rgba(0,0,0,.3)">
         <div style="font-weight:700;font-size:16px;margin-bottom:2px">Gerar relatório</div>
         <div style="font-size:12px;color:var(--gray-5);margin-bottom:8px">Escolha as seções a incluir na mesma impressão:</div>
-        ${(()=>{const _ff=(typeof _cmpFiltros==='function')?_cmpFiltros():{};const c=[];if(_ff.tipo)c.push(_ff.tipo==='compra'?'Compras':'Devoluções');if(_ff.forn)c.push('1 fornecedor');if(_ff.ano)c.push('Ano '+_ff.ano);if(_ff.mes||_ff.mesFim)c.push('Meses '+(_CMP_MES[_ff.mes||'01']||_ff.mes||'Jan')+(_ff.mesFim?'–'+(_CMP_MES[_ff.mesFim]||_ff.mesFim):''));if(_ff.grupo)c.push('Grupo '+_ff.grupo);if(_ff.subgrupo)c.push('Sub '+_ff.subgrupo);if(_ff.custo)c.push('Custo '+_ff.custo);if(_ff.busca)c.push('Busca');return c.length?`<div style="font-size:11px;background:#fdf2f8;border:1px solid #f7cfe3;border-radius:8px;padding:6px 9px;margin-bottom:10px;color:#a03071"><b>Filtros ativos</b> — o relatório vai respeitar: ${c.map(_cesc).join(' · ')}</div>`:'<div style="font-size:11px;color:#999;margin-bottom:10px">Sem filtros ativos — relatório completo.</div>';})()}
+        ${(()=>{const _ff=(typeof _cmpFiltros==='function')?_cmpFiltros():{};const c=[];if(_ff.tipo)c.push(_ff.tipo==='compra'?'Compras':_ff.tipo==='frete'?'Fretes (CT-e)':'Devoluções');if(_ff.forn)c.push('1 fornecedor');if(_ff.ano)c.push('Ano '+_ff.ano);if(_ff.mes||_ff.mesFim)c.push('Meses '+(_CMP_MES[_ff.mes||'01']||_ff.mes||'Jan')+(_ff.mesFim?'–'+(_CMP_MES[_ff.mesFim]||_ff.mesFim):''));if(_ff.grupo)c.push('Grupo '+_ff.grupo);if(_ff.subgrupo)c.push('Sub '+_ff.subgrupo);if(_ff.custo)c.push('Custo '+_ff.custo);if(_ff.busca)c.push('Busca');return c.length?`<div style="font-size:11px;background:#fdf2f8;border:1px solid #f7cfe3;border-radius:8px;padding:6px 9px;margin-bottom:10px;color:#a03071"><b>Filtros ativos</b> — o relatório vai respeitar: ${c.map(_cesc).join(' · ')}</div>`:'<div style="font-size:11px;color:#999;margin-bottom:10px">Sem filtros ativos — relatório completo.</div>';})()}
         ${opt('rel-resumo','Resumo (KPIs)',true)}
         ${opt('rel-graficos','Gráficos',true)}
         ${opt('rel-custom','Custo médio por subgrupo',true)}
@@ -14540,7 +14569,7 @@ function _comprasRelatorioDoc(opts){
   const datas=notas.map(n=>n.dataBR).filter(Boolean).map(iso).sort();
   const periodo = datas.length ? (datas[0].split('-').reverse().join('/')+' a '+datas[datas.length-1].split('-').reverse().join('/')) : '';
   const _chips=[];
-  if(_f.tipo)_chips.push(_f.tipo==='compra'?'Somente compras':'Somente devoluções');
+  if(_f.tipo)_chips.push(_f.tipo==='compra'?'Somente compras':_f.tipo==='frete'?'Somente fretes (CT-e)':'Somente devoluções');
   if(_f.forn)_chips.push('1 fornecedor');
   if(_f.ano)_chips.push('Ano '+_f.ano);
   if(_f.mes)_chips.push('Mês '+(_CMP_MES[_f.mes]||_f.mes));
@@ -14578,7 +14607,7 @@ function _comprasRelatorioDoc(opts){
 
   // ---- Notas ----
   const notasOrd=notas.slice().sort((a,b)=>iso(a.dataBR).localeCompare(iso(b.dataBR)));
-  const notasRows=notasOrd.map(n=>`<tr><td>${_cesc(n.dataBR)}</td><td>${_cesc(n.nNF)}/${_cesc(n.serie)}</td><td>${n.tipo==='devolucao'?'<span style="color:#b7791f">Devolução</span>':'Compra'}</td><td>${_cesc(_fornNome(n.forn))}</td><td class="c">${_nCnt(n)||'—'}</td><td class="r ${n.tipo==='devolucao'?'dv':''}">${_cf(_nVal(n))}</td></tr>`).join('');
+  const notasRows=notasOrd.map(n=>`<tr><td>${_cesc(n.dataBR)}</td><td>${_cesc(n.nNF)}/${_cesc(n.serie)}</td><td>${n.tipo==='devolucao'?'<span style="color:#b7791f">Devolução</span>':n.tipo==='frete'?'Frete (CT-e)':'Compra'}</td><td>${_cesc(_fornNome(n.forn))}</td><td class="c">${_nCnt(n)||'—'}</td><td class="r ${n.tipo==='devolucao'?'dv':''}">${_cf(_nVal(n))}</td></tr>`).join('');
   const secNotas = opts.notas ? `<h3>Notas <span class="c">(${notas.length})</span></h3><table><thead><tr><th>Data</th><th>Nota</th><th>Tipo</th><th>Fornecedor</th><th class="c">Itens</th><th class="r">Valor</th></tr></thead><tbody>${notasRows}</tbody><tfoot><tr><td colspan="5">Compras ${_cf(totC)} · Devoluções ${_cf(totD)} · Líquido</td><td class="r">${_cf(totLiq)}</td></tr></tfoot></table>` : '';
 
   // ---- Conta corrente ----
