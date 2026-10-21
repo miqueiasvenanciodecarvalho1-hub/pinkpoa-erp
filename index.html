@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.294</span>
+      ">v2.14.295</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -13848,7 +13848,7 @@ function _cmpBarV(entries){
 }
 // muitos meses → "por ano" + "últimos 12 meses"
 function _cmpBarVMeses(meses){ // [{key:'YYYY-MM', label, val}]
-  if(meses.length<=14) return _cmpBarV(meses);
+  if(meses.length<=12) return _cmpBarV(meses);
   const A={}; meses.forEach(m=>{ const y=String(m.key||'').slice(0,4); if(y) A[y]=(A[y]||0)+(m.val||0); });
   const anos=Object.keys(A).sort().slice(-10).map(y=>({label:y,val:A[y]}));
   return `<div style="font-size:11px;color:var(--gray-5);font-weight:600">Por ano</div>${_cmpBarV(anos)}<div style="font-size:11px;color:var(--gray-5);font-weight:600;margin-top:6px">Últimos 12 meses</div>${_cmpBarV(meses.slice(-12))}`;
@@ -14860,7 +14860,7 @@ function _comprasRelatorioDoc(opts){
   const secGraficos = opts.graficos ? `<h3>Gráficos</h3>
     <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:6px">
       <div style="flex:1;min-width:260px;overflow:hidden">${(()=>{ if(!_meses.length) return '<div style="font-size:11px;font-weight:700;margin-bottom:2px">Compras por mês</div><div style="color:#999;font-size:11px">—</div>';
-        if(_meses.length<=14) return '<div style="font-size:11px;font-weight:700;margin-bottom:2px">Compras por mês</div>'+_rbarV(_meses);
+        if(_meses.length<=12) return '<div style="font-size:11px;font-weight:700;margin-bottom:2px">Compras por mês</div>'+_rbarV(_meses);
         const A={}; Object.keys(_mesM).forEach(k=>{ const y=k.slice(0,4); A[y]=(A[y]||0)+_mesM[k]; });
         const anos=Object.keys(A).sort().map(y=>({label:y,val:A[y]}));
         return '<div style="font-size:11px;font-weight:700;margin-bottom:2px">Compras por ano</div>'+_rbarV(anos.slice(-10))+'<div style="font-size:11px;font-weight:700;margin:10px 0 2px">Últimos 12 meses</div>'+_rbarV(_meses.slice(-12)); })()}</div>
