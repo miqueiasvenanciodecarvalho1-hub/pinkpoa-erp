@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.278</span>
+      ">v2.14.279</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3491,43 +3491,69 @@ function _gestorLancar(comp){
   (DB.comissaoFat||[]).forEach(g=>{
     const c=calcComissaoFat(comp, g.filial||'', opts), pct=Number(g.pct)||0, comi=+(c.liquido*pct/100).toFixed(2);
     const cod=_gestorCodigo(g), i=DB.comissoes.findIndex(x=>x.manual && x.origem==='gestor' && String(x.codigo_rep)===cod && x.competencia_raw===comp);
-    if(i>=0 && DB.comissoes[i].status==='pago') return;   // já pago: não mexe
+    if(i>=0) return;   // v2.14.279: já lançado nesta competência — não lança de novo (para refazer: Reabrir período)
     const dt=comp+'-01', lin=(t,v)=>({titulo:t, serie:'', cli_cod:'', cli_nome:t, data:dt, taxa:pct, vlorvenc:+v.toFixed(2), comivenc:+(v*pct/100).toFixed(2), parcelas:1});
     const tit=[lin('VENDAS (BRUTO)', c.bruto)].concat(c.incTroca&&c.troca?[lin('(−) TROCA', -c.troca)]:[], c.incDevol&&c.devol?[lin('(−) DEVOLUÇÕES', -c.devol)]:[], c.incCanc&&c.estorno?[lin('(−) ESTORNO DE CANCELAMENTOS', -c.estorno)]:[]);
-    const reg={ id:(i>=0?DB.comissoes[i].id:Date.now()+(++n)), codigo_rep:cod, representante:String(g.nome||'').toUpperCase(), competencia:(_MABR[comp.slice(5,7)]||comp.slice(5,7))+'/'+comp.slice(0,4), competencia_raw:comp,
+    const reg={ id:Date.now()+n+1, codigo_rep:cod, representante:String(g.nome||'').toUpperCase(), competencia:(_MABR[comp.slice(5,7)]||comp.slice(5,7))+'/'+comp.slice(0,4), competencia_raw:comp,
       taxa:pct, qtd_notas:tit.length, qtd_clientes:0, total_vendas:c.liquido, total_comissao:comi, comi_liquida:0, val_devolucoes:0, devolucoes:0, baixas:0,
-      titulos:tit, abatimentos:[], baixas92:[], baixasNE:[], baixas99:[], canceladas:[], status:'fechado', manual:true, origem:'gestor',
+      titulos:tit, abatimentos:[], baixas92:[], baixasNE:[], baixas99:[], canceladas:[], status:'fechado', fechado_em:new Date().toISOString(), manual:true, origem:'gestor',
       baseFat:{bruto:c.bruto, troca:c.troca, devol:c.devol, estorno:c.estorno, liquido:c.liquido, filial:g.filial||'', nats:opts.soNats||[]} };
-    if(i>=0) DB.comissoes[i]=reg; else DB.comissoes.push(reg);
-    if(i<0) n++;
+    DB.comissoes.push(reg); n++;
   });
-  return (DB.comissaoFat||[]).length;
+  return n;
 }
+// v2.14.279: uma competência só fecha UMA vez. Já fechada → mostra o que foi lançado e (admin) oferece reabrir.
+function _gestorJaLancado(comp, g){ const cod=g.rep||''; return (DB.comissoes||[]).find(x=>x.manual && x.origem==='gestor' && x.competencia_raw===comp && (cod? String(x.codigo_rep)===String(cod) : String(x.representante||'').toUpperCase()===String(g.nome||'').toUpperCase())); }
 function modalFecharComissoes() {
   const comps=[...new Set((DB.comissoes||[]).map(c=>c.competencia_raw).filter(Boolean))].sort().reverse();
   const atual=_comFatCompAtual(); if(atual && !comps.includes(atual)) comps.unshift(atual);
   const sel=window._fcComp && comps.includes(window._fcComp) ? window._fcComp : (atual||comps[0]||'');
   const rot=r=>(_MABR[String(r).slice(5,7)]||'')+'/'+String(r).slice(0,4);
   const pend=(DB.comissoes||[]).filter(c=>c.status==='pendente' && c.competencia_raw===sel);
+  const fech=(DB.comissoes||[]).filter(c=>c.competencia_raw===sel && c.status!=='pendente' && c.origem!=='gestor');
   const opts=_cfOpts();
-  const gest=(DB.comissaoFat||[]).map(g=>{ const c=calcComissaoFat(sel, g.filial||'', opts); return {g, base:c.liquido, comi:+(c.liquido*(Number(g.pct)||0)/100).toFixed(2)}; });
+  const gest=(DB.comissaoFat||[]).map(g=>{ const ja=_gestorJaLancado(sel,g); if(ja) return {g, ja, base:Number(ja.total_vendas)||0, comi:Number(ja.total_comissao)||0};
+    const c=calcComissaoFat(sel, g.filial||'', opts); return {g, base:c.liquido, comi:+(c.liquido*(Number(g.pct)||0)/100).toFixed(2)}; });
+  const gNovos=gest.filter(x=>!x.ja), jaFechado=!pend.length && !gNovos.length && (fech.length || gest.length);
+  const quando=[...fech, ...gest.map(x=>x.ja).filter(Boolean)].map(c=>c.fechado_em).filter(Boolean).sort().pop();
+  const temPago=(DB.comissoes||[]).some(c=>c.competencia_raw===sel && c.status==='pago');
   openModal('Fechar Período de Comissões', `
     <div class="form-group"><label>Competência</label><select id="fc-comp" class="form-control" onchange="window._fcComp=this.value;modalFecharComissoes()">${comps.map(c=>`<option value="${c}" ${c===sel?'selected':''}>${rot(c)}</option>`).join('')}</select></div>
-    <div style="font-size:13px;margin:6px 0 12px">Serão <b>fechadas ${pend.length}</b> comissão(ões) pendente(s) de ${rot(sel)}.</div>
+    ${jaFechado?`<div style="border:1px solid #b7e1c4;background:#eafaf0;color:#1e7b45;border-radius:var(--radius);padding:10px 12px;font-size:13px;margin:6px 0 12px">
+        🔒 <b>${rot(sel)} já está fechada</b>${quando?` desde ${new Date(quando).toLocaleString('pt-BR')}`:''}. Não é possível fechar de novo.
+        ${_ehAdmin()?`<div style="font-size:11px;color:var(--gray-5);margin-top:4px">Se precisar corrigir algo, use <b>Reabrir período</b>: as comissões voltam para pendente e a comissão dos gestores é retirada${temPago?' (as já <b>pagas</b> não são mexidas)':''}. Depois feche de novo.</div>`:''}</div>`
+      :`<div style="font-size:13px;margin:6px 0 12px">Serão <b>fechadas ${pend.length}</b> comissão(ões) pendente(s) de ${rot(sel)}.${fech.length?` <span style="color:var(--gray-5)">(${fech.length} já fechada(s) antes)</span>`:''}</div>`}
     ${gest.length?`<div style="border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 12px;background:var(--gray-1)">
-      <label style="display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px;cursor:pointer"><input type="checkbox" id="fc-gest" checked> Lançar a comissão dos gestores (sobre o faturamento)</label>
-      <div style="font-size:11px;color:var(--gray-5);margin:4px 0 8px">Entra na lista de Comissões como as demais (já fechada). Cada gestor recebe um código de representante (GEST…) para você liberar o acesso dele em Usuários.</div>
-      <table style="font-size:12px;width:100%"><thead><tr><th>Gestor</th><th style="text-align:right">Base (fat. líquido)</th><th style="text-align:right">%</th><th style="text-align:right">Comissão</th></tr></thead>
-      <tbody>${gest.map(x=>`<tr><td>${x.g.nome}${x.g.filial?` (Fil. ${x.g.filial})`:''}${x.g.rep?` <span style="color:var(--gray-4);font-size:10px">${x.g.rep}</span>`:''}</td><td style="text-align:right">${fmt(x.base)}</td><td style="text-align:right">${(Number(x.g.pct)||0).toFixed(2).replace('.',',')}%</td><td style="text-align:right;font-weight:700;color:var(--pink)">${fmt(x.comi)}</td></tr>`).join('')}</tbody></table></div>`
+      ${gNovos.length?`<label style="display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px;cursor:pointer"><input type="checkbox" id="fc-gest" checked> Lançar a comissão dos gestores (sobre o faturamento)</label>
+      <div style="font-size:11px;color:var(--gray-5);margin:4px 0 8px">Entra na lista de Comissões como as demais (já fechada). Cada gestor recebe um código de representante (GEST…) para você liberar o acesso dele em Usuários.</div>`
+      :`<div style="font-weight:700;font-size:13px;margin-bottom:6px">Comissão dos gestores — já lançada em ${rot(sel)}</div>`}
+      <table style="font-size:12px;width:100%"><thead><tr><th>Gestor</th><th style="text-align:right">Base (fat. líquido)</th><th style="text-align:right">%</th><th style="text-align:right">Comissão</th><th></th></tr></thead>
+      <tbody>${gest.map(x=>`<tr><td>${x.g.nome}${x.g.filial?` (Fil. ${x.g.filial})`:''}${x.g.rep?` <span style="color:var(--gray-4);font-size:10px">${x.g.rep}</span>`:''}</td><td style="text-align:right">${fmt(x.base)}</td><td style="text-align:right">${(Number(x.g.pct)||0).toFixed(2).replace('.',',')}%</td><td style="text-align:right;font-weight:700;color:var(--pink)">${fmt(x.comi)}</td><td style="text-align:right">${x.ja?`<span class="badge ${x.ja.status==='pago'?'badge-blue':'badge-green'}">✓ ${x.ja.status==='pago'?'pago':'lançado'}</span>`:''}</td></tr>`).join('')}</tbody></table></div>`
     :`<div style="font-size:12px;color:var(--gray-5)">Nenhum gestor com comissão sobre faturamento cadastrado.</div>`}`,
-    `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
-     <button class="btn btn-primary" onclick="_fecharPeriodoConfirmar()">Confirmar Fechamento</button>`);
+    `<button class="btn btn-secondary" onclick="closeModal()">${jaFechado?'Fechar':'Cancelar'}</button>
+     ${jaFechado ? (_ehAdmin()?`<button class="btn btn-secondary" style="color:var(--red);border-color:var(--red)" onclick="_reabrirPeriodo()">Reabrir período</button>`:'')
+       : `<button class="btn btn-primary" onclick="_fecharPeriodoConfirmar()">Confirmar Fechamento</button>`}`);
 }
 function _fecharPeriodoConfirmar(){
   const comp=(document.getElementById('fc-comp')||{}).value||''; if(!comp) return toast('Escolha a competência','error');
-  let n=0; (DB.comissoes||[]).forEach(c=>{ if(c.status==='pendente' && c.competencia_raw===comp){ c.status='fechado'; n++; } });
+  if(window._fcOcupado) return; window._fcOcupado=true; setTimeout(()=>window._fcOcupado=false,1500);   // evita duplo clique
+  const agora=new Date().toISOString();
+  let n=0; (DB.comissoes||[]).forEach(c=>{ if(c.status==='pendente' && c.competencia_raw===comp){ c.status='fechado'; c.fechado_em=agora; n++; } });
   const g=(document.getElementById('fc-gest')||{}).checked ? _gestorLancar(comp) : 0;
+  if(!n && !g){ closeModal(); return toast('Este período já estava fechado — nada foi alterado','error'); }
   closeModal(); renderComissoes(); toast(`Período fechado ✅ — ${n} comissão(ões)${g?` + ${g} gestor(es) lançado(s)`:''}`);
+}
+function _reabrirPeriodo(){
+  if(!_ehAdmin()) return toast('Só o administrador pode reabrir','error');
+  const comp=(document.getElementById('fc-comp')||{}).value||''; if(!comp) return;
+  const rot=(_MABR[comp.slice(5,7)]||'')+'/'+comp.slice(0,4);
+  if(!confirm(`Reabrir ${rot}?\n\nAs comissões fechadas voltam para PENDENTE e a comissão dos gestores lançada é retirada (as já pagas ficam como estão).`)) return;
+  let n=0; DB.comissoes=(DB.comissoes||[]).filter(c=>{
+    if(c.competencia_raw!==comp || c.status==='pago') return true;
+    if(c.manual && c.origem==='gestor'){ n++; return false; }
+    if(c.status==='fechado'){ c.status='pendente'; delete c.fechado_em; n++; }
+    return true; });
+  closeModal(); renderComissoes(); toast(`${rot} reaberta — ${n} registro(s) ajustado(s)`);
 }
 
 function modalDetalheComissao(id) {
