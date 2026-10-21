@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.290</span>
+      ">v2.14.291</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -8666,6 +8666,51 @@ async function importarPagarBase(){
   };
   inp.click();
 }
+// v2.14.291: CONTAS A PAGAR redesenhado — filtros (situação em atalhos, período por vencimento ou pagamento, plano,
+// centro de custo, fornecedor), abas Painel / Por plano / Por centro de custo / Por fornecedor / Títulos, Excel.
+function _pgFLer(){ if(!window._pgF){ try{ window._pgF=JSON.parse(localStorage.getItem('pinkpoa_pg_filtros')||'{}')||{}; }catch(e){ window._pgF={}; } } return window._pgF; }
+function _pgFSet(k,v,tab){ const f=_pgFLer(); if(typeof k==='object') Object.assign(f,k); else f[k]=v; try{ localStorage.setItem('pinkpoa_pg_filtros', JSON.stringify(f)); }catch(e){} window._pgP=1; if(tab) window._pgTab=tab; renderPagar(); }
+function _pgFLimpar(){ window._pgF={}; try{ localStorage.removeItem('pinkpoa_pg_filtros'); }catch(e){} window._pgP=1; renderPagar(); }
+function _pgDados(){
+  const P=DB.pagar||[], f=_pgFLer();
+  const corte=f.corte || window._pgCorte || new Date().toISOString().slice(0,10); window._pgCorte=corte;
+  const ignAntigos=(window._pgIgnAnt===undefined)?true:window._pgIgnAnt;
+  const _aberto=p=>_pgAbertoEm(p, corte), _venc=p=>_aberto(p) && p.venc && p.venc<=corte;
+  const _antigo=p=>_aberto(p) && _pgMuitoAntigo(p, corte);
+  const bus=String(f.bus||'').toLowerCase();
+  let d=P.filter(p=>!p.cancfin);
+  if(f.emp) d=d.filter(p=>p.emp===f.emp);
+  if(f.pla) d=d.filter(p=>(p.planoDesc||p.plano||'(sem plano)')===f.pla);
+  if(f.cc)  d=d.filter(p=>(p.cc||'(sem centro de custo)')===f.cc);
+  if(f.forn)d=d.filter(p=>p.forn===f.forn);
+  if(bus)   d=d.filter(p=>String(p.forn).toLowerCase().includes(bus)||String(p.doc).toLowerCase().includes(bus)||String(p.nf).includes(bus)||String(p.obs||'').toLowerCase().includes(bus));
+  const antigos=d.filter(_antigo); if(ignAntigos) d=d.filter(p=>!_antigo(p));
+  const base=f.base==='pgmto'?'pgmto':'venc';
+  if(f.de)  d=d.filter(p=>(p[base]||'')>=f.de);
+  if(f.ate) d=d.filter(p=>(p[base]||'')!=='' && p[base]<=f.ate);
+  const add=n=>{ const x=new Date(corte+'T12:00'); x.setDate(x.getDate()+n); return x.toISOString().slice(0,10); };
+  const d7=add(7);
+  let lista=d;
+  if(f.st==='apagar')  lista=lista.filter(_aberto);
+  if(f.st==='vencido') lista=lista.filter(_venc);
+  if(f.st==='avencer') lista=lista.filter(p=>_aberto(p)&&!_venc(p));
+  if(f.st==='d7')      lista=lista.filter(p=>_aberto(p)&&p.venc>corte&&p.venc<=d7);
+  if(f.st==='pago')    lista=lista.filter(p=>!_aberto(p));
+  return {P,f,corte,ignAntigos,_aberto,_venc,antigos,d,lista,base,add};
+}
+function _pgGrupo(lista, keyFn, X){
+  const G={}; lista.forEach(p=>{ const k=keyFn(p)||'—'; const g=G[k]||(G[k]={k,n:0,ab:0,vc:0,pg:0,tot:0}); g.n++; g.tot+=p.valor; if(X._aberto(p)){ g.ab+=p.valor; if(X._venc(p)) g.vc+=p.valor; } else g.pg+=(p.pago||p.valor); });
+  return Object.values(G).sort((a,b)=>b.tot-a.tot);
+}
+function exportarPagarXLSX(){
+  const X=_pgDados(); if(typeof XLSX==='undefined') return toast('Excel indisponível','error');
+  const rows=X.lista.map(p=>({Empresa:p.emp, Fornecedor:p.forn, CNPJ:p.cnpj, Doc:p.doc||p.nf, Parcela:p.npt&&p.npt!=='1'?p.np+'/'+p.npt:'', Plano:p.planoDesc||p.plano, 'Centro de custo':p.cc, Emissão:p.emissao, Vencimento:p.venc, Valor:p.valor, Pagamento:p.pgmto, 'Valor pago':p.pago, Juros:p.juros, Desconto:p.desc, Situação:!X._aberto(p)?'PAGO':X._venc(p)?'VENCIDO':'A VENCER', Obs:p.obs}));
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Títulos');
+  const gs=(fn,nome)=>XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(_pgGrupo(X.lista,fn,X).map(g=>({[nome]:g.k, Títulos:g.n, 'A pagar':+g.ab.toFixed(2), Vencido:+g.vc.toFixed(2), Pago:+g.pg.toFixed(2), Total:+g.tot.toFixed(2)}))), nome.slice(0,30));
+  gs(p=>p.planoDesc||p.plano||'(sem plano)','Plano de contas'); gs(p=>p.cc||'(sem centro de custo)','Centro de custo'); gs(p=>p.forn,'Fornecedor');
+  XLSX.writeFile(wb, 'contas_a_pagar_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
 function renderPagar(){
   const P=DB.pagar||[];
   if(!P.length){
@@ -8680,124 +8725,129 @@ function renderPagar(){
       </div></div></div>`;
     return;
   }
-  const fEmp=document.getElementById('pg-emp')?.value||'';
-  const fSt =document.getElementById('pg-st')?.value||'';
-  const fMes=document.getElementById('pg-mes')?.value||'';
-  const fPla=document.getElementById('pg-pla')?.value||'';
-  const fBus=(document.getElementById('pg-bus')?.value||'').toLowerCase();
-  const hoje=new Date();
-  const corte=document.getElementById('pg-corte')?.value || window._pgCorte || new Date().toISOString().slice(0,10);
-  window._pgCorte=corte;
-  const ignAntigos=(window._pgIgnAnt===undefined)?true:window._pgIgnAnt;
-  let d=P.slice();
-  if(fEmp) d=d.filter(p=>p.emp===fEmp);
-  if(fPla) d=d.filter(p=>(p.planoDesc||p.plano)===fPla);
-  if(fBus) d=d.filter(p=>p.forn.toLowerCase().includes(fBus)||String(p.doc).toLowerCase().includes(fBus)||String(p.nf).includes(fBus));
-  // "em aberto" passa a ser sempre relativo à DATA DE CORTE
-  const _aberto=p=>_pgAbertoEm(p, corte);
-  const _antigo=p=>_aberto(p) && _pgMuitoAntigo(p, corte);
-  const antigos=d.filter(_antigo);
-  if(ignAntigos) d=d.filter(p=>!_antigo(p));
-  const _venc=p=>_aberto(p) && p.venc && p.venc<=corte;
+  const X=_pgDados(), f=X.f, corte=X.corte, _aberto=X._aberto, _venc=X._venc, d=X.d, lista=X.lista;
+  const tab=window._pgTab||'painel';
+  const soma=a=>a.reduce((s,p)=>s+(p.valor||0),0), somaPg=a=>a.reduce((s,p)=>s+(p.pago||p.valor||0),0);
   const ab=d.filter(_aberto), vc=ab.filter(_venc), av=ab.filter(p=>!_venc(p));
-  const soma=a=>a.reduce((s,p)=>s+p.valor,0);
-  const mesesV=[...new Set(P.map(p=>p.venc&&p.venc.slice(0,7)).filter(Boolean))].sort().reverse();
-  const planos=[...new Set(P.map(p=>p.planoDesc||p.plano).filter(Boolean))].sort();
-  const pagoMes=d.filter(p=>p.pgmto && (!fMes || p.pgmto.slice(0,7)===fMes));
-  // tabela segue também o mês (vencimento) e o status
-  let lista=d;
-  if(fMes) lista=lista.filter(p=>p.venc&&p.venc.slice(0,7)===fMes);
-  if(fSt==='aberto')  lista=lista.filter(_aberto);
-  if(fSt==='vencido') lista=lista.filter(_venc);
-  if(fSt==='baixado') lista=lista.filter(p=>!_aberto(p));
-  lista.sort((a,b)=>String(a.venc).localeCompare(String(b.venc)));
-  const POR=50, tot=lista.length, tp=Math.ceil(tot/POR)||1, pg=Math.min(window._pgP||1,tp);
-  const slice=lista.slice((pg-1)*POR,pg*POR);
+  const d7=ab.filter(p=>p.venc>corte&&p.venc<=X.add(7)), d30=ab.filter(p=>p.venc>corte&&p.venc<=X.add(30));
+  const pagos=d.filter(p=>!_aberto(p));
+  const juros=pagos.reduce((s,p)=>s+(Number(p.juros)||0),0), desc=pagos.reduce((s,p)=>s+(Number(p.desc)||0),0);
   const MES_L={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
-  // top fornecedores em aberto
-  const porForn={}; ab.forEach(p=>{ porForn[p.forn]=(porForn[p.forn]||0)+p.valor; });
-  const topF=Object.entries(porForn).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const rotM=m=>(MES_L[m.slice(5,7)]||'')+'/'+m.slice(2,4);
+  const planos=[...new Set(P.map(p=>p.planoDesc||p.plano||'(sem plano)'))].sort();
+  const ccs=[...new Set(P.map(p=>p.cc||'(sem centro de custo)'))].sort();
+  const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const js=t=>String(t==null?'':t).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  const chip=(id,l,n,v)=>`<button class="btn btn-sm ${(f.st||'')===id?'btn-primary':'btn-secondary'}" onclick="_pgFSet('st','${id}')">${l}${n!=null?` <span style="opacity:.75;font-size:10px">${n}</span>`:''}${v!=null?` <b style="font-size:10.5px">${fmt(v)}</b>`:''}</button>`;
+  const kp=(l,v,sub,cor,st)=>`<div class="kpi-card" style="border-left:3px solid ${cor};cursor:${st?'pointer':'default'}" ${st?`onclick="_pgFSet({st:'${st}'},null,'titulos')"`:''}><div class="kpi-label">${l}</div><div class="kpi-value" style="font-size:18px;color:${cor}">${v}</div><div class="kpi-sub">${sub}</div></div>`;
+  const ativos=[f.emp&&('Empresa '+f.emp), f.pla&&('Plano: '+f.pla), f.cc&&('C.custo: '+f.cc), f.forn&&('Fornecedor: '+f.forn), (f.de||f.ate)&&(`${X.base==='pgmto'?'Pagamento':'Vencimento'} ${f.de?fmtDate(f.de):'…'} a ${f.ate?fmtDate(f.ate):'…'}`), f.bus&&('Busca: '+f.bus)].filter(Boolean);
 
-  document.getElementById('content').innerHTML=`
-    <div class="kpi-grid">
-      <div class="kpi-card blue"><div class="kpi-label">A vencer (corte ${fmtDate(corte)})</div><div class="kpi-value">${fmt(soma(av))}</div>
-        <div class="kpi-sub">${av.length.toLocaleString('pt-BR')} títulos</div></div>
-      <div class="kpi-card" style="border-left:3px solid var(--red)"><div class="kpi-label">Vencidos</div>
-        <div class="kpi-value" style="color:var(--red)">${fmt(soma(vc))}</div>
-        <div class="kpi-sub">${vc.length.toLocaleString('pt-BR')} títulos</div></div>
-      <div class="kpi-card green"><div class="kpi-label">Pago${fMes?' no mês':''}</div><div class="kpi-value">${fmt(pagoMes.reduce((s,p)=>s+(p.pago||p.valor),0))}</div>
-        <div class="kpi-sub">${pagoMes.length.toLocaleString('pt-BR')} títulos</div></div>
-      <div class="kpi-card amber"><div class="kpi-label">Total filtrado</div><div class="kpi-value">${fmt(soma(lista))}</div>
-        <div class="kpi-sub">${tot.toLocaleString('pt-BR')} de ${P.length.toLocaleString('pt-BR')}</div></div>
-    </div>
-
-    <div class="card" style="margin-bottom:16px"><div class="card-body" style="padding:12px 16px">
-      <div style="font-weight:700;font-size:13px;margin-bottom:6px">Maiores fornecedores em aberto</div>
-      <table style="width:100%;font-size:12px"><tbody>${topF.map(([f,v])=>`<tr>
-        <td style="max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f}</td>
-        <td style="text-align:right;font-weight:700">${fmt(v)}</td></tr>`).join('')||'<tr><td>—</td></tr>'}</tbody></table>
-    </div></div>
-
-    <div class="card">
-      <div class="card-header">
-        <h2>Títulos a Pagar</h2>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-          <select id="pg-emp" class="form-control" style="width:100px" onchange="_pgFiltrar()">
-            <option value="">Empresa</option>
-            ${_pgEmpresas().map(e=>`<option value="${e}" ${fEmp===e?'selected':''}>${e}</option>`).join('')}
-          </select>
-          <select id="pg-mes" class="form-control" style="width:110px" onchange="_pgFiltrar()">
-            <option value="">Mês venc.</option>
-            ${mesesV.map(m=>`<option value="${m}" ${fMes===m?'selected':''}>${MES_L[m.slice(5,7)]}/${m.slice(2,4)}</option>`).join('')}
-          </select>
-          <select id="pg-st" class="form-control" style="width:110px" onchange="_pgFiltrar()">
-            <option value="">Situação</option>
-            <option value="aberto"  ${fSt==='aberto'?'selected':''}>Em aberto</option>
-            <option value="vencido" ${fSt==='vencido'?'selected':''}>Vencidos</option>
-            <option value="baixado" ${fSt==='baixado'?'selected':''}>Pagos</option>
-          </select>
-          <select id="pg-pla" class="ord-az form-control" style="width:180px" onchange="_pgFiltrar()">
-            <option value="">Plano de contas</option>
-            ${planos.map(p=>`<option value="${p}" ${fPla===p?'selected':''}>${p}</option>`).join('')}
-          </select>
-          <input id="pg-bus" class="form-control" style="width:170px" placeholder="Fornecedor ou doc. (Enter)" value="${fBus}"
-            onkeydown="if(event.key==='Enter'){event.preventDefault();_pgFiltrar();}">
-          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--gray-5)" title="Considera em aberto quem não tinha pagamento até esta data">
-            corte <input id="pg-corte" type="date" class="form-control" style="width:140px" value="${corte}" onchange="_pgFiltrar()"></label>
-          <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--gray-5);cursor:pointer">
-            <input type="checkbox" ${ignAntigos?'checked':''} onchange="window._pgIgnAnt=this.checked;_pgFiltrar()"> ignorar +${PG_MESES_CORTE} meses</label>
-          <button class="btn btn-primary btn-sm" onclick="_pgFiltrar()">🔍 Aplicar</button>
-          <button class="btn btn-secondary btn-sm" onclick="modalPosPagar()">📊 Posição de Fechamento</button>
-          <button class="btn btn-secondary btn-sm" onclick="importarPagarBase()">📥 Reimportar base</button>
-          <button class="btn btn-secondary btn-sm" onclick="['pg-emp','pg-mes','pg-st','pg-pla','pg-bus'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});_pgFiltrar()">✕ Limpar</button>
-        </div>
-      </div>
-      ${antigos.length?`<div style="padding:8px 20px;font-size:11px;color:var(--amber);background:#FFF9E6;border-bottom:1px solid var(--gray-2)">
-        ⚠ ${antigos.length.toLocaleString('pt-BR')} título(s) em aberto vencidos há mais de ${PG_MESES_CORTE} meses (${fmt(antigos.reduce((s,p)=>s+p.valor,0))})
-        ${ignAntigos?'estão fora dos números acima':'<b>estão sendo contados</b>'} — resíduo antigo do ERP.</div>`:''}
-      <div class="card-table"><table>
+  // ── painel ──
+  const painel=()=>{
+    const ms=[]; { const b=new Date(corte+'T12:00'); for(let k=-9;k<=3;k++){ const x=new Date(b.getFullYear(), b.getMonth()+k, 1); ms.push(x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')); } }
+    const M={}; ms.forEach(m=>M[m]={pg:0,ab:0,vc:0});
+    d.forEach(p=>{ if(!_aberto(p)){ const m=String(p.pgmto||'').slice(0,7); if(M[m]) M[m].pg+=(p.pago||p.valor); } else { const m=String(p.venc||'').slice(0,7); if(M[m]){ if(_venc(p)) M[m].vc+=p.valor; else M[m].ab+=p.valor; } } });
+    const mx=Math.max(1,...ms.map(m=>Math.max(M[m].pg, M[m].ab+M[m].vc)));
+    const bar=(v,c)=>`<div title="${fmt(v)}" style="width:12px;height:${Math.max(v?2:0,v/mx*140)}px;background:${c};border-radius:2px 2px 0 0"></div>`;
+    const dias=p=>Math.floor((new Date(corte+'T12:00')-new Date(p.venc+'T12:00'))/864e5);
+    const ag=[['1–30 dias',1,30],['31–60 dias',31,60],['61–90 dias',61,90],['+90 dias',91,1e9]].map(([l,a,b])=>{ const it=vc.filter(p=>{const x=dias(p);return x>=a&&x<=b;}); return {l,n:it.length,v:soma(it)}; });
+    const agMx=Math.max(1,...ag.map(a=>a.v));
+    const prox=ab.filter(p=>p.venc>corte && p.venc<=X.add(30)).sort((a,b)=>String(a.venc).localeCompare(b.venc));
+    const sem={}; prox.forEach(p=>{ const k=p.venc; sem[k]=sem[k]||{n:0,v:0}; sem[k].n++; sem[k].v+=p.valor; });
+    const top=(fn,nm,campo)=>_pgGrupo(d.filter(_aberto),fn,X).slice(0,8).map(g=>`<tr style="cursor:pointer" onclick="_pgFSet('${campo}','${js(g.k)}','titulos')"><td style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(g.k)}</td><td style="text-align:right;color:var(--red)">${g.vc?fmt(g.vc):'—'}</td><td style="text-align:right;font-weight:700">${fmt(g.ab)}</td></tr>`).join('')||`<tr><td colspan="3" style="color:var(--gray-5)">Nada em aberto</td></tr>`;
+    return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:14px">
+      <div class="card" style="padding:12px"><div style="font-weight:700;margin-bottom:8px">Mês a mês — pago × a pagar</div>
+        <div style="display:flex;align-items:flex-end;gap:10px;height:160px;border-bottom:1px solid var(--gray-2);padding:0 4px">${ms.map(m=>`<div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex:1"><div style="display:flex;align-items:flex-end;gap:2px">${bar(M[m].pg,'#16a34a')}<div style="display:flex;flex-direction:column-reverse">${bar(M[m].ab,'#2563eb')}${M[m].vc?bar(M[m].vc,'#c0392b'):''}</div></div></div>`).join('')}</div>
+        <div style="display:flex;gap:10px;padding:2px 4px">${ms.map(m=>`<div style="flex:1;text-align:center;font-size:9.5px;color:${m===corte.slice(0,7)?'var(--pink)':'var(--gray-5)'};font-weight:${m===corte.slice(0,7)?700:400}">${rotM(m)}</div>`).join('')}</div>
+        <div style="font-size:11px;color:var(--gray-5);margin-top:6px"><span style="color:#16a34a">■</span> pago (pela data de pagamento) · <span style="color:#2563eb">■</span> a vencer · <span style="color:#c0392b">■</span> vencido (pelo vencimento)</div></div>
+      <div class="card" style="padding:12px"><div style="font-weight:700;margin-bottom:8px">Vencidos por atraso</div>
+        ${ag.map(a=>`<div style="display:flex;align-items:center;gap:8px;margin:7px 0;cursor:pointer" onclick="_pgFSet({st:'vencido'},null,'titulos')"><div style="width:80px;font-size:12px">${a.l}</div><div style="flex:1;background:var(--gray-1);border-radius:4px;height:16px"><div style="width:${a.v/agMx*100}%;background:#c0392b;height:16px;border-radius:4px"></div></div><div style="width:150px;text-align:right;font-size:12px"><b>${fmt(a.v)}</b> <span style="color:var(--gray-5)">(${a.n})</span></div></div>`).join('')}
+        <div style="font-weight:700;margin:14px 0 6px">Próximos 30 dias</div>
+        <div style="max-height:150px;overflow:auto"><table style="font-size:12px;width:100%"><tbody>${Object.keys(sem).map(k=>`<tr><td>${fmtDate(k)}</td><td style="color:var(--gray-5)">${sem[k].n} título(s)</td><td style="text-align:right;font-weight:700">${fmt(sem[k].v)}</td></tr>`).join('')||'<tr><td style="color:var(--gray-5)">Nada vence nos próximos 30 dias</td></tr>'}</tbody></table></div></div>
+      <div class="card" style="padding:12px"><div style="font-weight:700;margin-bottom:6px">Em aberto por plano de contas</div><table style="font-size:12px;width:100%"><thead><tr><th>Plano</th><th style="text-align:right">Vencido</th><th style="text-align:right">A pagar</th></tr></thead><tbody>${top(p=>p.planoDesc||p.plano||'(sem plano)','Plano','pla')}</tbody></table></div>
+      <div class="card" style="padding:12px"><div style="font-weight:700;margin-bottom:6px">Em aberto por fornecedor</div><table style="font-size:12px;width:100%"><thead><tr><th>Fornecedor</th><th style="text-align:right">Vencido</th><th style="text-align:right">A pagar</th></tr></thead><tbody>${top(p=>p.forn,'Fornecedor','forn')}</tbody></table></div>
+    </div>`;
+  };
+  // ── resumos ──
+  const resumo=(fn,nome,campo)=>{ const G=_pgGrupo(lista,fn,X), T=G.reduce((t,g)=>({n:t.n+g.n,ab:t.ab+g.ab,vc:t.vc+g.vc,pg:t.pg+g.pg,tot:t.tot+g.tot}),{n:0,ab:0,vc:0,pg:0,tot:0});
+    return `<div class="card-table" style="max-height:62vh;overflow:auto"><table class="tb-cartao" style="font-size:12px"><thead><tr><th>${nome} (${G.length})</th><th style="text-align:right">Títulos</th><th style="text-align:right">A pagar</th><th style="text-align:right">Vencido</th><th style="text-align:right">Pago</th><th style="text-align:right">Total</th><th style="text-align:right">%</th></tr></thead>
+    <tbody>${G.map(g=>`<tr style="cursor:pointer" title="Ver os títulos" onclick="_pgFSet('${campo}','${js(g.k)}','titulos')"><td style="font-weight:600">${esc(g.k)}</td><td style="text-align:right">${g.n}</td><td style="text-align:right;color:var(--blue)">${g.ab?fmt(g.ab):'—'}</td><td style="text-align:right;color:var(--red)">${g.vc?fmt(g.vc):'—'}</td><td style="text-align:right;color:var(--green)">${g.pg?fmt(g.pg):'—'}</td><td style="text-align:right;font-weight:700">${fmt(g.tot)}</td><td style="text-align:right;color:var(--gray-5)">${T.tot?(g.tot/T.tot*100).toFixed(1).replace('.',','):0}%</td></tr>`).join('')||'<tr><td colspan="7" style="text-align:center;color:var(--gray-5)">Nenhum título no filtro</td></tr>'}</tbody>
+    <tfoot style="font-weight:700;background:var(--gray-1)"><tr><td>TOTAL</td><td style="text-align:right">${T.n}</td><td style="text-align:right">${fmt(T.ab)}</td><td style="text-align:right">${fmt(T.vc)}</td><td style="text-align:right">${fmt(T.pg)}</td><td style="text-align:right">${fmt(T.tot)}</td><td></td></tr></tfoot></table></div>`; };
+  // ── títulos ──
+  const ord=window._pgOrd||'venc';
+  const L=lista.slice().sort((a,b)=> ord==='valor'?b.valor-a.valor : ord==='forn'?String(a.forn).localeCompare(b.forn) : ord==='pgmto'?String(b.pgmto||'').localeCompare(a.pgmto||'') : String(a.venc).localeCompare(String(b.venc)));
+  const POR=50, tot=L.length, tp=Math.ceil(tot/POR)||1, pg=Math.min(window._pgP||1,tp), slice=L.slice((pg-1)*POR,pg*POR);
+  const titulos=()=>`
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;font-size:12px">Ordenar:
+        ${[['venc','Vencimento'],['pgmto','Pagamento'],['valor','Maior valor'],['forn','Fornecedor']].map(([k,l])=>`<button class="btn btn-sm ${ord===k?'btn-primary':'btn-secondary'}" onclick="window._pgOrd='${k}';renderPagar()">${l}</button>`).join('')}</div>
+      <div class="card-table"><table class="tb-cartao">
         <thead><tr><th>Fornecedor</th><th>Doc.</th><th>Plano / C.Custo</th><th>Emissão</th><th>Vencimento</th>
           <th style="text-align:right">Valor</th><th>Pagamento</th><th>Situação</th></tr></thead>
         <tbody>${slice.map(p=>{
           const venc=_venc(p), aberto=_aberto(p);
           return `<tr>
-            <td><div style="font-weight:500;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.forn}</div>
-              <div style="font-size:11px;color:var(--gray-5)">${p.emp}${p.obs?' · '+p.obs.slice(0,26):''}</div></td>
+            <td><div style="font-weight:500;max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" title="Filtrar este fornecedor" onclick="_pgFSet('forn','${js(p.forn)}')">${esc(p.forn)}</div>
+              <div style="font-size:11px;color:var(--gray-5)">${p.emp}${p.obs?' · '+esc(p.obs.slice(0,26)):''}</div></td>
             <td style="font-family:monospace;font-size:11px">${p.doc||p.nf||'—'}${p.npt&&p.npt!=='1'?`<span style="color:var(--gray-3)"> ${p.np}/${p.npt}</span>`:''}</td>
             <td style="font-size:11px"><div>${p.planoDesc||p.plano||'—'}</div><div style="color:var(--gray-5)">${p.cc||''}</div>${_pgEhComissao(p)?(()=>{ const t=_cpvDados().tit.find(x=>x.p===p); if(!t||t.modo==='ignorado') return ''; if(!t.k) return `<div style="color:var(--red);font-size:10px;cursor:pointer" onclick="modalComiPagamentos()">⚠ comissão sem representante — vincular</div>`; const v=_cpvDados().V[t.k+'|'+t.comp]; const ok=v&&Math.abs(v.dif)<=1; return `<div style="font-size:10px;cursor:pointer;color:${ok?'var(--green)':'#b45309'}" onclick="modalComiPagamentos('${t.comp}')">↔ Comissão ${t.comp.slice(5,7)}/${t.comp.slice(0,4)} · ${_cpvRotulo(t.k)} ${ok?'✓':'≠ dif. '+fmt(v?v.dif:0)}</div>`; })():''}</td>
             <td style="white-space:nowrap;font-size:12px">${fmtDate(p.emissao)}</td>
             <td style="white-space:nowrap;font-size:12px;color:${venc?'var(--red)':'inherit'}">${fmtDate(p.venc)}</td>
-            <td style="text-align:right;font-weight:600">${fmt(p.valor)}</td>
+            <td style="text-align:right;font-weight:600">${fmt(p.valor)}${!aberto && p.pago && Math.abs(p.pago-p.valor)>0.009?`<div style="font-size:10px;color:var(--gray-5)">pago ${fmt(p.pago)}</div>`:''}</td>
             <td style="white-space:nowrap;font-size:12px;color:var(--gray-5)">${p.pgmto?fmtDate(p.pgmto):'—'}</td>
-            <td><span class="badge ${!aberto?'badge-green':venc?'badge-red':'badge-amber'}">${!aberto?'pago':venc?'vencido':'aberto'}</span></td>
+            <td><span class="badge ${!aberto?'badge-green':venc?'badge-red':'badge-amber'}">${!aberto?'pago':venc?'vencido':'a vencer'}</span></td>
           </tr>`;}).join('')||'<tr><td colspan="8"><div class="empty-state"><div class="es-icon">🧾</div><div class="es-text">Nenhum título no filtro</div></div></td></tr>'}
         </tbody></table></div>
-      <div style="padding:12px 20px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--gray-2)">
-        <span style="font-size:12px;color:var(--gray-5)">Pág. ${pg}/${tp} · ${tot.toLocaleString('pt-BR')} títulos · ${fmt(soma(lista))}</span>
+      <div style="padding:12px 4px;display:flex;align-items:center;justify-content:space-between">
+        <span style="font-size:12px;color:var(--gray-5)">Pág. ${pg}/${tp} · ${tot.toLocaleString('pt-BR')} títulos · ${fmt(soma(L))}</span>
         <div style="display:flex;gap:6px">
           ${pg>1?`<button class="btn btn-secondary btn-sm" onclick="mudaPagPag(${pg-1})">← Ant.</button>`:''}
           ${pg<tp?`<button class="btn btn-secondary btn-sm" onclick="mudaPagPag(${pg+1})">Próx. →</button>`:''}
-        </div>
+        </div></div>`;
+
+  document.getElementById('content').innerHTML=`
+    <div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))">
+      ${kp('A pagar (em aberto)',fmt(soma(ab)),`${ab.length.toLocaleString('pt-BR')} títulos · corte ${fmtDate(corte)}`,'#2563eb','apagar')}
+      ${kp('Vencidos',fmt(soma(vc)),`${vc.length.toLocaleString('pt-BR')} títulos`,'var(--red)','vencido')}
+      ${kp('Vence em 7 dias',fmt(soma(d7)),`${d7.length} títulos · 30 dias: ${fmt(soma(d30))}`,'#b7791f','d7')}
+      ${kp('Pago',fmt(somaPg(pagos)),`${pagos.length.toLocaleString('pt-BR')} títulos${(f.de||f.ate)?' no período':''}`,'var(--green)','pago')}
+      ${kp('Juros / multa pagos',fmt(juros),`descontos obtidos ${fmt(desc)}`,'#8e44ad')}
+    </div>
+    <div class="card" style="margin-bottom:12px"><div class="card-body" style="padding:12px 16px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${chip('','Todos',d.length)}${chip('apagar','A pagar',ab.length)}${chip('vencido','Vencidos',vc.length)}${chip('avencer','A vencer',av.length)}${chip('d7','Vence em 7 dias',d7.length)}${chip('pago','Pagos',pagos.length)}
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select class="form-control" style="width:100px" onchange="_pgFSet('emp',this.value)"><option value="">Empresa</option>${_pgEmpresas().map(e=>`<option value="${e}" ${f.emp===e?'selected':''}>${e}</option>`).join('')}</select>
+        <select class="form-control" style="width:120px" onchange="_pgFSet('base',this.value)" title="Data usada no período"><option value="venc" ${X.base==='venc'?'selected':''}>Vencimento</option><option value="pgmto" ${X.base==='pgmto'?'selected':''}>Pagamento</option></select>
+        <input type="date" class="form-control" style="width:140px" value="${f.de||''}" onchange="_pgFSet('de',this.value)" title="De">
+        <input type="date" class="form-control" style="width:140px" value="${f.ate||''}" onchange="_pgFSet('ate',this.value)" title="Até">
+        ${(()=>{ const b=new Date(corte+'T12:00'), y=b.getFullYear(), m=b.getMonth(); const iso=x=>x.toISOString().slice(0,10); const ini=(yy,mm)=>iso(new Date(yy,mm,1,12)), fim=(yy,mm)=>iso(new Date(yy,mm+1,0,12));
+          return [['Este mês',ini(y,m),fim(y,m)],['Mês passado',ini(y,m-1),fim(y,m-1)],['Próximo mês',ini(y,m+1),fim(y,m+1)],['Ano',y+'-01-01',y+'-12-31']].map(([l,a,b2])=>`<button class="btn btn-sm ${f.de===a&&f.ate===b2?'btn-primary':'btn-secondary'}" onclick="_pgFSet({de:'${a}',ate:'${b2}'})">${l}</button>`).join(''); })()}
+        <select class="form-control ord-az" style="width:190px" onchange="_pgFSet('pla',this.value)"><option value="">Plano de contas</option>${planos.map(x=>`<option value="${esc(x)}" ${f.pla===x?'selected':''}>${esc(x)}</option>`).join('')}</select>
+        <select class="form-control ord-az" style="width:180px" onchange="_pgFSet('cc',this.value)"><option value="">Centro de custo</option>${ccs.map(x=>`<option value="${esc(x)}" ${f.cc===x?'selected':''}>${esc(x)}</option>`).join('')}</select>
+        <input class="form-control" style="width:190px" placeholder="Fornecedor, doc. ou obs. (Enter)" value="${esc(f.bus||'')}" onkeydown="if(event.key==='Enter'){event.preventDefault();_pgFSet('bus',this.value);}">
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--gray-5)" title="Considera em aberto quem não tinha pagamento até esta data">corte <input type="date" class="form-control" style="width:140px" value="${corte}" onchange="_pgFSet('corte',this.value)"></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--gray-5);cursor:pointer"><input type="checkbox" ${X.ignAntigos?'checked':''} onchange="window._pgIgnAnt=this.checked;renderPagar()"> ignorar +${PG_MESES_CORTE} meses</label>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        ${ativos.length?`<span style="font-size:11px;color:var(--pink);font-weight:700">Filtro: ${ativos.map(esc).join(' · ')}</span>`:''}
+        <span style="flex:1"></span>
+        <button class="btn btn-secondary btn-sm" onclick="_pgFLimpar()">✕ Limpar filtros</button>
+        <button class="btn btn-secondary btn-sm" onclick="exportarPagarXLSX()">⬇ Excel</button>
+        <button class="btn btn-secondary btn-sm" onclick="modalPosPagar()">📊 Posição de Fechamento</button>
+        <button class="btn btn-secondary btn-sm" onclick="importarPagarBase()">📥 Reimportar base</button>
+      </div>
+    </div></div>
+    ${X.antigos.length?`<div style="padding:8px 16px;font-size:11px;color:var(--amber);background:#FFF9E6;border-radius:6px;margin-bottom:10px">
+        ⚠ ${X.antigos.length.toLocaleString('pt-BR')} título(s) em aberto vencidos há mais de ${PG_MESES_CORTE} meses (${fmt(X.antigos.reduce((s,p)=>s+p.valor,0))})
+        ${X.ignAntigos?'estão fora dos números':'<b>estão sendo contados</b>'} — resíduo antigo do ERP.</div>`:''}
+    <div class="card">
+      <div style="display:flex;gap:3px;flex-wrap:wrap;border-bottom:2px solid var(--gray-2);padding:10px 16px 0">
+        ${[['painel','📊 Painel'],['plano','📒 Por plano de contas'],['cc','🏷 Por centro de custo'],['forn','🏭 Por fornecedor'],['titulos','🧾 Títulos ('+lista.length.toLocaleString('pt-BR')+')']].map(([k,l])=>`<button onclick="window._pgTab='${k}';renderPagar()" style="padding:7px 12px;border:none;border-radius:4px 4px 0 0;cursor:pointer;font-size:12px;font-weight:600;margin-bottom:-2px;background:${tab===k?'var(--pink)':'var(--gray-1)'};color:${tab===k?'#fff':'var(--gray-6)'}">${l}</button>`).join('')}
+      </div>
+      <div style="padding:14px 16px">
+        ${tab==='painel'?painel():tab==='plano'?resumo(p=>p.planoDesc||p.plano||'(sem plano)','Plano de contas','pla'):tab==='cc'?resumo(p=>p.cc||'(sem centro de custo)','Centro de custo','cc'):tab==='forn'?resumo(p=>p.forn,'Fornecedor','forn'):titulos()}
       </div>
     </div>`;
 }
