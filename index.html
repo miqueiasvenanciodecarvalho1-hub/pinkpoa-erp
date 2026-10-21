@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.284</span>
+      ">v2.14.285</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -11866,6 +11866,7 @@ let resumoAgruparGrupo = true
 let resumoIncluirSuperv = true
 let _resumoGrupoSel = '';
 
+function _ehGestorCod(cod){ cod=String(cod||''); return !!cod && ((DB.representantes||[]).some(r=>String(r.codigo)===cod && r.tipo==='gestor') || (DB.comissaoFat||[]).some(g=>String(g.rep||'')===cod)); }
 function _resumoComiDados(){
   const filtReps  = (window._comiReps||[]).map(String); const filtRep = filtReps.length===1?filtReps[0]:'';
   const filtMes  = document.getElementById('filtro-mes-com')?.value||'';
@@ -12071,7 +12072,9 @@ function modalResumoComissoes(){
   const _fmt = v=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(_n(v));
   const reps = _resumoComiDados();
   const inc  = reps.filter(r=>!resumoComiExcluidos.has(r.cod));
-  const tFat = inc.reduce((s,r)=>s+r.fat+(r.fatComp||0),0);
+  // v2.14.285: com gestor (ex.: ANDREA, comissão sobre o faturamento da EMPRESA) a base total = a base dele (não soma os reps)
+  const _gInc = inc.filter(r=>_ehGestorCod(r.cod));
+  const tFat = _gInc.length ? Math.max(..._gInc.map(r=>_n(r.fat))) : inc.reduce((s,r)=>s+r.fat+(r.fatComp||0),0);
   const tComi= inc.reduce((s,r)=>s+r.comi,0);
   const tMed = tFat?(tComi/tFat*100):0;
   window._supervDet={}; reps.forEach(r=>{ if(r.supervItens&&r.supervItens.length) window._supervDet[r.cod]=r.supervItens; });
@@ -12199,7 +12202,7 @@ function gerarResumoComiPDF(){
   let _gest=[];
   if(!_grpSel && !_escopoReps() && !(window._comiReps||[]).length && (DB.comissaoFat||[]).length && typeof calcComissaoFat==='function'){   // v240: com filtro de representante, gestor (comissão sobre a empresa) não entra
     const _m=(document.getElementById('filtro-mes-com')||{}).value||''; const _a=(document.getElementById('filtro-ano-com')||{}).value||'';
-    let _cr; if(_m&&_a) _cr=_a+'-'+_m; else _cr=[...new Set((DB.faturamento||[]).map(f=>f.mes).filter(Boolean))].sort().reverse()[0]||'';
+    let _cr; if(_m&&_a) _cr=_a+'-'+_m; else _cr=[...new Set((DB.faturamento||[]).map(f=>String(f.mes||'').slice(0,7)).filter(Boolean))].sort().reverse()[0]||'';
     const _o=(typeof _cfOpts==='function')?_cfOpts():{};
     _gest=(DB.comissaoFat||[]).filter(g=>!(g.rep && (DB.comissoes||[]).some(x=>x.origem==='gestor' && String(x.codigo_rep)===String(g.rep) && x.competencia_raw===_cr))).map(g=>{ const c=calcComissaoFat(_cr, g.filial||'', _o); return {nome:g.nome, filial:g.filial||'', fat:c.liquido, comi:+(c.liquido*(Number(g.pct)||0)/100).toFixed(2), pct:Number(g.pct)||0}; });
   }
@@ -12207,7 +12210,8 @@ function gerarResumoComiPDF(){
   // Base do rodapé: quando há gestor (ex.: Andrea) a base dele JÁ é o faturamento TOTAL da empresa —
   // então o total da coluna de base = esse faturamento total (não soma com os reps, que o duplicaria).
   const _fatReps = reps.reduce((s,r)=>s+r.fat+(r.fatComp||0),0);   // v236: inclui o faturamento que veio com a compartilhada
-  const tFat = _gest.length ? Math.max(..._gest.map(g=>Number(g.fat)||0)) : _fatReps;
+  const _gBases = _gest.map(g=>Number(g.fat)||0).concat(reps.filter(r=>_ehGestorCod(r.cod)).map(r=>_n(r.fat)));   // v2.14.285: gestor já lançado em Comissões também conta
+  const tFat = _gBases.length ? Math.max(..._gBases) : _fatReps;
   const tComi= reps.reduce((s,r)=>s+r.comi,0) + _gest.reduce((s,g)=>s+g.comi,0);
   const tMed = tFat?(tComi/tFat*100):0;
   const periodo = _resumoPeriodoLabel();
