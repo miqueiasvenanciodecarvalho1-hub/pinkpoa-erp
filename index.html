@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.283</span>
+      ">v2.14.284</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3414,8 +3414,8 @@ function renderComissoes() {
             <select id="comi-rel-ord" class="form-control" style="width:150px" onchange="window._comiRelOrd=this.value" title="Ordenação das notas no relatório PDF por representante">
               ${[['emissao','Ordenar: Emissão'],['emissao_tudo','Ordenar: Emissão (tudo junto)'],['fat_desc','Ordenar: Maior venda'],['comi_desc','Ordenar: Maior comissão'],['cliente','Ordenar: Cliente']].map(([v,l])=>`<option value="${v}" ${((window._comiRelOrd||'emissao')===v)?'selected':''}>${l}</option>`).join('')}
             </select>
-            <select id="comi-rel-folha" class="form-control" style="width:170px" onchange="window._comiRelFolha=this.value;try{localStorage.setItem('pinkpoa_comi_rel_folha',this.value)}catch(e){}" title="Como os representantes saem no PDF">
-              ${(()=>{ let v=window._comiRelFolha; if(!v){ try{ v=localStorage.getItem('pinkpoa_comi_rel_folha'); }catch(e){} } v=v||'folha'; window._comiRelFolha=v; return [['folha','PDF: 1 folha por repr.'],['compacto','PDF: compacto (juntar)']].map(([k,l])=>`<option value="${k}" ${v===k?'selected':''}>${l}</option>`).join(''); })()}
+            <select id="comi-rel-folha" class="form-control" style="width:170px" onchange="_pdfFolhaSet(this.value)" title="Como os representantes saem no PDF">
+              ${(()=>{ const v=_pdfFolhaModo(); return [['folha','PDF: 1 folha por repr.'],['compacto','PDF: compacto (juntar)']].map(([k,l])=>`<option value="${k}" ${v===k?'selected':''}>${l}</option>`).join(''); })()}
             </select>
             <button class="btn btn-secondary btn-sm" onclick="window._comiReps=[];['filtro-comp','filtro-mes-com','filtro-ano-com'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});renderComissoes();">✕</button>
             <button class="btn btn-secondary btn-sm" onclick="exportarComissoesXLSX()">⬇ Excel</button>
@@ -10677,6 +10677,22 @@ async function dispararAutomacao() {
   toast('Automação concluída! ✅');
 }
 
+// v2.14.284: JUNTAR FOLHAS — em qualquer relatório com várias folhas (.page), "compacto" coloca uma embaixo da outra
+// na mesma folha A4 (só quebra quando não cabe; um bloco não é cortado no meio). Preferência fica neste aparelho.
+function _pdfFolhaModo(){ let v=''; try{ v=localStorage.getItem('pinkpoa_comi_rel_folha')||''; }catch(e){} return v||'compacto'; }
+function _pdfFolhaSet(v){ try{ localStorage.setItem('pinkpoa_comi_rel_folha',v); }catch(e){} const fr=document.getElementById('pdf-frame'), ov=document.getElementById('pdf-overlay');
+  if(fr && ov && ov.style.display==='flex' && fr.contentDocument) _pdfCompactoAplicar(fr.contentDocument);
+  const sel=document.getElementById('comi-rel-folha'); if(sel) sel.value=v; }
+function _pdfCompactoAplicar(doc){ try{
+  const n=doc.querySelectorAll('.page').length, b=document.getElementById('pdf-btn-juntar');
+  if(b){ b.style.display=n>1?'':'none'; }
+  if(n<2) return;
+  if(!doc.getElementById('pdf-compacto')){ const st=doc.createElement('style'); st.id='pdf-compacto';
+    st.textContent='body.compacto .page{box-shadow:none!important;margin:0 auto!important;padding:6mm 10mm 4mm!important;border-bottom:1.5px dashed #C85E8A;break-inside:avoid;page-break-inside:avoid}body.compacto .page+.page .hdr{display:none}body.compacto .page .fb{margin-bottom:6px;padding:6px 10px}@media print{body.compacto .page{page-break-after:auto!important;break-after:auto!important;padding:5mm 10mm 3mm!important}}';
+    doc.head.appendChild(st); }
+  const c=_pdfFolhaModo()==='compacto'; doc.body.classList.toggle('compacto',c);
+  if(b) b.textContent=c?'📄 Separar folhas':'🗜 Juntar folhas';
+}catch(e){} }
 function abrirPDFOverlay(htmlContent) {
   const overlay = document.getElementById('pdf-overlay');
   const frame   = document.getElementById('pdf-frame');
@@ -10693,7 +10709,7 @@ function abrirPDFOverlay(htmlContent) {
   overlay.style.display = 'flex';
   window._ultimoRelatorioHTML = htmlContent;
   const doc = frame.contentDocument || frame.contentWindow?.document;
-  if(doc) { doc.open(); doc.write(htmlContent); doc.close(); _pdfAjustarTela(frame); }
+  if(doc) { doc.open(); doc.write(htmlContent); doc.close(); _pdfCompactoAplicar(doc); _pdfAjustarTela(frame); }
   const sidebar = document.getElementById('sidebar');
   if(sidebar) sidebar.style.display='none';
 }
@@ -11350,7 +11366,8 @@ function _modalDiff(titulo, mesRaw, snap, res, campos, rotulos, descFn){
 }
 
 function baixarRelatorioHTML(){
-  const html=window._ultimoRelatorioHTML||'';
+  let html=window._ultimoRelatorioHTML||'';
+  try{ const d=document.getElementById('pdf-frame').contentDocument; if(html && d && d.body && d.body.classList.contains('compacto')){ const st=d.getElementById('pdf-cel'); const z=d.body.style.zoom; if(st) st.remove(); d.body.style.zoom=''; html='<!DOCTYPE html>'+d.documentElement.outerHTML; d.body.style.zoom=z; if(st) d.head.appendChild(st); } }catch(e){}
   if(!html){ toast('Nada para baixar','error'); return; }
   const blob=new Blob([html],{type:'text/html;charset=utf-8'});
   const url=URL.createObjectURL(blob);
@@ -14766,8 +14783,7 @@ function gerarRelatorioComiPDF(comId) {
     paginaTotal=`<div class="page"><div class="hdr"><div class="logo">${logoSrc?`<img src="${logoSrc}">`:'<strong style="color:#C85E8A">Pink Poá</strong>'}</div><div class="title"><h1>Relatório de Comissões — Totalização Geral</h1><h2>${periodo} · ${(()=>{const nc=new Set(resumo.map(r=>r.comp)).size;return nc+' competência'+(nc>1?'s':'')+' · '+resumo.length+' representante(s)';})()}</h2></div><div class="dt">${new Date().toLocaleDateString('pt-BR')}</div></div><div class="fb"><div class="fl"><div class="fl-label">RESUMO CONSOLIDADO</div><div class="fl-nome">${Object.keys(porRep).length} representante(s) · ${gNotas.toLocaleString('pt-BR')} notas</div></div><div class="fr"><div class="fl-label">TOTAIS DO RELATÓRIO</div><div class="fl-info">Faturamento Bruto: <strong>${_fmt(gBruto)}</strong></div>${gAbatVal?`<div class="fl-info" style="color:#c0392b">Abatimentos (valor): <strong>${_fmt(gAbatVal)}</strong></div>`:''}<div class="fl-info">Faturamento Líquido: <strong>${_fmt(gFat)}</strong></div><div class="fl-info" style="margin-top:5px">Comissão Bruta: <strong>${_fmt(gBruta_)}</strong></div>${gAbat?`<div class="fl-info" style="color:#c0392b">Abatimento Comissão: <strong>${_fmt(gAbat)}</strong></div>`:''}<div class="fl-info">Saldo Comissão: <strong style="color:${gSaldo>0?'#1b6b3a':'#a51c1c'}">${_fmt(gSaldo)}</strong></div></div></div><table><colgroup><col style="width:29%"><col style="width:12%"><col style="width:8%"><col style="width:14%"><col style="width:13%"><col style="width:11%"><col style="width:13%"></colgroup><thead><tr><th>Representante</th><th>Competência</th><th class="r">Notas</th><th class="r">Fat Líq. (R$)</th><th class="r">Comissão Bruta</th><th class="r">Abatimentos</th><th class="r">Saldo Comissão</th></tr></thead><tbody>${linhasRes}</tbody><tfoot><tr><td colspan="2">TOTAL GERAL — ${new Set(resumo.map(r=>r.comp)).size} competência(s) · ${resumo.length} representante(s)</td><td class="r">${gNotas.toLocaleString('pt-BR')}</td><td class="r">${_fmt(gFat)}</td><td class="r">${_fmt(gBruta)}</td><td class="r">${gAbat?_fmt(gAbat):'—'}</td><td class="r">${_fmt(gSaldo)}</td></tr></tfoot></table></div>`;
   }
 
-  const _relCompacto=(()=>{ let v=window._comiRelFolha; if(!v){ try{ v=localStorage.getItem('pinkpoa_comi_rel_folha'); }catch(e){} } return v==='compacto'; })();
-  const htmlRel=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Comissões — ${periodo}</title><style>${_relCompacto?`body.compacto .page.bloco{box-shadow:none;margin:0 auto;padding:6mm 10mm 4mm;border-bottom:1.5px dashed #C85E8A;break-inside:avoid;page-break-inside:avoid}body.compacto .page.bloco+.page.bloco .hdr{display:none}body.compacto .page.bloco .fb{margin-bottom:6px;padding:6px 10px}@media print{body.compacto .page.bloco{page-break-after:auto!important;break-after:auto!important;padding:5mm 10mm 3mm}}`:''}@page{size:A4 portrait;margin:0}*{box-sizing:border-box;margin:0;padding:0}html{background:#525659;color-scheme:light}body{font-family:Arial,sans-serif;font-size:10px;color:#1a1a1a;background:#525659;padding:18px 12px 0}.page{width:210mm;max-width:100%;background:#fff;margin:0 auto 18px;padding:14mm 10mm;box-shadow:0 3px 14px rgba(0,0,0,.45);overflow:hidden}.hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding-bottom:8px;border-bottom:2px solid #C85E8A;margin-bottom:12px}.hdr img{height:34px}.logo{flex:0 0 auto}.title{flex:1;text-align:center;min-width:0}.title h1{font-size:13px;font-weight:700;color:#C85E8A}.title h2{font-size:10px;color:#555;margin-top:2px}.dt{flex:0 0 auto;font-size:9px;color:#888;text-align:right;white-space:nowrap}.fb{display:flex;gap:16px;border:1px solid #ddd;border-radius:4px;padding:10px 14px;margin-bottom:12px;background:#fafafa}.fl{flex:1;min-width:0}.fr{flex:0 0 auto;text-align:right}.fl-label{font-size:9px;font-weight:700;color:#999;text-transform:uppercase;margin-bottom:4px}.fl-nome{font-size:12px;font-weight:700}.fl-info{font-size:10px;color:#555;margin-top:2px;white-space:nowrap}table{width:100%;table-layout:fixed;border-collapse:collapse;margin-bottom:0}thead tr{background:#C85E8A;color:#fff}thead{display:table-header-group}tr{page-break-inside:avoid}th{padding:5px 5px;font-size:9px;font-weight:700}td{padding:3px 5px;font-size:9px;border-bottom:1px solid #f0f0f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#fdf7fb}tr.abat{background:#fff5f5}tr.abat td{color:#c0392b}tr.dev{background:#fff7ed}tr.dev td{color:#b45309}.vm{color:#c0392b}.fl-comp{margin-top:8px;padding-top:7px;border-top:1px dashed #ddd}.fl-comp-l{font-size:8px;color:#999;text-transform:uppercase;letter-spacing:.4px}.fl-comp-v{font-size:11px;font-weight:700;color:#1a1a1a;line-height:1.3}.m{font-family:monospace}th.r,td.r{text-align:right}tfoot tr{background:#f5e0ec;font-weight:700;border-top:1.5px solid #C85E8A}tfoot td{padding:5px 5px;font-size:9px}.no-print{margin:0 0 20px;text-align:center}@media print{html,body{background:#fff;padding:0}.page{width:auto;max-width:none;margin:0;padding:12mm 10mm;box-shadow:none;page-break-after:always}.page:last-of-type{page-break-after:auto}.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body class="${_relCompacto?'compacto':''}">${_relCompacto?paginaReps.split('<div class="page">').join('<div class="page bloco">')+paginaTotal.split('<div class="page">').join('<div class="page bloco">'):paginaReps+paginaTotal}</body></html>`;
+  const htmlRel=`<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Comissões — ${periodo}</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box;margin:0;padding:0}html{background:#525659;color-scheme:light}body{font-family:Arial,sans-serif;font-size:10px;color:#1a1a1a;background:#525659;padding:18px 12px 0}.page{width:210mm;max-width:100%;background:#fff;margin:0 auto 18px;padding:14mm 10mm;box-shadow:0 3px 14px rgba(0,0,0,.45);overflow:hidden}.hdr{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding-bottom:8px;border-bottom:2px solid #C85E8A;margin-bottom:12px}.hdr img{height:34px}.logo{flex:0 0 auto}.title{flex:1;text-align:center;min-width:0}.title h1{font-size:13px;font-weight:700;color:#C85E8A}.title h2{font-size:10px;color:#555;margin-top:2px}.dt{flex:0 0 auto;font-size:9px;color:#888;text-align:right;white-space:nowrap}.fb{display:flex;gap:16px;border:1px solid #ddd;border-radius:4px;padding:10px 14px;margin-bottom:12px;background:#fafafa}.fl{flex:1;min-width:0}.fr{flex:0 0 auto;text-align:right}.fl-label{font-size:9px;font-weight:700;color:#999;text-transform:uppercase;margin-bottom:4px}.fl-nome{font-size:12px;font-weight:700}.fl-info{font-size:10px;color:#555;margin-top:2px;white-space:nowrap}table{width:100%;table-layout:fixed;border-collapse:collapse;margin-bottom:0}thead tr{background:#C85E8A;color:#fff}thead{display:table-header-group}tr{page-break-inside:avoid}th{padding:5px 5px;font-size:9px;font-weight:700}td{padding:3px 5px;font-size:9px;border-bottom:1px solid #f0f0f0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}tbody tr:nth-child(even){background:#fdf7fb}tr.abat{background:#fff5f5}tr.abat td{color:#c0392b}tr.dev{background:#fff7ed}tr.dev td{color:#b45309}.vm{color:#c0392b}.fl-comp{margin-top:8px;padding-top:7px;border-top:1px dashed #ddd}.fl-comp-l{font-size:8px;color:#999;text-transform:uppercase;letter-spacing:.4px}.fl-comp-v{font-size:11px;font-weight:700;color:#1a1a1a;line-height:1.3}.m{font-family:monospace}th.r,td.r{text-align:right}tfoot tr{background:#f5e0ec;font-weight:700;border-top:1.5px solid #C85E8A}tfoot td{padding:5px 5px;font-size:9px}.no-print{margin:0 0 20px;text-align:center}@media print{html,body{background:#fff;padding:0}.page{width:auto;max-width:none;margin:0;padding:12mm 10mm;box-shadow:none;page-break-after:always}.page:last-of-type{page-break-after:auto}.no-print{display:none}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}</style></head><body>${paginaReps}${paginaTotal}</body></html>`;
   abrirPDFOverlay(htmlRel);
 }
 
@@ -14945,6 +14961,7 @@ try {
     <div style="background:#3d4043;padding:10px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.4)">
       <span style="color:#fff;font-weight:600;font-size:14px">📄 Visualização do Relatório</span>
       <button onclick="imprimirRelatorio()" style="background:#C85E8A;color:#fff;border:none;padding:6px 18px;border-radius:4px;font-weight:700;cursor:pointer;font-size:13px">🖨 Imprimir / Salvar PDF</button>
+      <button id="pdf-btn-juntar" onclick="_pdfFolhaSet(_pdfFolhaModo()==='compacto'?'folha':'compacto')" style="background:#fff;color:#3d4043;border:none;padding:6px 14px;border-radius:4px;font-weight:700;cursor:pointer;font-size:13px">🗜 Juntar folhas</button>
       <button onclick="baixarRelatorioHTML()" style="background:#1e7145;color:#fff;border:none;padding:6px 14px;border-radius:4px;font-weight:700;cursor:pointer;font-size:13px">⬇ Baixar (p/ PDF)</button>
       <button onclick="fecharPDFOverlay()" style="background:#555;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px">✕ Fechar</button>
     </div>
