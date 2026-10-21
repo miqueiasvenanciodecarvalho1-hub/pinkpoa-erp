@@ -562,7 +562,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.273</span>
+      ">v2.14.274</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2695,7 +2695,7 @@ const FAT_COLS=[
   {k:'icms', rot:'ICMS', td:f=>`<td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.vi?fmt(f.vi):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.vi))},
   {k:'pis', rot:'PIS', td:f=>`<td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.pis?fmt(f.pis):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.pis))},
   {k:'cof', rot:'COFINS', td:f=>`<td style="text-align:right;font-size:11px;color:var(--gray-5)">${f.cof?fmt(f.cof):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.cof))},
-  {k:'comi', rot:'Comissão', td:f=>`<td style="text-align:right;font-weight:600;color:var(--pink)">${f.comi?fmt(f.comi):'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.comi)), cor:'var(--pink)'},
+  {k:'comi', rot:'Comissão', td:f=>{ const v=_comiNota(f); return `<td style="text-align:right;font-weight:600;color:${v<0?'var(--red)':'var(--pink)'}" title="${f.comi?'gravada na importação':'calculada: líquido × taxa do representante'}">${v?fmt(v):'—'}</td>`; }, tot:a=>_fcm(_fsum(a,f=>_comiNota(f))), cor:'var(--pink)'},
   {k:'qtd', rot:'Peças', td:f=>`<td style="text-align:right">${f.qtd?f.qtd.toLocaleString('pt-BR'):'—'}</td>`, tot:a=>_fsum(a,f=>f.qtd).toLocaleString('pt-BR')},
 ];
 function _fatColsVis(){ let h=[]; try{ h=JSON.parse(localStorage.getItem(FAT_COLS_KEY)||'[]')||[]; }catch(e){} const oc=new Set(h);
@@ -2777,12 +2777,13 @@ function renderFaturamento() {
   const tPis      = base.reduce((s,f)=>s+(f.pis||0),0);
   const tCof      = base.reduce((s,f)=>s+(f.cof||0),0);
   const _comiOf   = _comiOficialFat({fTipo,fFil,fRep,fMes,fAno,fNats,fBusca});
-  const tComi     = _comiOf.ok ? _comiOf.comi : 0;
+  const _comiCalc = base.reduce((s,f)=>s+_comiNota(f),0);   // v274: estimativa nota a nota (líquido × taxa)
+  const tComi     = _comiOf.ok ? _comiOf.comi : _comiCalc;
   const tQtd      = base.reduce((s,f)=>s+(f.qtd||0),0);
   const tTributos = tIcms + tPis + tCof;
   const pctDesc   = tBruto ? (tDesc/tBruto*100).toFixed(1) : 0;
   const pctTrib   = tLiquido ? (tTributos/tLiquido*100).toFixed(1) : 0;
-  const pctComi   = (_comiOf.ok && _comiOf.base) ? (_comiOf.comi/_comiOf.base*100).toFixed(2) : 0;
+  const pctComi   = (_comiOf.ok && _comiOf.base) ? (_comiOf.comi/_comiOf.base*100).toFixed(2) : (tFatLiq ? (_comiCalc/tFatLiq*100).toFixed(2) : 0);
   const pctDevol  = tBruto ? (tDevol/tBruto*100).toFixed(1) : 0;
   const temFiltro = !!(fTipo||fFil||fRep||fMes||fAno||fNats.length||fBusca);
   const avisoSit = (nExcluidas && fTipo!=='cancelada')
@@ -2854,8 +2855,8 @@ function renderFaturamento() {
       </div>
       <div class="so-master" style="background:var(--pink-lt);border-radius:var(--radius);padding:12px;box-shadow:var(--shadow);border-top:3px solid var(--pink)">
         <div class="kpi-label">Comissão Estimada</div>
-        <div style="font-size:16px;font-weight:700;margin:3px 0;color:var(--pink)">${_comiOf.ok ? fmt(tComi) : '—'}</div>
-        <div class="kpi-sub">${_comiOf.ok ? pctComi+'% · fonte oficial (Comissões)' : 'ver módulo Comissões'}</div>
+        <div style="font-size:16px;font-weight:700;margin:3px 0;color:var(--pink)">${fmt(tComi)}</div>
+        <div class="kpi-sub">${_comiOf.ok ? pctComi+'% · fonte oficial (Comissões)' : pctComi+'% · estimada: líquido × taxa de cada representante'}</div>
       </div>
     </div>
 
@@ -2938,7 +2939,7 @@ function renderFaturamento() {
             window._fatNats=[];mudaFatPag(1);renderFaturamento();">✕ Limpar</button>
         </div>
         ${temFiltro?`<div style="font-size:11px;color:var(--gray-5);border-top:1px solid var(--gray-2);padding-top:6px">
-          Filtrado: <strong>${fmt(tFatLiq)}</strong> fat. líquido (bruto − troca)${tTroca?` · ${fmt(tTroca)} troca`:''}${(()=>{const n=Object.keys(DB.abat_repo||{}).length;const v=Object.values(DB.abat_repo||{}).flat().reduce((s,x)=>s+(Number(x.valor)||0),0);return n?` · <span style="color:#1b6b3a">troca carregada: ${n} nota(s) · ${fmt(v)} (vpdpcl2)</span>`:` · <span style="color:#c0392b;font-weight:700">⚠ TROCA NÃO CARREGADA</span> <button onclick="importarTrocaDireto()" style="background:#c0392b;color:#fff;border:none;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;font-weight:700">📥 Importar vpdpcl2 agora</button>`;})()} · ${fmt(tDevol)} devol. · ${fmt(tTributos)} tributos · ${_comiOf.ok ? fmt(tComi)+' comissão' : 'comissão: ver Comissões'} · ${tQtd.toLocaleString('pt-BR')} peças
+          Filtrado: <strong>${fmt(tFatLiq)}</strong> fat. líquido (bruto − troca)${tTroca?` · ${fmt(tTroca)} troca`:''}${(()=>{const n=Object.keys(DB.abat_repo||{}).length;const v=Object.values(DB.abat_repo||{}).flat().reduce((s,x)=>s+(Number(x.valor)||0),0);return n?` · <span style="color:#1b6b3a">troca carregada: ${n} nota(s) · ${fmt(v)} (vpdpcl2)</span>`:` · <span style="color:#c0392b;font-weight:700">⚠ TROCA NÃO CARREGADA</span> <button onclick="importarTrocaDireto()" style="background:#c0392b;color:#fff;border:none;border-radius:6px;padding:2px 8px;font-size:11px;cursor:pointer;font-weight:700">📥 Importar vpdpcl2 agora</button>`;})()} · ${fmt(tDevol)} devol. · ${fmt(tTributos)} tributos · ${_veComissao()?fmt(tComi)+(_comiOf.ok?' comissão':' comissão (estimada)'):''} · ${tQtd.toLocaleString('pt-BR')} peças
         </div>`:''}</div>
 
       ${avisoSit}
@@ -6806,6 +6807,22 @@ function _competenciaLabel(raw){          // "2025-07" -> "Jul/2025"
 function _colImp(row, ...keys){
   for(const k of keys){ const v = row[k]; if(v!=null && String(v).trim()!=='') return String(v).trim(); }
   return '';
+}
+// v274: COMISSÃO DA NOTA no Faturamento — usa a gravada na importação; sem ela, calcula pela taxa: da nota → da comissão
+// do mês em Comissões → do cadastro do representante → "% no nome" (ex.: SIMONE 3,5 %). Cancelada = 0; devolução = negativa.
+function _taxaRepMes(rep, mes){
+  rep=String(rep||''); const c=(DB.comissoes||[]).find(x=>String(x.codigo_rep)===rep && x.competencia_raw===mes && Number(x.taxa)>0);
+  if(c) return Number(c.taxa);
+  const r=(DB.representantes||[]).find(x=>String(x.codigo)===rep); if(r && Number(r.taxa_comissao)>0) return Number(r.taxa_comissao);
+  const m=String((r&&(r.fantasia||r.nome))||'').match(/(\d+(?:[.,]\d+)?)\s*%/); return m?parseFloat(m[1].replace(',','.')):0;
+}
+function _comiNota(f){
+  if(!f || !_veComissao()) return 0;
+  if(f.comi!=null && Number(f.comi)!==0) return Number(f.comi);
+  if(f.sit==='C') return 0;
+  const tx=Number(f.taxa)>0?Number(f.taxa):_taxaRepMes(f.rep, String(f.mes||'').slice(0,7)); if(!tx) return 0;
+  const v=+((Number(f.vn)||0)*tx/100).toFixed(2);
+  return f.tp==='devolucao' || f.sit==='D' ? -Math.abs(v) : v;
 }
 function _taxaDoRep(cod){
   const r = DB.representantes.find(x => String(x.codigo) === String(cod));
@@ -11489,7 +11506,7 @@ function gerarFatPDF() {
   const tLiq=dados.reduce((s,f)=>s+(f.tp==='devolucao'?-Math.abs(_nn(f.vn)):_nn(f.vn)),0);
   const tDesc=dados.reduce((s,f)=>s+_nn(f.desc),0);
   const tIcms=dados.reduce((s,f)=>s+_nn(f.vi),0), tPis=dados.reduce((s,f)=>s+_nn(f.pis),0);
-  const tCof=dados.reduce((s,f)=>s+_nn(f.cof),0), tComi=dados.reduce((s,f)=>s+_nn(f.comi),0);
+  const tCof=dados.reduce((s,f)=>s+_nn(f.cof),0), tComi=dados.reduce((s,f)=>s+_nn(_comiNota(f)),0);
   const tQtd=dados.reduce((s,f)=>s+_nn(f.qtd),0);
   const logoSrc=_logoRel()||'';
   const TIPO_TXT={venda:'Venda',devolucao:'Devolução',entrada:'Entrada',consignacao:'Consignação',bonificacao:'Bonificação',cancelada:'Cancelada',outros:'Outros'};
