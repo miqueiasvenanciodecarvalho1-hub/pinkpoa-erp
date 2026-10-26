@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.295</span>
+      ">v2.14.296</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -875,7 +875,13 @@ function _entrarSistema(user) {
   if(!_appSemDados() && _asBase===null) _asMarcarBase();   // v220: já tinha dados → ponto de partida do salvamento automático
 }
 // v208: o HTML não traz mais dados — se o app abriu vazio, oferecer carregar do servidor ou do backup.
-function _appSemDados(){ return !['faturamento','recebiveis','clientes','comissoes'].some(k=>Array.isArray(DB[k]) && DB[k].length); }
+function _appSemDados(){
+  const n=['faturamento','recebiveis','clientes','comissoes'].filter(k=>Array.isArray(DB[k]) && DB[k].length).length;
+  // v2.14.296: no ADMIN, "sem dados" = menos de 2 das 4 bases principais (ex.: computador novo com 28 notas importadas
+  // à mão) → busca a cópia completa do servidor e NUNCA salva esse pedaço por cima dela. Usuário comum: regra antiga
+  // (a cópia dele pode ter só os módulos liberados).
+  return (typeof _ehAdmin==='function' && _ehAdmin()) ? n<2 : n===0;
+}
 function _avisoSemDados(){
   if(!_appSemDados()) return;
   // v211: ao abrir, os dados vêm do banco sozinhos (logado no servidor → baixa a última cópia; senão pede o login dele)
@@ -11289,6 +11295,7 @@ async function _asConferir(){
   try{
     if(_ehAdmin()){   // alguém salvou depois que estes dados foram carregados? não sobrescreve sem perguntar
       const v=await _nvUltima();
+      if(v && !_asRef){ if(_asPausa!=='semref'){ _asPausa='semref'; _asIndicador('pausado — carregue a cópia do servidor primeiro'); } return; }   // v2.14.296: dados que não vieram do servidor nunca sobrescrevem a cópia dele sozinhos
       if(v && _asRef && v.lote!==_asRef){
         if(_asPausa!==v.lote){ _asPausa=v.lote; _asIndicador('pausado — o servidor tem cópia mais nova');
           toast(`Salvamento automático pausado: ${v.criado_por} salvou no servidor em ${new Date(v.criado_em).toLocaleString('pt-BR')}. Use ☁ Salvar no servidor (substitui) ou ⬇ Carregar do servidor.`,'error'); }
