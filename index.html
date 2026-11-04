@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.307</span>
+      ">v2.14.308</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -9713,32 +9713,40 @@ function gerarPosPagarPDF(){
     +` · sem previsões e sem cancelados${D.ignorados.n?` · ${D.ignorados.n} título(s) vencidos há mais de ${D.mesesCorte} meses desconsiderados (${_rcFmt(D.ignorados.v)})`:''}`
     +` · gerado em ${new Date().toLocaleString('pt-BR')}`;
   let n=0; const sec=r=>`<tr class="sec"><td>${++n} - ${r}</td><td class="r"></td></tr>`;
+  // v2.14.308: cada linha abre (clique) os títulos que a compõem — só na tela; na impressão sai o resumo
+  const _e=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const _lin=(key,label,v,cls)=>{ const its=((D.itens||{})[key]||[]).slice().sort((a,b)=>String(a.venc||'').localeCompare(String(b.venc||'')));
+    if(!its.length) return `<tr class="${cls||''}"><td>${label}</td><td class="r">${_rcFmt(v)}</td></tr>`;
+    return `<tr class="clk ${cls||''}" onclick="var d=this.nextElementSibling;d.style.display=d.style.display==='table-row'?'none':'table-row';this.classList.toggle('ab')"><td>${label} <span class="n">(${its.length})</span></td><td class="r">${_rcFmt(v)}</td></tr>`
+      +`<tr class="det"><td colspan="2"><table class="dt"><tr><th>Fornecedor</th><th>Doc.</th><th>Plano</th><th>Emissão</th><th>Venc.</th><th>Pgto.</th><th class="r">Valor</th></tr>`
+      +its.map(p=>`<tr><td>${_e(p.forn)}</td><td>${_e(p.doc||p.nf||'—')}${p.npt&&p.npt!=='1'?' '+_e(p.np+'/'+p.npt):''}</td><td>${_e(p.planoDesc||p.plano||'')}</td><td>${p.emissao?fmtDate(p.emissao):'—'}</td><td>${p.venc?fmtDate(p.venc):'—'}</td><td>${p.pgmto?fmtDate(p.pgmto):'—'}</td><td class="r">${_rcFmt(p.valor)}</td></tr>`).join('')
+      +`</table></td></tr>`; };
   let sub=0;
   let corpo='';
   if(S.compras){
     corpo+='<table>'+sec('COMPRAS')
-      +D.compras.map((c,i)=>`<tr><td>${n}.${i+1} ${c.rot}<span style="color:#666"> &nbsp; ${c.sub}</span></td><td class="r">${_rcFmt(c.v)}</td></tr>`).join('')
+      +D.compras.map((c,i)=>_lin(c.dk,`${n}.${i+1} ${c.rot}<span style="color:#666"> &nbsp; ${c.sub}</span>`,c.v)).join('')
       +`<tr class="sub"><td>SUB-TOTAL</td><td class="r">${_rcFmt(D.subCompras)}</td></tr></table>`;
   }
   if(S.pagar){
-    const L=[[`<span class="info">Dupl. Faturadas e pagas no Mês <span style="font-size:10px">(informativo — não entra no sub-total)</span></span>`, D.pagasMes.v, 'info'],
-             [`Material produtivo 30 dias &nbsp; <span style="color:#777">${D.lbl.f30}</span>`, D.faixas.f30],
-             [`Material produtivo 60 dias &nbsp; <span style="color:#777">${D.lbl.f60}</span>`, D.faixas.f60],
-             [`Material produtivo 90 dias &nbsp; <span style="color:#777">${D.lbl.f90}</span>`, D.faixas.f90],
-             [`Material produtivo 120 dias &nbsp; <span style="color:#777">${D.lbl.f120}</span>`, D.faixas.f120]];
-    if(D.faixas.mais>0) L.push(['Material produtivo +120 dias', D.faixas.mais]);
+    const L=[[`<span class="info">Dupl. Faturadas e pagas no Mês <span style="font-size:10px">(informativo — não entra no sub-total)</span></span>`, D.pagasMes.v, 'info', 'pagas'],
+             [`Material produtivo 30 dias &nbsp; <span style="color:#777">${D.lbl.f30}</span>`, D.faixas.f30, '', 'f30'],
+             [`Material produtivo 60 dias &nbsp; <span style="color:#777">${D.lbl.f60}</span>`, D.faixas.f60, '', 'f60'],
+             [`Material produtivo 90 dias &nbsp; <span style="color:#777">${D.lbl.f90}</span>`, D.faixas.f90, '', 'f90'],
+             [`Material produtivo 120 dias &nbsp; <span style="color:#777">${D.lbl.f120}</span>`, D.faixas.f120, '', 'f120']];
+    if(D.faixas.mais>0) L.push(['Material produtivo +120 dias', D.faixas.mais, '', 'mais']);
     const cats=Object.entries(D.porCat).sort((a,b)=>b[1].tot-a[1].tot);
     corpo+='<table style="margin-top:14px">'+sec('CONTAS À PAGAR')
-      +L.map(([r,v,cls],i)=>`<tr class="${cls||''}"><td>${n}.${i+1} ${r}</td><td class="r">${_rcFmt(v)}</td></tr>`).join('')
+      +L.map(([r,v,cls,key],i)=>_lin(key,`${n}.${i+1} ${r}`,v,cls)).join('')
       +((cats.length && _pgCatOn())?`<tr class="sub"><td>Por categoria</td><td class="r"></td></tr>`
-        +cats.map(([k,v])=>`<tr><td style="padding-left:22px;color:#555">${k}</td><td class="r">${_rcFmt(v.tot)}</td></tr>`).join(''):'')
+        +cats.map(([k,v])=>_lin('cat:'+k,`<span style="padding-left:14px;color:#555">${k}</span>`,v.tot)).join(''):'')
       +`<tr class="sub"><td>SUB-TOTAL</td><td class="r">${_rcFmt(D.subPagar)}</td></tr>`
       +`<tr class="tot"><td>TOTAL DO CONTAS À PAGAR</td><td class="r">${_rcFmt(D.subPagar)}</td></tr></table>`;
   }
   if(S.atras){
     const _mesLbl=m=>{const p=String(m).split('-');return (_ML[+p[1]-1]||'')+' '+p[0];};
     corpo+='<table style="margin-top:14px">'+sec('ATRASADOS')
-      +(D.atrArr.map(a=>`<tr><td>${_mesLbl(a.mes)}</td><td class="r">${_rcFmt(a.v)}</td></tr>`).join('')||'<tr><td colspan="2" style="color:#999">Sem atrasados</td></tr>')
+      +(D.atrArr.map(a=>_lin('am:'+a.mes,_mesLbl(a.mes),a.v)).join('')||'<tr><td colspan="2" style="color:#999">Sem atrasados</td></tr>')
       +`<tr class="sub"><td>TOTAL - ATRASADOS</td><td class="r">${_rcFmt(D.vAtras)}</td></tr></table>`;
   }
   if(S.bancos){
@@ -9754,9 +9762,13 @@ function gerarPosPagarPDF(){
     +'.tot{font-weight:800;background:#E8368F;color:#fff}.tot td{border:none}'
     +'.info td,.info{font-style:italic;color:#0A7EA4;background:#F2FAFD}'
     +'h1{letter-spacing:.4px;margin-bottom:16px}'
+    +'.clk{cursor:pointer}.clk:hover td{background:#fdeef5}.clk td:first-child:before{content:"▸ ";color:#E8368F}.clk.ab td:first-child:before{content:"▾ "}.clk .n{color:#999;font-size:10px}'
+    +'.det{display:none}.det>td{padding:4px 0 10px 14px;background:#fafafa}.dt{font-size:10.5px;margin:0}.dt th{text-align:left;background:#eee;padding:3px 6px}.dt th.r{text-align:right}.dt td{padding:2px 6px}'
+    +'.dica{font-size:10px;color:#999;text-align:center;margin:-10px 0 10px}@media print{.det,.dica{display:none!important}.clk td:first-child:before{content:""}}'
     +'.rod{margin-top:18px;padding-top:8px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}'
     +'</style></head><body>'
     +`<h1>${empNome}</h1>`
+    +'<div class="dica">clique numa linha para ver os títulos</div>'
     +corpo
     +`<div class="rod">${_rodape}</div>`
     +'</body></html>';
