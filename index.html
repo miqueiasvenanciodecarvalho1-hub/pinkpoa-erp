@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.296</span>
+      ">v2.14.297</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5536,11 +5536,19 @@ async function _lerColunas(file) {
 
 // Entre dois candidatos ao mesmo slot: quem TEM LINHAS ganha de quem só tem cabeçalho.
 // Só depois valem a pontuação e o carimbo de data do nome.
+// v2.14.297: SEMPRE o arquivo mais recente — data no nome (AAAAMMDD_HHMMSS) ou, sem ela, a data do arquivo.
+function _stampArq(a){
+  if (a && a.carimbo) return String(a.carimbo);
+  const t = a && a.lastMod; if (!t) return '';
+  const d = new Date(t), z = n => String(n).padStart(2,'0');
+  return d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+z(d.getHours())+z(d.getMinutes())+z(d.getSeconds());
+}
 function _melhorCandidato(novo, atual) {
   if (!atual) return true;
-  if (!!novo.dados !== !!atual.dados) return !!novo.dados;
-  if (novo.pontos !== atual.pontos)   return novo.pontos > atual.pontos;
-  return (novo.carimbo || '') > (atual.carimbo || '');
+  if (!!novo.dados !== !!atual.dados) return !!novo.dados;      // arquivo só com cabeçalho nunca vence
+  const sn = _stampArq(novo), sa = _stampArq(atual);
+  if (sn !== sa) return sn > sa;                                 // o mais novo vence
+  return novo.pontos > atual.pontos;
 }
 
 // Colunas obrigatórias abrem a porta; cobertura e nome decidem o vencedor.
@@ -5622,7 +5630,8 @@ async function _expandirZip(entrada) {
       nome: base,
       caminho: entrada.caminho + ' › ' + chave,
       dica,
-      getFile: async () => new File([await zf.async('blob')], base, { lastModified: arq.lastModified })
+      // v2.14.297: data do próprio arquivo dentro do .zip (a do .zip muda ao baixar/copiar)
+      getFile: async () => new File([await zf.async('blob')], base, { lastModified: (zf.date && !isNaN(zf.date.getTime()) && zf.date.getFullYear()>2000) ? zf.date.getTime() : arq.lastModified })
     });
   }
   return out;
@@ -5682,18 +5691,25 @@ async function _hashArquivo(file){
   catch(e){ return 'n:'+file.name+'|'+file.size+'|'+file.lastModified; }
 }
 function _jaImportado(hash){ return (hash && DB.arquivos_importados && DB.arquivos_importados[hash]) || null; }
-function _ordemArq(a,b){ return String(a.carimbo||'').localeCompare(String(b.carimbo||'')) || ((a.lastMod||0)-(b.lastMod||0)); }
+function _ordemArq(a,b){ return _stampArq(a).localeCompare(_stampArq(b)) || ((a.lastMod||0)-(b.lastMod||0)); }
 // arquivos que vão de fato entrar num slot multi/acumula
+function _novosDoBucket(b){   // v2.14.297: não importados E não mais antigos que o último já importado
+  const todos=[...(b.arquivos||[])].sort(_ordemArq);
+  const ultJa=todos.filter(a=>a.ja).map(_stampArq).sort().pop()||'';
+  return todos.filter(a=>!a.ja && _stampArq(a)>=ultJa);
+}
 function _arquivosDoBucket(b){
   const todos=[...(b.arquivos||[])].sort(_ordemArq);
-  const novos=todos.filter(a=>_impForcar || !a.ja);
+  // v2.14.297: arquivo AINDA NÃO importado mas mais ANTIGO que o último já importado não entra —
+  // senão um export velho (ex.: dentro de um .zip antigo) sobrescreveria dados mais novos.
+  const novos=_impForcar?todos:_novosDoBucket(b);
   return novos.length ? novos : todos.slice(-1);
 }
 function _tipoTemNovo(tipoKey){
   if(!_scan) return false; if(_impForcar) return true;
   const tipo=IMPORT_TIPOS.find(t=>t.key===tipoKey); if(!tipo) return false;
   return tipo.slots.some(s=>{ const a=_scan.porSlot[tipoKey+'|'+s.key]; if(!a) return false;
-    return a.arquivos ? a.arquivos.some(x=>!x.ja) : !a.ja; });
+    return a.arquivos ? _novosDoBucket(a).length>0 : !a.ja; });
 }
 function _registrarImportados(lista, tipoKey){
   DB.arquivos_importados = DB.arquivos_importados || {};
@@ -6101,14 +6117,15 @@ function _scanCardHtml() {
       const soCab = a && a.dados === false;
       // v217: já importado / quantos novos / ignorados
       const _arqs = a && a.arquivos ? a.arquivos : null;
-      const _novos = _arqs ? _arqs.filter(x => !x.ja).length : (a && !a.ja ? 1 : 0);
+      const _novos = _arqs ? _novosDoBucket(a).length : (a && !a.ja ? 1 : 0);
+      const _velhos = _arqs ? _arqs.filter(x => !x.ja).length - _novos : 0;   // não importados, porém mais antigos que o último importado
       const _todosJa = a && !_impForcar && !_novos;
       const cor = soCab ? 'var(--amber)' : _todosJa ? 'var(--gray-5)' : a ? 'var(--green)' : (s.required ? 'var(--red)' : 'var(--gray-3)');
       const ico = soCab ? '⚠' : _todosJa ? '✓' : a ? '✅' : (s.required ? '✗' : '—');
       const _jaTxt = x => x && x.ja ? ` — já importado em ${_quandoBR(x.ja.em)}` : '';
       const txt = a
         ? (_arqs && _arqs.length > 1
-            ? `${_arqs.length} arquivos: ${_novos} novo(s)${_arqs.length - _novos ? `, ${_arqs.length - _novos} já importado(s)` : ''} — ${_arquivosDoBucket(a).map(x => x.nome).join(', ')}`
+            ? `${_arqs.length} arquivos: ${_novos} novo(s)${_arqs.length - _novos - _velhos ? `, ${_arqs.length - _novos - _velhos} já importado(s)` : ''}${_velhos ? `, ${_velhos} mais antigo(s) que o último importado — ignorado(s)` : ''} — ${_arquivosDoBucket(a).map(x => x.nome).join(', ')}`
             : (_arqs ? _arqs[0].nome + _jaTxt(_arqs[0]) : a.nome + _jaTxt(a)))
           + (soCab ? ` — só cabeçalho, sem linhas (${(a.tamanho || 0).toLocaleString('pt-BR')} bytes)` : '')
           + (a.ignorados && a.ignorados.length ? ` · ${a.ignorados.length} mais antigo(s) ignorado(s): vale o mais novo` : '')
