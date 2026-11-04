@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.306</span>
+      ">v2.14.307</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3933,6 +3933,7 @@ function _posReceberDados(filiaisArr, mesFech){
   const atrasados={}, duvidosos={}, itens=[];
   const faixas={f30:0,f60:0,f90:0,f120:0,f150:0,f180:0,f180p:0};
   let totVenc=0, totAven=0, _comSaldo=0, emitDepois=0, vEmitDepois=0, bxDepois=0, vBxDepois=0;
+  let pmRecebido=0, vPmRecebido=0;
   // v2.14.300: emissão pela nota do FATURAMENTO quando o título não traz (ou traz diferente) — nota emitida depois
   // do corte (ex.: novembro, fechando outubro) não entra. Baixas do vpdpcl2 feitas DEPOIS do corte voltam ao saldo,
   // parcela a parcela (pagamento parcial também).
@@ -3947,6 +3948,9 @@ function _posReceberDados(filiaisArr, mesFech){
     if((r.em && r.em>corte) || (emF && emF>corte)){ emitDepois++; vEmitDepois+=_n(r.v); return; }   // emitido depois do corte
     if(r.sal!=null) _comSaldo++;
     // Saldo NA DATA DE CORTE = saldo de hoje + o que foi baixado depois do corte
+    // v2.14.307: parcela de CARTÃO (Pagar.me) com data de pagamento até o corte já foi depositada pelo Pagar.me —
+    // nunca vira "atrasado", mesmo que o extrato carregado seja antigo
+    if(r.origem==='pagarme' && String(r.e).slice(0,10)<=corte){ pmRecebido++; vPmRecebido+=_n(r.sal); return; }
     let saldo;
     const volta = temParc ? (bxPos[_z(r.f)+'|'+_z(r.t)+'|'+(r.d||'')]||0) : 0;
     if(volta>0){ saldo=Math.min(_n(r.v)||Infinity, _n(r.sal)+volta); bxDepois++; vBxDepois+=Math.min(volta, saldo); }
@@ -3974,7 +3978,7 @@ function _posReceberDados(filiaisArr, mesFech){
   const semSaldo = _comSaldo===0;
   return {base, corte, mesFech, floorAtras, atrArr, duvArr, faixas, subAtras, subAven, subDuv, itens,
           totalCR:subAtras+subAven, semSaldo,
-          emitDepois:{n:emitDepois, v:+vEmitDepois.toFixed(2)}, bxDepois:{n:bxDepois, v:+vBxDepois.toFixed(2)}};
+          emitDepois:{n:emitDepois, v:+vEmitDepois.toFixed(2)}, bxDepois:{n:bxDepois, v:+vBxDepois.toFixed(2)}, pmRecebido:{n:pmRecebido, v:+vPmRecebido.toFixed(2)}};
 }
 
 // ===== 2.5 NFS EMITIDAS E RECEBIDAS NO MÊS (seção do fechamento) =====
@@ -4738,6 +4742,7 @@ function gerarPosReceberPDF(){
     +`${_tipo!=='Todos'?` · recorte: somente ${_tipo}`:(C.nAberto?` · inclui a carteira de cobrança (${C.nAberto} título(s), ${_rcFmt(C.total)})`:'')}`
     +`${D.emitDepois.n?` · ${D.emitDepois.n} título(s) lançados depois do corte não entraram (${_rcFmt(D.emitDepois.v)})`:''}`
     +`${D.bxDepois.n?` · ${D.bxDepois.n} baixa(s) posteriores ao corte voltaram à carteira (${_rcFmt(D.bxDepois.v)})`:''}`
+    +`${D.pmRecebido&&D.pmRecebido.n?` · ${D.pmRecebido.n} parcela(s) de cartão com pagamento até o corte consideradas recebidas (${_rcFmt(D.pmRecebido.v)})`:''}`
     +` · gerado em ${new Date().toLocaleString('pt-BR')}</div>`
     +'</body></html>';
   abrirPDFOverlay(html);
@@ -5554,7 +5559,11 @@ function codigoDoNome(nome) {
 // 295_0000012_vp3577ex_20260701_224128 → 20260701224128
 function _carimboDoNome(nome) {
   const m = String(nome).match(/(\d{8})[_-](\d{6})/);
-  return m ? m[1] + m[2] : '';
+  if (m) return m[1] + m[2];
+  // v2.14.307: data no formato brasileiro no nome (ex.: 04.11.2026_PagarMe_..., 04_11_2026, 04-11-2026)
+  const b = String(nome).match(/(?:^|\D)(\d{2})[._-](\d{2})[._-](20\d{2})(?!\d)/);
+  if (b && +b[1] <= 31 && +b[2] <= 12) return b[3] + b[2] + b[1] + '000000';
+  return '';
 }
 
 // ── Lê só o cabeçalho: barato o bastante para varrer a pasta ─────
