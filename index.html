@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.303</span>
+      ">v2.14.304</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4239,12 +4239,15 @@ function _posNomeCli(cod){
   return c?(c.razao_social||c.nome_fantasia||('Cód. '+cod)):(cod?('Cód. '+cod):'—');
 }
 function _posTipoAtual(){ return window._posTipo||'Todos'; }
+// v2.14.304: opção de RETIRAR o cartão Pagar.me da posição (vale para a tela e o PDF; fica salva)
+function _posSemPM(){ try{ return localStorage.getItem('pinkpoa_pos_sem_pm')==='1'; }catch(e){ return false; } }
+function _posSemPMSet(v){ try{ localStorage.setItem('pinkpoa_pos_sem_pm', v?'1':'0'); }catch(e){} modalPosReceber(); }
 function _posItens(){
   const emp=window._posEmp||'rmf1', mes=window._posMes;
   const D=_posReceberDados(_empresaFiliais(emp), mes);
   const C=_posCobrancaDados(mes, emp);
   const t=_posTipoAtual();
-  const todos=[...(D.itens||[]), ...(C.itens||[])];
+  const todos=[...(D.itens||[]), ...(C.itens||[])].filter(x=>!(_posSemPM() && x.tipo==='Cartão'));
   return t==='Todos' ? todos : todos.filter(x=>String(x.tipo)===t);
 }
 // rótulo legível da chave do balde ('a:2026-03', 'f:f30', 'd:2025')
@@ -4270,7 +4273,7 @@ function _posItensSemTipo(){
   const emp=window._posEmp||'rmf1', mes=window._posMes;
   const D=_posReceberDados(_empresaFiliais(emp), mes);
   const C=_posCobrancaDados(mes, emp);
-  return [...(D.itens||[]), ...(C.itens||[])];
+  return [...(D.itens||[]), ...(C.itens||[])].filter(x=>!(_posSemPM() && x.tipo==='Cartão'));
 }
 // Agrega os itens (já recortados pelo tipo) nos mesmos baldes do relatório.
 // Modal e PDF passam por aqui, então os dois mostram exatamente o mesmo número.
@@ -4613,6 +4616,7 @@ function modalPosReceber(){
     <div style="padding:10px 12px;background:var(--gray-1);border-radius:8px;margin-bottom:10px">
       <div style="font-weight:700;margin-bottom:6px">Relatório <span style="font-weight:400;color:var(--gray-5);font-size:12px">(clique num valor para ver os títulos)</span></div>
       <div style="margin-bottom:8px">Recebimento: <span id="pos-chips">${_posChipsHtml()}</span></div>
+      <label style="display:inline-flex;gap:6px;align-items:center;font-size:12px;margin-bottom:8px;cursor:pointer;background:${_posSemPM()?'#fff5e6':'transparent'};padding:3px 8px;border-radius:6px"><input type="checkbox" ${_posSemPM()?'checked':''} onchange="_posSemPMSet(this.checked)"> Retirar o cartão <b>Pagar.me</b> da posição (só duplicatas e cobrança)</label>
       <style>#pos-rel td{padding:3px 6px;border-bottom:1px solid var(--gray-2);font-size:12px}#pos-rel .r{text-align:right}
         #pos-rel .sec td{font-weight:800;background:var(--gray-2);font-size:11px;letter-spacing:.4px}
         #pos-rel .tot td{font-weight:800;background:var(--pink);color:#fff;border:none}</style>
@@ -4717,10 +4721,11 @@ function gerarPosReceberPDF(){
     +'.dica{font-size:10px;color:#999;text-align:center;margin:-10px 0 10px}@media print{.det,.dica{display:none!important}.clk td:first-child:before{content:""}}'
     +'.rod{margin-top:18px;padding-top:8px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}'
     +'</style></head><body>'
-    +`<h1>${empNome}</h1><h2>CONTAS A RECEBER · ${_dtB}${_tipo==='Todos'?'':' · SOMENTE '+_tipo.toUpperCase()}</h2>`
+    +`<h1>${empNome}</h1><h2>CONTAS A RECEBER · ${_dtB}${_tipo==='Todos'?'':' · SOMENTE '+_tipo.toUpperCase()}${_posSemPM()?' · SEM CARTÃO PAGAR.ME':''}</h2>`
     +'<div class="dica">clique numa linha para ver os títulos</div>'
     +corpo
     +`<div class="rod">posição em ${fmtDate(D.corte)}`
+    +`${_posSemPM()?' · sem o cartão Pagar.me':''}`
     +`${_tipo!=='Todos'?` · recorte: somente ${_tipo}`:(C.nAberto?` · inclui a carteira de cobrança (${C.nAberto} título(s), ${_rcFmt(C.total)})`:'')}`
     +`${D.emitDepois.n?` · ${D.emitDepois.n} título(s) lançados depois do corte não entraram (${_rcFmt(D.emitDepois.v)})`:''}`
     +`${D.bxDepois.n?` · ${D.bxDepois.n} baixa(s) posteriores ao corte voltaram à carteira (${_rcFmt(D.bxDepois.v)})`:''}`
