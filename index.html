@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.297</span>
+      ">v2.14.298</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3616,6 +3616,7 @@ function _gestorLancar(comp){
 // v2.14.279: uma competência só fecha UMA vez. Já fechada → mostra o que foi lançado e (admin) oferece reabrir.
 function _gestorJaLancado(comp, g){ const cod=g.rep||''; return (DB.comissoes||[]).find(x=>x.manual && x.origem==='gestor' && x.competencia_raw===comp && (cod? String(x.codigo_rep)===String(cod) : String(x.representante||'').toUpperCase()===String(g.nome||'').toUpperCase())); }
 function modalFecharComissoes() {
+  window._fcDif=0;
   const comps=[...new Set((DB.comissoes||[]).map(c=>c.competencia_raw).filter(Boolean))].sort().reverse();
   const atual=_comFatCompAtual(); if(atual && !comps.includes(atual)) comps.unshift(atual);
   const sel=window._fcComp && comps.includes(window._fcComp) ? window._fcComp : (atual||comps[0]||'');
@@ -3634,6 +3635,18 @@ function modalFecharComissoes() {
         🔒 <b>${rot(sel)} já está fechada</b>${quando?` desde ${new Date(quando).toLocaleString('pt-BR')}`:''}. Não é possível fechar de novo.
         ${_ehAdmin()?`<div style="font-size:11px;color:var(--gray-5);margin-top:4px">Se precisar corrigir algo, use <b>Reabrir período</b>: as comissões voltam para pendente e a comissão dos gestores é retirada${temPago?' (as já <b>pagas</b> não são mexidas)':''}. Depois feche de novo.</div>`:''}</div>`
       :`<div style="font-size:13px;margin:6px 0 12px">Serão <b>fechadas ${pend.length}</b> comissão(ões) pendente(s) de ${rot(sel)}.${fech.length?` <span style="color:var(--gray-5)">(${fech.length} já fechada(s) antes)</span>`:''}</div>`}
+    ${(()=>{ if(jaFechado) return ''; const C=_concPorRep(sel); if(!C.length) return '';
+        const nr=c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(c)); return r?String(r.fantasia||r.nome).toUpperCase():'REP '+c; };
+        const dif=C.filter(x=>Math.abs(x.dif)>=1).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif)); window._fcDif=dif.length;
+        const tf=C.reduce((a,x)=>a+x.fat,0), tb=C.reduce((a,x)=>a+x.base,0);
+        return `<div style="border:1px solid ${dif.length?'#f5c2c7':'#b7e1c4'};background:${dif.length?'#fff5f5':'#eafaf0'};border-radius:var(--radius);padding:10px 12px;margin-bottom:12px">
+          <div style="font-weight:700;font-size:13px">${dif.length?'⚠':'✅'} Conferência com o faturamento de ${rot(sel)}: ${C.length-dif.length} de ${C.length} representante(s) batem</div>
+          <div style="font-size:11px;color:var(--gray-5);margin:2px 0 6px">Faturamento ${fmt(tf)} × base da comissão ${fmt(tb)} · diferença ${fmt(tf-tb)} (gestores e pronta entrega automática ficam fora)</div>
+          ${dif.length?`<div style="max-height:180px;overflow:auto"><table style="font-size:12px;width:100%"><thead><tr><th>Representante</th><th style="text-align:right">Faturamento</th><th style="text-align:right">Base comissão</th><th style="text-align:right">Diferença</th><th></th></tr></thead><tbody>
+            ${dif.map(x=>`<tr><td>${nr(x.rep)}</td><td style="text-align:right">${fmt(x.fat)}</td><td style="text-align:right">${fmt(x.base)}</td><td style="text-align:right;font-weight:700;color:var(--red)">${fmt(x.dif)}</td><td style="text-align:right"><button class="btn btn-secondary btn-sm" title="Ver nota a nota" onclick="closeModal();modalConciliarFatComi(['${x.rep}'],'${sel}',true)">⚖</button></td></tr>`).join('')}
+          </tbody></table></div>
+          <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:8px;cursor:pointer"><input type="checkbox" id="fc-ok-dif" onchange="const b=document.getElementById('fc-btn-ok');if(b)b.disabled=!this.checked"> Conferi as diferenças e quero fechar assim mesmo</label>`:''}
+        </div>`; })()}
     ${gest.length?`<div style="border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 12px;background:var(--gray-1)">
       ${gNovos.length?`<label style="display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px;cursor:pointer"><input type="checkbox" id="fc-gest" checked> Lançar a comissão dos gestores (sobre o faturamento)</label>
       <div style="font-size:11px;color:var(--gray-5);margin:4px 0 8px">Entra na lista de Comissões como as demais (já fechada). Cada gestor recebe um código de representante (GEST…) para você liberar o acesso dele em Usuários.</div>`
@@ -3643,10 +3656,11 @@ function modalFecharComissoes() {
     :`<div style="font-size:12px;color:var(--gray-5)">Nenhum gestor com comissão sobre faturamento cadastrado.</div>`}`,
     `<button class="btn btn-secondary" onclick="closeModal()">${jaFechado?'Fechar':'Cancelar'}</button>
      ${jaFechado ? (_ehAdmin()?`<button class="btn btn-secondary" style="color:var(--red);border-color:var(--red)" onclick="_reabrirPeriodo()">Reabrir período</button>`:'')
-       : `<button class="btn btn-primary" onclick="_fecharPeriodoConfirmar()">Confirmar Fechamento</button>`}`);
+       : `<button class="btn btn-primary" id="fc-btn-ok" ${window._fcDif?'disabled':''} onclick="_fecharPeriodoConfirmar()">Confirmar Fechamento</button>`}`);
 }
 function _fecharPeriodoConfirmar(){
   const comp=(document.getElementById('fc-comp')||{}).value||''; if(!comp) return toast('Escolha a competência','error');
+  if(window._fcDif && !(document.getElementById('fc-ok-dif')||{}).checked) return toast('Há diferenças com o faturamento — confira e marque a confirmação','error');
   if(window._fcOcupado) return; window._fcOcupado=true; setTimeout(()=>window._fcOcupado=false,1500);   // evita duplo clique
   const agora=new Date().toISOString();
   let n=0; (DB.comissoes||[]).forEach(c=>{ if(c.status==='pendente' && c.competencia_raw===comp){ c.status='fechado'; c.fechado_em=agora; n++; } });
@@ -7027,6 +7041,26 @@ function _comiNota(f){
 }
 // v2.14.280: CONCILIAÇÃO Faturamento × Comissões, nota a nota (mesmo(s) representante(s) e competência).
 // Faturamento = NF líquida (após desconto e troca) − devoluções do mês; Comissões = títulos (vlorvenc) + abatimentos (vlorliqu).
+// v2.14.298: conferência por representante (Faturamento × base da Comissão) usada no Fechar Período.
+// Mesmas regras da conciliação nota a nota: faturamento = NF líquida − devoluções do mês; comissão = títulos + abatimentos.
+// Fora: gestores (base = empresa toda) e a Pronta Entrega automática (PENT, calculada do próprio faturamento).
+function _concPorRep(comp){
+  const natsD=(typeof _natsDevolucao==='function')?_natsDevolucao():new Set(['DV1','ENT']);
+  const R={}, g=c=>R[c]||(R[c]={rep:c,fat:0,base:0,temComi:false});
+  (DB.comissoes||[]).forEach(c=>{
+    if(c.competencia_raw!==comp || c.origem==='gestor' || c.origem==='pronta_auto' || String(c.codigo_rep)==='PENT') return;
+    const r=g(String(c.codigo_rep)); r.temComi=true;
+    (c.titulos||[]).forEach(t=>{ r.base+=Number(t.vlorvenc)||0; });
+    (c.abatimentos||[]).forEach(a=>{ r.base-=Math.abs(Number(a.vlorliqu)||0); });
+  });
+  (DB.faturamento||[]).forEach(f=>{
+    if(f.sit || String(f.mes||'').slice(0,7)!==comp) return;
+    const k=String(f.rep||''); if(!R[k]) return;           // só quem tem comissão no mês
+    if(f.tp==='devolucao'){ if(natsD.has(String(f.nat||'').toUpperCase())) R[k].fat-=Math.abs(Number(f.vn)||0); }
+    else if(f.tp==='venda') R[k].fat+=Number(f.vn)||0;
+  });
+  return Object.values(R).map(r=>({...r, fat:+r.fat.toFixed(2), base:+r.base.toFixed(2), dif:+(r.fat-r.base).toFixed(2)}));
+}
 function modalConciliarFatComi(reps, comp, soDif){
   reps=(reps||[]).map(String); const RS=new Set(reps), z=v=>String(v==null?'':v).trim().replace(/^0+/,'');
   window._concArgs=[reps,comp];
