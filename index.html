@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.299</span>
+      ">v2.14.300</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3923,14 +3923,24 @@ function _posReceberDados(filiaisArr, mesFech){
   const atrasados={}, duvidosos={}, itens=[];
   const faixas={f30:0,f60:0,f90:0,f120:0,f150:0,f180:0,f180p:0};
   let totVenc=0, totAven=0, _comSaldo=0, emitDepois=0, vEmitDepois=0, bxDepois=0, vBxDepois=0;
+  // v2.14.300: emissão pela nota do FATURAMENTO quando o título não traz (ou traz diferente) — nota emitida depois
+  // do corte (ex.: novembro, fechando outubro) não entra. Baixas do vpdpcl2 feitas DEPOIS do corte voltam ao saldo,
+  // parcela a parcela (pagamento parcial também).
+  const _z=v=>String(v==null?'':v).trim().replace(/^0+(?=\d)/,'');
+  const emisNF={}; (DB.faturamento||[]).forEach(f=>{ if(f.tp==='venda' && f.dt){ const k=_z(f.fil)+'|'+_z(f.nf); if(!emisNF[k] || f.dt<emisNF[k]) emisNF[k]=f.dt; } });
+  const temParc=(DB.recebidos||[]).some(b=>b.d);
+  const bxPos={}; if(temParc) (DB.recebidos||[]).forEach(b=>{ if(b.dt && b.dt>corte){ const k=_z(b.fil)+'|'+_z(b.nf)+'|'+(b.d||''); bxPos[k]=(bxPos[k]||0)+_n(b.valor); } });
   (DB.recebiveis||[]).forEach(r=>{
     if(filSet.size && !filSet.has(String(r.f))) return;
     if(!r.e) return;
-    if(r.em && r.em>corte){ emitDepois++; vEmitDepois+=_n(r.v); return; }   // lançado depois do corte
+    const emF=emisNF[_z(r.f)+'|'+_z(r.t)];
+    if((r.em && r.em>corte) || (emF && emF>corte)){ emitDepois++; vEmitDepois+=_n(r.v); return; }   // emitido depois do corte
     if(r.sal!=null) _comSaldo++;
-    // Saldo NA DATA DE CORTE: se a baixa é posterior, o título estava aberto ali
+    // Saldo NA DATA DE CORTE = saldo de hoje + o que foi baixado depois do corte
     let saldo;
-    if(r.dtbx && String(r.dtbx)>corte){ saldo=_n(r.vlbx!=null?r.vlbx:r.v); bxDepois++; vBxDepois+=saldo; }
+    const volta = temParc ? (bxPos[_z(r.f)+'|'+_z(r.t)+'|'+(r.d||'')]||0) : 0;
+    if(volta>0){ saldo=Math.min(_n(r.v)||Infinity, _n(r.sal)+volta); bxDepois++; vBxDepois+=Math.min(volta, saldo); }
+    else if(!temParc && r.dtbx && String(r.dtbx)>corte){ saldo=_n(r.vlbx!=null?r.vlbx:r.v); bxDepois++; vBxDepois+=saldo; }
     else saldo=_n(r.sal);   // SOMENTE o saldo em aberto (dca-vlorsald); nunca o valor cheio do título
     if(saldo<=0) return;
     const vMes=String(r.e).slice(0,7);
@@ -4660,11 +4670,22 @@ function gerarPosReceberPDF(){
   // o relatório respeita o TIPO DE RECEBIMENTO selecionado (chips do modal)
   const _tipo=_posTipoAtual();
   const A=_posAgregar(_posItens());
-  const linhaAtras=_posAtrasLinhas(window._posMes, A.atrArr).map(([l,v])=>`<tr><td>${l}</td><td class="r">${_rcFmt(v)}</td></tr>`).join('');
+  // v2.14.300: cada linha abre (clique) os títulos daquele grupo — só na tela; na impressão sai só o resumo
+  const _itensPdf=_posItens();
+  const _escP=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const _linP=(b,l,v)=>{ const it=_itensPdf.filter(x=>x.b===b).sort((a,c)=>String(a.venc).localeCompare(String(c.venc)));
+    if(!it.length) return `<tr><td>${l}</td><td class="r">${_rcFmt(v)}</td></tr>`;
+    return `<tr class="clk" onclick="var d=this.nextElementSibling;d.style.display=d.style.display==='table-row'?'none':'table-row';this.classList.toggle('ab')"><td>${l} <span class="n">(${it.length})</span></td><td class="r">${_rcFmt(v)}</td></tr>`
+      +`<tr class="det"><td colspan="2"><table class="dt"><tr><th>Cliente</th><th>NF</th><th>Parc.</th><th>Venc.</th><th>Tipo</th><th class="r">Valor</th></tr>`
+      +it.map(x=>`<tr><td>${_escP(x.nome||_posNomeCli(x.cli))}</td><td>${x.nf?_escP(x.nf+(x.ser?'/'+x.ser:'')):'—'}</td><td>${_escP(x.parc||'—')}</td><td>${x.venc?fmtDate(x.venc):'—'}</td><td>${_escP(x.tipo||'—')}</td><td class="r">${_rcFmt(x.v)}</td></tr>`).join('')
+      +`</table></td></tr>`; };
+  const _chAtr=(()=>{ const [fy,fm]=String(window._posMes||'').split('-').map(Number); const ks=[]; if(fy&&fm) for(let k=5;k>=0;k--){ const d=new Date(fy,fm-1-k,1); ks.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
+    A.atrArr.forEach(x=>{ if(!ks.includes(x.m)) ks.push(x.m); }); return ks; })();
+  const linhaAtras=_posAtrasLinhas(window._posMes, A.atrArr).map(([l,v],i)=>_linP('a:'+(_chAtr[i]||''),l,v)).join('');
   const _subAtras=A.subAtras, _subAven=A.subAven, _subDuv=A.subDuv, _duvArr=A.duvArr;
   const fx=A.faixas;
-  const linhaFaixa=[['Duplicatas à Vencer 30 dias',fx.f30],['Duplicatas à Vencer 60 dias',fx.f60],['Duplicatas à Vencer 90 dias',fx.f90],['Duplicatas à Vencer 120 dias',fx.f120],['Duplicatas à Vencer 150 dias',fx.f150],['Duplicatas à Vencer 180 dias',fx.f180],...(fx.f180p>0?[['Duplicatas à Vencer +180 dias',fx.f180p]]:[])].map(([l,v])=>`<tr><td>${l}</td><td class="r">${_rcFmt(v)}</td></tr>`).join('');
-  const linhaDuv=_duvArr.map(d=>`<tr><td>ANO ${d.ano}</td><td class="r">${_rcFmt(d.v)}</td></tr>`).join('') || '<tr><td colspan="2" style="color:#999">—</td></tr>';
+  const linhaFaixa=[['Duplicatas à Vencer 30 dias',fx.f30],['Duplicatas à Vencer 60 dias',fx.f60],['Duplicatas à Vencer 90 dias',fx.f90],['Duplicatas à Vencer 120 dias',fx.f120],['Duplicatas à Vencer 150 dias',fx.f150],['Duplicatas à Vencer 180 dias',fx.f180],...(fx.f180p>0?[['Duplicatas à Vencer +180 dias',fx.f180p]]:[])].map(([l,v])=>_linP('f:'+({'Duplicatas à Vencer 30 dias':'f30','Duplicatas à Vencer 60 dias':'f60','Duplicatas à Vencer 90 dias':'f90','Duplicatas à Vencer 120 dias':'f120','Duplicatas à Vencer 150 dias':'f150','Duplicatas à Vencer 180 dias':'f180','Duplicatas à Vencer +180 dias':'f180p'}[l]||''),l,v)).join('');
+  const linhaDuv=_duvArr.map(d=>_linP('d:'+d.ano,'ANO '+d.ano,d.v)).join('') || '<tr><td colspan="2" style="color:#999">—</td></tr>';
   const linhaBanco=bancos.map(b=>`<tr><td>${b.nome}</td><td class="r">${_rcFmt(b.valor)}</td></tr>`).join('');
   // Seções escolhidas; a numeração é sempre 1,2,3… na ordem em que saem
   const S=_posSecoes();
@@ -4690,9 +4711,13 @@ function gerarPosReceberPDF(){
     +'.r{text-align:right}.sec{font-weight:800;background:#f3f3f3;border-top:2px solid #333}.sub{font-weight:700;border-top:1px solid #333}'
     +'.tot{font-weight:800;background:#E8368F;color:#fff}.tot td{border:none}'
     +'.hdr{font-weight:700}'
+    +'.clk{cursor:pointer}.clk:hover td{background:#fdeef5}.clk td:first-child:before{content:"▸ ";color:#E8368F}.clk.ab td:first-child:before{content:"▾ "}.clk .n{color:#999;font-size:10px}'
+    +'.det{display:none}.det>td{padding:4px 0 10px 14px;background:#fafafa}.dt{font-size:10.5px;margin:0}.dt th{text-align:left;background:#eee;padding:3px 6px}.dt th.r{text-align:right}.dt td{padding:2px 6px}'
+    +'.dica{font-size:10px;color:#999;text-align:center;margin:-10px 0 10px}@media print{.det,.dica{display:none!important}.clk td:first-child:before{content:""}}'
     +'.rod{margin-top:18px;padding-top:8px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}'
     +'</style></head><body>'
     +`<h1>${empNome}</h1><h2>CONTAS A RECEBER · ${_dtB}${_tipo==='Todos'?'':' · SOMENTE '+_tipo.toUpperCase()}</h2>`
+    +'<div class="dica">clique numa linha para ver os títulos</div>'
     +corpo
     +`<div class="rod">posição em ${fmtDate(D.corte)}`
     +`${_tipo!=='Todos'?` · recorte: somente ${_tipo}`:(C.nAberto?` · inclui a carteira de cobrança (${C.nAberto} título(s), ${_rcFmt(C.total)})`:'')}`
@@ -6877,18 +6902,28 @@ function processarPagamentos(rows) {
     const dt=pDate(col(row,'vup-datacont')); if(!dt) return;
     const valor=Math.abs(pNum(col(row,'dc2-vlorliqu','dc2-vlorprin','vup-vlorprin')));
     if(!valor) return;
-    DB.recebidos.push({dt, fil:col(row,'vup-filidpcl'), ser:col(row,'vup-seridpcl'), nf:col(row,'vup-numrdpcl'), cli:col(row,'vup-numrclie'), valor});
+    DB.recebidos.push({dt, fil:col(row,'vup-filidpcl'), ser:col(row,'vup-seridpcl'), nf:col(row,'vup-numrdpcl'), d:col(row,'vup-desddpcl'), cli:col(row,'vup-numrclie'), valor});   // v2.14.300: + parcela (d)
   });
+  // v2.14.300: baixa casa com a PARCELA certa (filial + nota + parcela); várias baixas da mesma parcela somam;
+  // a data da baixa é a mais recente. Recalcula do zero a cada importação (não duplica ao reimportar).
+  const _zz=v=>String(v==null?'':v).trim().replace(/^0+(?=\d)/,'');
+  const _bxAcc={};
   rows.forEach(row=>{
     const titulo=col(row,'vup-numrdpcl');
     if(!titulo){erros++;return;}
-    const valor=pFloat(col(row,'dc2-vlorprin','dc2-vlortota','vup-vlorprin','vup-vlorvenc'));
+    const cm=String(col(row,'vup-codimovi')).trim(); if(cm && cm!=='92') return;   // só movimento de baixa
+    const valor=Math.abs(pFloat(col(row,'dc2-vlorprin','dc2-vlortota','vup-vlorprin','vup-vlorvenc')));
     const dtPag=pDate(col(row,'dc2-datapag','dc2-datapgto','vup-datacont'));
-    const idx=DB.recebiveis.findIndex(r=>r.t===titulo);
-    if(idx>=0){
-      if(valor>0){DB.recebiveis[idx].sit='quitado';DB.recebiveis[idx].vlbx=valor;DB.recebiveis[idx].dtbx=dtPag;}
-      sucesso++;
-    } else { semTitulo++; }
+    const k=_zz(col(row,'vup-filidpcl'))+'|'+_zz(titulo)+'|'+col(row,'vup-desddpcl');
+    const a=_bxAcc[k]||(_bxAcc[k]={v:0,dt:''}); a.v+=valor; if(dtPag && dtPag>a.dt) a.dt=dtPag;
+  });
+  const _idxT={}; (DB.recebiveis||[]).forEach((r,i)=>{ (_idxT[_zz(r.f)+'|'+_zz(r.t)+'|'+(r.d||'')]=_idxT[_zz(r.f)+'|'+_zz(r.t)+'|'+(r.d||'')]||[]).push(i); });
+  Object.keys(_bxAcc).forEach(k=>{
+    let ids=_idxT[k];
+    if(!ids){ const [f,t]=k.split('|'); const alt=(DB.recebiveis||[]).map((r,i)=>i).filter(i=>_zz(DB.recebiveis[i].t)===t && (!f || _zz(DB.recebiveis[i].f)===f)); ids=alt.length===1?alt:null; }   // sem parcela no arquivo: só se o título for único
+    if(!ids){ semTitulo++; return; }
+    ids.forEach(i=>{ const r=DB.recebiveis[i], a=_bxAcc[k]; if(a.v>0){ r.sit='quitado'; r.vlbx=+a.v.toFixed(2); r.dtbx=a.dt; } });
+    sucesso++;
   });
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();
   if(typeof _puxarCanaisFatTodos==='function') _puxarCanaisFatTodos(true);   // recomputa Pronta Entrega/E-commerce com a troca aplicada
