@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.298</span>
+      ">v2.14.299</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -13344,7 +13344,8 @@ function parseNFeXML(xmlText){
     const has=t=>GEBT(doc,t).length>0;
     window._nfeErr = has('resNFe') ? 'Resumo de NF-e (sem itens) — importe o XML completo (nfeProc) da nota'
       : (has('procEventoNFe')||has('evento')||has('resEvento')||has('retEvento')) ? 'Evento (cancelamento/CCe/manifestação) — não é a NF-e'
-      : 'Não é NF-e (sem infNFe)';
+      : (has('Nfse')||has('CompNfse')||has('InfNfse')||has('infNFSe')||has('NFSe')||has('ConsultarNfseResposta')||has('GerarNfseResposta')) ? 'NFS-e (nota de SERVIÇO da prefeitura) — ainda não importada em Compras'
+      : ('Não é NF-e — documento <'+((doc.documentElement&&doc.documentElement.localName)||'?')+'>');
     return null;
   }
   window._nfeErr='';
