@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.319</span>
+      ">v2.14.320</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -8759,8 +8759,9 @@ function _extCruzar(janelaCred, janelaDeb){
   return mov;
 }
 // Resumo do extrato (opcionalmente de um mês) para os KPIs e o painel de cruzamento
-function _extResumo(mes){
-  const mov=(DB.extrato_banco||[]).filter(m=>!mes || m.mes===mes);
+function _extContaDe(m){ return ((m.banco||'Bradesco')+' '+(m.ag||'')+(m.ct?' / '+m.ct:'')).trim().toUpperCase(); }
+function _extResumo(mes, lista){   // v2.14.320: lista = lançamentos já filtrados (mês, dias, conta, tipo, categoria…)
+  const mov=lista || (DB.extrato_banco||[]).filter(m=>!mes || m.mes===mes);
   const cr=mov.filter(m=>m.valor>0), db=mov.filter(m=>m.valor<0);
   const soma=a=>+a.reduce((s,m)=>s+m.valor,0).toFixed(2);
   const porCat={};
@@ -8773,7 +8774,9 @@ function _extResumo(mes){
     dbOk:{n:dbOk.length, v:soma(dbOk)}, dbSem:{n:db.length-dbOk.length, v:+(soma(db)-soma(dbOk)).toFixed(2)},
     man:{n:mov.filter(m=>m.par&&m.par.manual).length, v:+mov.filter(m=>m.par&&m.par.manual).reduce((s,m)=>s+Math.abs(m.valor),0).toFixed(2)},
     rej:mov.filter(m=>m._mem==='nao').length, orf:mov.filter(m=>m.par&&m.par.orfao).length,
-    saldoFim: mov.length?mov[mov.length-1].saldo:0 };
+    saldoFim: (()=>{ const u={}; mov.forEach(m=>{ const k=_extContaDe(m), a=u[k]; if(!a || m.data>a.data || (m.data===a.data && (m.id||0)>(a.id||0))) u[k]=m; });
+      return +Object.values(u).reduce((t,m)=>t+(Number(m.saldo)||0),0).toFixed(2); })(),
+    nContas: new Set(mov.map(_extContaDe)).size };
 }
 // v2.14.314: lê o arquivo do extrato (xls/xlsx/csv) em linhas — usado pelo botão e pela varredura da pasta
 async function _extAoaDeArquivo(f){
@@ -10151,12 +10154,15 @@ function _extratoHtml(){
   const fCat=document.getElementById('ext-cat')?.value||'';
   const fSt=document.getElementById('ext-st')?.value||'';
   const fBus=(document.getElementById('ext-bus')?.value||'').toLowerCase();
-  const R=_extResumo(fMes);
+  const fConta=document.getElementById('ext-conta')?.value||'';
+  const fDe=document.getElementById('ext-de')?.value||'', fAte=document.getElementById('ext-ate')?.value||'';
+  const contasAll=[...new Set(MOV.map(_extContaDe))].sort();
   const MESES_X={'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
   const meses=[...new Set(MOV.map(m=>m.mes))].sort();
   const cats=[...new Set(MOV.map(m=>m.cat))];
 
-  let lista=R.mov;
+  // v2.14.320: TODOS os filtros (mês, dia de/até, conta, tipo, categoria, conciliação, busca) valem para os quadros também
+  let lista=MOV.filter(m=>(!fMes || m.mes===fMes) && (!fDe || m.data>=fDe) && (!fAte || m.data<=fAte) && (!fConta || _extContaDe(m)===fConta));
   if(fTipo) lista=lista.filter(m=>m.tipo===fTipo);
   if(fCat)  lista=lista.filter(m=>m.cat===fCat);
   if(fSt==='ok')  lista=lista.filter(m=>m.par);
@@ -10168,6 +10174,9 @@ function _extratoHtml(){
   window._extLoteObs=fCat?((EXT_CAT[fCat]||{rot:fCat}).rot):(fBus?fBus:'conciliado em lote');
   const _podeLote=_semPar.length && (fCat||fBus);
   if(fBus)  lista=lista.filter(m=>m.hist.toLowerCase().includes(fBus)||String(m.doc).includes(fBus));
+  const R=_extResumo('', lista);
+  const _filtrado=!!(fMes||fDe||fAte||fConta||fTipo||fCat||fSt||fBus);
+  const _iniF=lista.length?lista.reduce((a,m)=>m.data<a?m.data:a,lista[0].data):'', _fimF=lista.length?lista.reduce((a,m)=>m.data>a?m.data:a,lista[0].data):'';
   const POR=60, tot=lista.length, tp=Math.ceil(tot/POR)||1, pg=Math.min(window._extP||1,tp);
   const slice=lista.slice((pg-1)*POR, pg*POR);
   const _s=v=>fmt(Math.abs(v));
@@ -10181,20 +10190,20 @@ function _extratoHtml(){
   return `
   <div style="padding:14px 16px">
     <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px;margin-bottom:10px">
-      <div style="font-weight:700">🧾 ${META.banco||'Banco'} · Ag. ${META.agencia||'—'} · C/C ${META.conta||'—'}</div>
-      <div style="font-size:11px;color:var(--gray-5)">${fmtDate(META.ini)} a ${fmtDate(META.fim)} · ${MOV.length} lançamentos · importado ${META.quando||''}${META.arquivo?' · '+META.arquivo:''}</div>
+      <div style="font-weight:700">🧾 ${fConta||(contasAll.length===1?contasAll[0]:contasAll.length+' CONTAS: '+contasAll.join(' · '))}</div>
+      <div style="font-size:11px;color:var(--gray-5)">${_filtrado?`<b style="color:var(--pink)">FILTRADO:</b> ${lista.length?fmtDate(_iniF)+' a '+fmtDate(_fimF):'—'} · ${lista.length} de ${MOV.length} lançamentos`:`${fmtDate(META.ini)} a ${fmtDate(META.fim)} · ${MOV.length} lançamentos`} · importado ${META.quando||''}</div>
     </div>
 
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px">
-      <div class="kpi-card green" style="padding:12px"><div class="kpi-label" style="font-size:10px">Créditos${fMes?' no mês':''}</div>
+      <div class="kpi-card green" style="padding:12px"><div class="kpi-label" style="font-size:10px">Créditos${_filtrado?' (filtro)':''}</div>
         <div class="kpi-value" style="font-size:16px">${_s(R.totCred)}</div><div class="kpi-sub">${R.nCred} lançamentos</div></div>
-      <div class="kpi-card" style="padding:12px;border-left:3px solid var(--red)"><div class="kpi-label" style="font-size:10px">Débitos</div>
+      <div class="kpi-card" style="padding:12px;border-left:3px solid var(--red)"><div class="kpi-label" style="font-size:10px">Débitos${_filtrado?' (filtro)':''}</div>
         <div class="kpi-value" style="font-size:16px;color:var(--red)">${_s(R.totDeb)}</div><div class="kpi-sub">${R.nDeb} lançamentos</div></div>
       <div class="kpi-card blue" style="padding:12px"><div class="kpi-label" style="font-size:10px">Resultado</div>
         <div class="kpi-value" style="font-size:16px;color:${R.resultado>=0?'var(--green)':'var(--red)'}">${R.resultado>=0?'+':'−'} ${_s(R.resultado)}</div>
         <div class="kpi-sub">créditos − débitos</div></div>
       <div class="kpi-card amber" style="padding:12px"><div class="kpi-label" style="font-size:10px">Saldo no fim</div>
-        <div class="kpi-value" style="font-size:16px">${fmt(R.saldoFim)}</div><div class="kpi-sub">último saldo do período</div></div>
+        <div class="kpi-value" style="font-size:16px">${fmt(R.saldoFim)}</div><div class="kpi-sub">${R.nContas>1?'soma do último saldo de '+R.nContas+' contas':'último saldo do período'}</div></div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
@@ -10239,6 +10248,12 @@ function _extratoHtml(){
         <option value="">Todo período</option>
         ${meses.map(m=>`<option value="${m}" ${fMes===m?'selected':''}>${MESES_X[m.slice(5,7)]}/${m.slice(2,4)}</option>`).join('')}
       </select>
+      <input id="ext-de" type="date" class="form-control" style="width:140px" title="Do dia" value="${fDe}" onchange="_extFiltro()">
+      <input id="ext-ate" type="date" class="form-control" style="width:140px" title="Até o dia" value="${fAte}" onchange="_extFiltro()">
+      ${contasAll.length>1?`<select id="ext-conta" class="form-control" style="width:220px" onchange="_extFiltro()">
+        <option value="">Todas as contas</option>
+        ${contasAll.map(c=>`<option value="${_nvEsc(c)}" ${fConta===c?'selected':''}>${_nvEsc(c)}</option>`).join('')}
+      </select>`:''}
       <select id="ext-tipo" class="form-control" style="width:100px" onchange="_extFiltro()">
         <option value="">C e D</option>
         <option value="C" ${fTipo==='C'?'selected':''}>Só créditos</option>
@@ -10257,7 +10272,7 @@ function _extratoHtml(){
       </select>
       <input id="ext-bus" class="form-control" style="width:170px" placeholder="Histórico ou doc. (Enter)" value="${fBus}"
         onkeydown="if(event.key==='Enter'){event.preventDefault();_extFiltro();}">
-      <button class="btn btn-secondary btn-sm" onclick="['ext-mes','ext-tipo','ext-cat','ext-st','ext-bus'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});_extFiltro()">✕ Limpar</button>
+      <button class="btn btn-secondary btn-sm" onclick="['ext-mes','ext-de','ext-ate','ext-conta','ext-tipo','ext-cat','ext-st','ext-bus'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});_extFiltro()">✕ Limpar</button>
       ${_podeLote?`<button class="btn btn-secondary btn-sm" title="Marca como conciliados os lançamentos SEM PAR deste filtro (categoria ou busca)" onclick="_extConcLote()">✔ Conciliar ${_semPar.length} sem par do filtro</button>`:''}
     </div>
   </div>
