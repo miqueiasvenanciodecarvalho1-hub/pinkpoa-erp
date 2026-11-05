@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.329</span>
+      ">v2.14.330</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4812,7 +4812,155 @@ function modalPosReceber(){
       </div>
     </div>`,
     `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+     <button class="btn btn-secondary" onclick="modalEvolCarteira()">📈 Evolução da carteira</button>
      <button class="btn btn-primary" onclick="gerarPosReceberPDF()">🖨 Gerar PDF${_posTipoAtual()==='Todos'?'':' · somente '+_posTipoAtual()}</button>`);
+}
+// ═══════════ v2.14.330: EVOLUÇÃO DA CARTEIRA (demonstrativo) ═══════════
+// Carteira no fim do mês anterior + faturamento do mês − recebido no mês = carteira esperada; confere com a real
+// (posição no fim do mês) e explica a diferença. Depois: carteira + cartão + cobrança + saldo bancário = posição financeira.
+function _mesAnterior(m){ const [y,mo]=String(m).split('-').map(Number); const d=new Date(y,mo-2,1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function _evolDados(emp, mes){
+  const fil=_empresaFiliais(emp), fs=new Set(fil.map(String)), mesA=_mesAnterior(mes);
+  const _z=v=>String(v==null?'':v).trim().replace(/^0+(?=\d)/,'');
+  const okF=f=>!fs.size || fs.has(String(f)) || fs.has(_z(f));
+  const n=v=>Number(v)||0, r2=v=>+(+v).toFixed(2);
+  const parte=D=>{ const o={atras:0,aVencer:0,duv:0,cartao:0,nAtras:0,nAven:0,nDuv:0,nCart:0};
+    (D.itens||[]).forEach(x=>{ const v=n(x.v), b=String(x.b||'');
+      if(x.tipo==='Cartão'){ o.cartao+=v; o.nCart++; return; }
+      if(b[0]==='a'){ o.atras+=v; o.nAtras++; } else if(b[0]==='f'){ o.aVencer+=v; o.nAven++; } else if(b[0]==='d'){ o.duv+=v; o.nDuv++; } });
+    Object.keys(o).forEach(k=>{ if(!/^n/.test(k)) o[k]=r2(o[k]); }); o.total=r2(o.atras+o.aVencer+o.duv); o.n=o.nAtras+o.nAven+o.nDuv; o.corte=D.corte; return o; };
+  const Di=_posReceberDados(fil, mesA), Df=_posReceberDados(fil, mes);
+  const ini=parte(Di), fim=parte(Df);
+  const N=_nfsMesDados(fil, mes);
+  // títulos (duplicatas) lançados no contas a receber com emissão no mês
+  let titV=0, titN=0; (DB.recebiveis||[]).forEach(r=>{ if(r.origem==='pagarme' || !okF(r.f)) return; if(String(r.em||'').slice(0,7)===mes){ titV+=n(r.v); titN++; } });
+  // outras baixas do financeiro no mês (abatimento/troca, devolução…)
+  const outros={}; let outV=0, outN=0;
+  (DB.recebidos_outros||[]).forEach(m=>{ if(!okF(m.fil) || String(m.dt).slice(0,7)!==mes) return;
+    const k=(m.cod||'?')+' · '+(m.tx||''); const o=outros[k]||(outros[k]={v:0,n:0}); o.v+=n(m.valor); o.n++; outV+=n(m.valor); outN++; });
+  const temOutros=Array.isArray(DB.recebidos_outros);
+  const esperado=r2(ini.total + N.emitLiq - N.recebTotal);
+  const dif=r2(fim.total - esperado);
+  // explicação da diferença
+  const semTitulo=r2(N.emitLiq - titV);                 // faturado que não virou duplicata (cartão, à vista, e-commerce…)
+  const resid=r2(dif + semTitulo + outV);               // o que sobra depois das explicações
+  // bancos: saldos informados; se não houver, o último saldo do extrato até o fim do mês
+  let bancos=(_lerBancos()||[]).filter(b=>n(b.valor)).map(b=>({nome:b.nome, v:r2(n(b.valor)), fonte:'informado'}));
+  if(!bancos.length && (DB.extrato_banco||[]).length){
+    const u={}; (DB.extrato_banco||[]).forEach(m=>{ if(m.data>fim.corte) return; const k=_extContaDe(m); if(!u[k] || m.data>=u[k].data) u[k]=m; });
+    bancos=Object.keys(u).sort().map(k=>({nome:k, v:r2(n(u[k].saldo)), fonte:'extrato '+fmtDate(u[k].data)}));
+  }
+  const totBancos=r2(bancos.reduce((s,b)=>s+b.v,0));
+  const C=_posCobrancaDados(mes, emp);
+  const cob=r2(C.total||0);
+  const posicao=r2(fim.total + (_posSemPM()?0:fim.cartao) + cob + totBancos);
+  const base=ini.total+N.emitLiq;
+  return { emp, mes, mesA, ini, fim, N, titV:r2(titV), titN, outros, outV:r2(outV), outN, temOutros, esperado, dif, semTitulo, resid,
+    bancos, totBancos, cob, posicao, semPM:_posSemPM(),
+    ind:{ pctReceb: base>0 ? +(100*N.recebTotal/base).toFixed(1) : 0,
+          pmr: N.emitLiq>0 ? Math.round(fim.total/N.emitLiq*30) : 0,
+          variacao: r2(fim.total-ini.total), pctVar: ini.total>0 ? +(100*(fim.total-ini.total)/ini.total).toFixed(1) : 0,
+          pctAtras: fim.total>0 ? +(100*fim.atras/fim.total).toFixed(1) : 0 } };
+}
+const _EMP_NOME={rmf1:'RM FASHION 1 (PINKPOÁ)',rmf2:'RM FASHION 2 (PINKPOÁ)',cons:'RM FASHION CONSOLIDADO'};
+const _evMesNome=m=>{ const M=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']; const p=String(m).split('-'); return (M[+p[1]-1]||'')+'/'+p[0]; };
+const _ultDiaBR=m=>{ const [y,mo]=String(m).split('-').map(Number); return fmtDate(m+'-'+String(new Date(y,mo,0).getDate()).padStart(2,'0')); };
+// linhas do demonstrativo — as mesmas na tela e no PDF. [rótulo, valor, classe, nota]
+function _evolLinhas(E){
+  const i=E.ini, f=E.fim, N=E.N, L=[], dI=_ultDiaBR(E.mesA), dF=_ultDiaBR(E.mes), mN=_evMesNome(E.mes).toUpperCase();
+  L.push(['sec',`1 - CARTEIRA EM ${dI} (contas a receber em aberto)`]);
+  L.push(['','À vencer',i.aVencer,`${i.nAven} título(s)`]);
+  L.push(['','Atrasados (até 6 meses)',i.atras,`${i.nAtras} título(s)`]);
+  L.push(['','Devedores duvidosos (+ de 6 meses)',i.duv,`${i.nDuv} título(s)`]);
+  L.push(['sub',`CARTEIRA EM ${dI}`,i.total,`${i.n} título(s)`]);
+  L.push(['sec',`2 - (+) FATURAMENTO DE ${mN}`]);
+  L.push(['',`NFS emitidas — bruto (${N.nNF} notas)`,N.bruto+(N.ecom||0),N.ecom?'inclui e-commerce':'']);
+  L.push(['','(−) Troca / reposição',-N.troca,'']);
+  L.push(['',`(−) Devoluções (${N.nDev})`,-N.devol,'']);
+  L.push(['',`(−) Estorno de canceladas (${N.nEst})`,-N.estorno,'']);
+  L.push(['sub','FATURAMENTO LÍQUIDO DO MÊS',N.emitLiq,'']);
+  L.push(['sec',`3 - (−) RECEBIDO EM ${mN} (baixas financeiras)`]);
+  L.push(['','De notas emitidas no próprio mês',-N.receb,`${N.nReceb} baixa(s)`]);
+  L.push(['','De notas de meses anteriores',-N.recebOutros,`${N.nOutros} baixa(s)`]);
+  if(N.vSemNota) L.push(['','Sem nota localizada no faturamento',-N.vSemNota,`${N.semNota} baixa(s)`]);
+  L.push(['sub','TOTAL RECEBIDO NO MÊS',-N.recebTotal,`${N.nBaixas} baixa(s)`]);
+  L.push(['tot',`(=) CARTEIRA ESPERADA EM ${dF}  (1 + 2 − 3)`,E.esperado,'']);
+  L.push(['sec',`4 - CARTEIRA REAL EM ${dF} (posição de fechamento)`]);
+  L.push(['','À vencer',f.aVencer,`${f.nAven} título(s)`]);
+  L.push(['','Atrasados (até 6 meses)',f.atras,`${f.nAtras} título(s)`]);
+  L.push(['','Devedores duvidosos (+ de 6 meses)',f.duv,`${f.nDuv} título(s)`]);
+  L.push(['sub',`CARTEIRA REAL EM ${dF}`,f.total,`${f.n} título(s)`]);
+  L.push(['dif','DIFERENÇA (real − esperada)',E.dif,'explicada abaixo']);
+  L.push(['sec','5 - DE ONDE VEM A DIFERENÇA']);
+  L.push(['',`Duplicatas lançadas no mês (${E.titN}) × faturamento líquido`,-E.semTitulo,E.semTitulo<0?'duplicata cheia; a troca sai depois como abatimento':'faturado sem duplicata (cartão, à vista…)']);
+  if(E.temOutros) Object.keys(E.outros).sort().forEach(k=>L.push(['',`(−) ${k.replace(/^\d+ · /,'')} baixado no financeiro`,-E.outros[k].v,`${E.outros[k].n} lançamento(s) · mov. ${k.split(' · ')[0]}`]));
+  else L.push(['','(−) Abatimentos/devoluções no financeiro','','reimporte o vpdpcl2 para detalhar']);
+  L.push(['sub','NÃO EXPLICADO (ajustes, títulos alterados/cancelados)',E.temOutros?E.resid:'',E.temOutros&&Math.abs(E.resid)>0.005?`${(100*Math.abs(E.resid)/Math.max(1,f.total)).toFixed(2).replace('.',',')}% da carteira`:'']);
+  L.push(['sec',`6 - POSIÇÃO FINANCEIRA EM ${dF}`]);
+  L.push(['','Carteira de duplicatas (real)',f.total,'']);
+  if(!E.semPM) L.push(['','Cartão (Pagar.me) a receber',f.cartao,`${f.nCart} parcela(s)`]);
+  if(E.cob) L.push(['','Carteira de cobrança (cheques/dinheiro)',E.cob,'']);
+  E.bancos.forEach(b=>L.push(['',`Saldo bancário — ${b.nome}`,b.v,b.fonte]));
+  if(!E.bancos.length) L.push(['','Saldo bancário','','informe os saldos em Posição de Fechamento → Bancos']);
+  L.push(['tot','TOTAL — CARTEIRA + SALDO BANCÁRIO',E.posicao,'']);
+  return L;
+}
+function _evolIndHtml(E, pdf){
+  const I=E.ind, card=(t,v,sub,cor)=>`<div class="${pdf?'ind':''}" style="${pdf?'':'background:#fff;border:1px solid var(--gray-2);border-left:4px solid '+cor+';border-radius:8px;padding:8px 10px'}"><div style="font-size:10px;color:#888;text-transform:uppercase">${t}</div><div style="font-size:17px;font-weight:800;color:${cor}">${v}</div><div style="font-size:10px;color:#999">${sub}</div></div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0 0 12px">
+    ${card('Variação da carteira',(I.variacao>=0?'+':'−')+' '+_rcFmt(Math.abs(I.variacao)).replace('R$ ','R$ '),(I.pctVar>=0?'+':'')+String(I.pctVar).replace('.',',')+'% no mês',I.variacao>0?'#c0392b':'#1e8449')}
+    ${card('Recebido / (carteira + faturamento)',String(I.pctReceb).replace('.',',')+'%','quanto da carteira girou','#1f6fb2')}
+    ${card('Prazo médio de recebimento',I.pmr+' dias','carteira ÷ faturamento × 30','#8e44ad')}
+    ${card('Atrasado na carteira',String(I.pctAtras).replace('.',',')+'%','atrasados até 6 meses','#d35400')}
+  </div>`;
+}
+function _evolTabelaHtml(E, pdf){
+  const L=_evolLinhas(E), v=x=>x===''?'—':_rcFmt(x);
+  return `<table class="evol" style="width:100%;border-collapse:collapse;font-size:12px">${L.map(l=>{
+    if(l[0]==='sec') return `<tr class="sec"><td colspan="3">${l[1]}</td></tr>`;
+    const neg=typeof l[2]==='number' && l[2]<0;
+    return `<tr class="${l[0]}"><td>${l[1]}</td><td class="nota">${l[3]||''}</td><td class="r" style="${neg&&!l[0]?'color:#c0392b':''}">${v(l[2])}</td></tr>`; }).join('')}</table>`;
+}
+const _EVOL_CSS=`.evol td{padding:4px 8px;border-bottom:1px solid #eee}.evol .r{text-align:right;white-space:nowrap}.evol .nota{color:#999;font-size:10.5px}
+  .evol .sec td{font-weight:800;background:#f3f3f3;border-top:2px solid #333;font-size:11.5px;letter-spacing:.3px}
+  .evol .sub td{font-weight:700;border-top:2px dashed #666}.evol .tot td{font-weight:800;background:#E8368F;color:#fff;border:none}.evol .tot .nota{color:#fde}
+  .evol .dif td{font-weight:800;background:#fff4e0;color:#8a5a00}`;
+function modalEvolCarteira(){
+  window._posEmp=window._posEmp||'rmf1'; window._posMes=window._posMes||new Date().toISOString().slice(0,7);
+  let E; try{ E=_evolDados(window._posEmp, window._posMes); }catch(e){ toast('Não calculou: '+e.message,'error'); console.error(e); return; }
+  const meses=[]; for(let k=0;k<14;k++){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-k); meses.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
+  openModal(`📈 Evolução da carteira — ${_evMesNome(E.mes)}`, `<style>${_EVOL_CSS}</style>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px">
+      <div><label style="font-size:11px;color:var(--gray-5)">Empresa</label>
+        <select class="form-control" style="width:220px" onchange="window._posEmp=this.value;modalEvolCarteira()">
+          ${Object.keys(_EMP_NOME).map(k=>`<option value="${k}" ${window._posEmp===k?'selected':''}>${_EMP_NOME[k]}</option>`).join('')}</select></div>
+      <div><label style="font-size:11px;color:var(--gray-5)">Mês</label>
+        <select class="form-control" style="width:160px" onchange="window._posMes=this.value;modalEvolCarteira()">
+          ${meses.map(m=>`<option value="${m}" ${window._posMes===m?'selected':''}>${_evMesNome(m)}</option>`).join('')}</select></div>
+      <label style="font-size:12px;display:flex;gap:5px;align-items:center;cursor:pointer"><input type="checkbox" ${_posSemPM()?'checked':''} onchange="_posSemPMSet(this.checked);modalEvolCarteira()"> sem o cartão Pagar.me</label>
+    </div>
+    <div style="font-size:12px;color:var(--gray-5);margin-bottom:10px">Carteira de <b>${_ultDiaBR(E.mesA)}</b> + faturamento de <b>${_evMesNome(E.mes)}</b> − o que foi recebido no mês = carteira esperada em <b>${_ultDiaBR(E.mes)}</b>, conferida com a carteira real. Baixa feita depois do mês volta para a carteira; título emitido depois não entra.</div>
+    ${_evolIndHtml(E)}
+    ${_evolTabelaHtml(E)}
+    ${N_fonteAviso(E.N)}`,
+    `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+     <button class="btn btn-secondary" onclick="modalPosReceber()">📊 Posição de fechamento</button>
+     <button class="btn btn-primary" onclick="gerarEvolCarteiraPDF()">🖨 Gerar PDF</button>`, 'lg');
+}
+function gerarEvolCarteiraPDF(){
+  const E=_evolDados(window._posEmp||'rmf1', window._posMes);
+  const html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>'
+    +'html,body{background:#fff}body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:20px;max-width:780px;margin:0 auto}'
+    +'h1{text-align:center;font-size:17px;margin:6px 0}h2{text-align:center;font-size:13px;margin:0 0 6px;font-weight:600}.exp{text-align:center;font-size:10.5px;color:#888;margin:0 0 14px}'
+    +'.ind{border:1px solid #ddd;border-radius:6px;padding:6px 8px}'+_EVOL_CSS
+    +'.rod{margin-top:18px;padding-top:8px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}'
+    +'</style></head><body>'
+    +`<h1>${_EMP_NOME[E.emp]||''}</h1><h2>EVOLUÇÃO DA CARTEIRA · ${_evMesNome(E.mes).toUpperCase()}${E.semPM?' · SEM CARTÃO PAGAR.ME':''}</h2>`
+    +`<div class="exp">carteira de ${_ultDiaBR(E.mesA)} + faturamento do mês − recebido no mês = carteira esperada em ${_ultDiaBR(E.mes)} · conferida com a carteira real · + saldo bancário</div>`
+    +_evolIndHtml(E,true)+_evolTabelaHtml(E,true)
+    +`<div class="rod">baixas financeiras: ${(DB.recebidos_info&&DB.recebidos_info.arquivo)||'vpdpcl2'}${E.N.bxAte?' (movimentos até '+fmtDate(E.N.bxAte)+')':''} · faturamento ${E.N.nNF} nota(s) · gerado em ${new Date().toLocaleString('pt-BR')} · v${_versaoApp()}</div>`
+    +'</body></html>';
+  abrirPDFOverlay(html);
 }
 // v2.14.315: incluir/tirar bancos da lista de saldos (vale para os relatórios de receber e pagar)
 function _bancoNovaLinha(nome){
@@ -5289,6 +5437,7 @@ function renderRecebiveis() {
       <button class="btn btn-secondary btn-sm" onclick="importarPagarme()">💳 Importar cartão</button>
       <button class="btn btn-secondary btn-sm" onclick="modalRecebidosDia()">💰 Recebidos por dia</button>
       <button class="btn btn-secondary btn-sm" onclick="modalPosReceber()">📊 Posição de Fechamento</button>
+      <button class="btn btn-secondary btn-sm" onclick="modalEvolCarteira()" title="Carteira do mês anterior + faturamento − recebido + saldo bancário">📈 Evolução da carteira</button>
           <button class="btn btn-secondary btn-sm" onclick="
             ['rec-busca','rec-rep','rec-fil','rec-sit','rec-mes','rec-ano'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
             mudaPagRec(1);renderRecebiveis();">✕ Limpar</button>
@@ -7164,6 +7313,14 @@ function processarPagamentos(rows, arquivo) {
   // v2.14.325: até que dia vai o arquivo (qualquer movimento) — para saber se as baixas do mês estão completas
   let _ateArq=''; rows.forEach(row=>{ const d=pDate(col(row,'vup-datacont')); if(d && d>_ateArq) _ateArq=d; });
   DB.recebidos_info={ ate:_ateArq, importado_em:new Date().toISOString(), arquivo:arquivo||'' };
+  // v2.14.330: outras baixas do financeiro (90 abatimento/troca, 91 devolução, …) — para a evolução da carteira
+  DB.recebidos_outros = [];
+  rows.forEach(row=>{
+    const cm=String(col(row,'vup-codimovi')).trim(); if(!cm || cm==='1' || cm==='92') return;
+    const dt=pDate(col(row,'vup-datacont')); if(!dt) return;
+    const valor=Math.abs(pNum(col(row,'dc2-vlorliqu','dc2-vlorprin','vup-vlorprin'))); if(!valor) return;
+    DB.recebidos_outros.push({dt, fil:col(row,'vup-filidpcl'), nf:col(row,'vup-numrdpcl'), d:col(row,'vup-desddpcl'), cod:cm, tx:col(row,'ws-litemovi'), valor});
+  });
   // Movimentos de RECEBIMENTO (baixa, codimovi 92) para a visão "Recebidos por dia"
   DB.recebidos = [];
   rows.forEach(row=>{
@@ -11432,7 +11589,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.329","2026-11-05 20:10","importação: o vpdpcl2 (baixas financeiras) é lido sozinho pelo Contas a Receber mesmo já lido pelas Comissões — 'já importado' agora vale por tipo"],
+const ALTERACOES=[["2.14.330","2026-11-05 21:00","novo demonstrativo: Evolução da carteira — carteira do mês anterior + faturamento − recebido = esperada × real, de onde vem a diferença e + saldo bancário (tela e PDF)"],
+  ["2.14.329","2026-11-05 20:10","importação: o vpdpcl2 (baixas financeiras) é lido sozinho pelo Contas a Receber mesmo já lido pelas Comissões — 'já importado' agora vale por tipo"],
   ["2.14.328","2026-11-05 19:45","NFS emitidas e recebidas: mostra qual arquivo de baixas está carregado e botão para importar o vpdpcl2 direto na prévia"],
   ["2.14.327","2026-11-05 19:20","extrato do banco: clicar em créditos, débitos, categoria ou cruzamento abre os lançamentos (com CSV); filtros do extrato no topo; contas com nome certo"],
   ["2.14.326","2026-11-05 18:50","prévia de NFS emitidas e recebidas: caixinha em cada linha para tirar ou pôr no relatório"],
@@ -11786,7 +11944,7 @@ async function _nvEnviar(auto){
     if(!auto) toast(rc.mesclado?`Salvo no servidor: ${(rc.listas||[]).join(', ')||'nada a gravar'}`:`Dados salvos no servidor (${_nvTam(env.length)})`);
     if(_nRec) toast(`${_nRec} mudança(s) recusada(s) por falta de permissão: ${['incluir','alterar','excluir'].filter(x=>_rec[x]).map(x=>`${_rec[x]} de ${x==='incluir'?'inclusão':x==='alterar'?'alteração':'exclusão'}`).join(', ')}`,'error');
     if(!rc.mesclado){ _cacheGravar({ ref: lote, criado_em: new Date().toISOString(), txt }); _asRef=lote; }
-    _asBase=hash; _asPausa='';
+    _asBase=hash; _asPausa=''; try{ _asBaseListas=_asListas(b); }catch(e){}
     _asIndicador('salvo '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}));
     return hash;
   }catch(e){ _asIndicador('não salvou'); throw e; }
@@ -11804,7 +11962,12 @@ function _asHashDe(b){
   let h=0x811c9dc5; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); }
   return (h>>>0).toString(36)+':'+t.length;
 }
-function _asMarcarBase(ref){ if(ref!==undefined) _asRef=ref; setTimeout(()=>{ try{ _asBase=_asHashDe(_montarBackup()); _asPausa=''; _asIndicador('em dia');
+// v2.14.330: impressão digital POR LISTA no ponto de partida — para mesclar com a cópia do servidor sem perder nada
+let _asBaseListas=null;
+function _asHashTxt(t){ let h=0x811c9dc5; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); } return (h>>>0).toString(36)+':'+t.length; }
+function _asListas(b){ const o={}; Object.keys(b.db||{}).forEach(k=>{ try{ o['db:'+k]=_asHashTxt(JSON.stringify(b.db[k])); }catch(e){} });
+  Object.keys(b.local||{}).forEach(k=>{ if(!_AS_IGNORA.test(k)) o['local:'+k]=_asHashTxt(String(b.local[k])); }); return o; }
+function _asMarcarBase(ref){ if(ref!==undefined) _asRef=ref; setTimeout(()=>{ try{ const _b=_montarBackup(); _asBase=_asHashDe(_b); _asBaseListas=_asListas(_b); _asPausa=''; _asIndicador('em dia');
   if(window._pmForcarSalvar){ window._pmForcarSalvar=false; _asBase='cartao-restaurado'; _asIndicador('cartão importado aqui — enviando'); _asAgendar(); }   // v2.14.318
   }catch(e){} }, 1500); }
 function _asIndicador(t){ const el=document.getElementById('api-status'); if(el){ el.dataset.auto=t; el.title='Salvamento automático: '+t; } }
@@ -11817,6 +11980,10 @@ async function _asConferir(){
     if(_ehAdmin()){   // alguém salvou depois que estes dados foram carregados? não sobrescreve sem perguntar
       const v=await _nvUltima();
       if(v && !_asRef){ if(_asPausa!=='semref'){ _asPausa='semref'; _asIndicador('pausado — carregue a cópia do servidor primeiro'); } return; }   // v2.14.296: dados que não vieram do servidor nunca sobrescrevem a cópia dele sozinhos
+      if(v && _asRef && v.lote!==_asRef && _asBaseListas){
+        // v2.14.330: outro computador salvou depois → MESCLA: o que mudou aqui (importações, edições) fica; o resto vem do servidor
+        try{ if(await _asMesclarServidor(v)){ await _nvEnviar(true); return; } }catch(e){ console.warn('mesclar', e); if(e && e.auth) throw e; }
+      }
       if(v && _asRef && v.lote!==_asRef){
         if(_asPausa!==v.lote){ _asPausa=v.lote; _asIndicador('pausado — o servidor tem cópia mais nova');
           toast(`Salvamento automático pausado: ${v.criado_por} salvou no servidor em ${new Date(v.criado_em).toLocaleString('pt-BR')}. Use ☁ Salvar no servidor (substitui) ou ⬇ Carregar do servidor.`,'error'); }
@@ -11825,6 +11992,24 @@ async function _asConferir(){
     }
     await _nvEnviar(true);
   }catch(e){ if(e && e.auth){ toast('Sessão expirada — entre de novo para salvar','error'); } }
+}
+async function _asMesclarServidor(v){
+  _asIndicador('mesclando com a cópia do servidor…');
+  const txt=await _nvBaixarTexto(v); const srv=JSON.parse(txt);
+  if(!srv || srv._tipo!=='PINKPOA_BACKUP') return false;
+  const loc=_montarBackup(), agora=_asListas(loc), mud=[];
+  Object.keys(agora).forEach(k=>{ if(agora[k]!==(_asBaseListas||{})[k]) mud.push(k); });
+  Object.keys(_asBaseListas||{}).forEach(k=>{ if(!(k in agora)) mud.push(k); });
+  srv.db=srv.db||{}; srv.local=srv.local||{};
+  mud.forEach(k=>{ const [t,...r]=k.split(':'), n=r.join(':');
+    if(t==='db'){ if(n in loc.db) srv.db[n]=loc.db[n]; else delete srv.db[n]; }
+    else { if(n in loc.local) srv.local[n]=loc.local[n]; } });
+  _aplicarBackup(srv);
+  _asRef=v.lote; _cacheGravar({ ref:v.lote, criado_em:v.criado_em, txt:JSON.stringify(srv) });
+  console.info('Mesclado com a cópia do servidor — ficaram as mudanças deste computador em:', mud.join(', '));
+  toast(`Outro computador salvou antes: juntei as duas cópias (ficaram as suas mudanças em ${mud.length} lista(s)) e salvei no servidor`);
+  try{ if(typeof navigate==='function' && typeof CURRENT_PAGE!=='undefined') navigate(CURRENT_PAGE); }catch(e){}
+  return true;
 }
 ['click','change','keyup'].forEach(ev=>document.addEventListener(ev,()=>{ if(_asBase!==null) _asAgendar(); },true));
 setInterval(_asConferir, 60000);
@@ -11836,6 +12021,15 @@ window.addEventListener('beforeunload',e=>{ if(_asRodando){ e.preventDefault(); 
 async function _nvUltima(){
   if(_ehAdmin()) return (await _nvFetch('/dados/ultima')).versao;
   return (await _nvFetch('/dados/minha')).versao;
+}
+async function _nvBaixarTexto(v){
+  let txt='';
+  try{ txt=await _nvFetchTexto(v.chave?`/dados/minha/completa?chave=${encodeURIComponent(v.chave)}`:`/dados/completa?lote=${encodeURIComponent(v.lote)}`); }
+  catch(e){
+    if(e.auth || !/Rota não encontrada|404/.test(e.message)) throw e;
+    for(let i=0;i<v.partes;i++) txt+=(await _nvFetch(v.chave?`/dados/minha/parte?chave=${encodeURIComponent(v.chave)}&parte=${i}`:`/dados/parte?lote=${encodeURIComponent(v.lote)}&parte=${i}`)).texto;
+  }
+  return txt;
 }
 async function _nvBaixarAplicar(v){
   let txt='';
