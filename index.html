@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.327</span>
+      ">v2.14.328</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4126,7 +4126,8 @@ function _nfsMesLinhas(N){
   L.push([`(−) Devoluções (${N.nDev})`, -N.devol, '']);
   L.push([`(−) Estorno de canceladas (${N.nEst})`, -N.estorno, '']);
   L.push(['NFS EMITIDAS — LÍQUIDO', N.emitLiq, 'sub']);
-  L.push([`EMITIDAS E RECEBIDAS NO MESMO MÊS (${b(N.nReceb)}${N.pctMesmo?' · '+String(N.pctMesmo).replace('.',',')+'% do emitido':''})`, N.receb, '']);
+  const _nn=new Set((N.mesmoMes||[]).map(x=>String(x.fil)+'|'+String(x.nf))).size;
+  L.push([`EMITIDAS E RECEBIDAS NO MESMO MÊS (${_nn} nota${_nn===1?'':'s'} · ${b(N.nReceb)}${N.pctMesmo?' · '+String(N.pctMesmo).replace('.',',')+'% do emitido':''})`, N.receb, '']);
   L.push(['SALDO A RECEBER DAS NFS DO MÊS', N.saldo, 'sub']);
   L.push([`Recebido no mês de NFS de meses anteriores (${b(N.nOutros)})`, N.recebOutros, '']);
   L.push([`Recebido no mês sem NF localizada no faturamento (${b(N.semNota)})`, N.vSemNota, '']);
@@ -4163,6 +4164,33 @@ function _nfsMesmoCSV(){
   a.download='nfs_emitidas_recebidas_'+(window._posMes||'')+'.csv';
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+// v2.14.328: importar o arquivo de baixas financeiras (vpdpcl2) direto da prévia de NFS
+function importarBaixasNFS(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.csv,.txt,.xlsx,.xls,.zip';
+  inp.onchange=async ev=>{ let f=ev.target.files&&ev.target.files[0]; if(!f) return;
+    try{
+      if(/\.zip$/i.test(f.name)){ const z=await JSZip.loadAsync(f); const e=Object.values(z.files).find(x=>/vpdpcl2\.(csv|txt)$/i.test(x.name));
+        if(!e){ toast('Este .zip não tem o vpdpcl2.csv','error'); return; } f=new File([await e.async('blob')], e.name); }
+      const r=await lerArqImport(f); const rows=(r&&r.rows)||[];
+      if(!rows.length || !('vup-codimovi' in rows[0])){ toast('Este arquivo não é o vpdpcl2 (baixas financeiras)','error'); return; }
+      processarPagamentos(rows, f.name);
+      if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();
+      toast(`Baixas importadas: ${(DB.recebidos||[]).length} baixa(s) · movimentos até ${fmtDate(DB.recebidos_info.ate)}`);
+      try{ _asAgendar(); }catch(e){}
+      modalPosReceber();
+    }catch(e){ toast('Erro ao ler as baixas: '+e.message,'error'); }
+  };
+  inp.click();
+}
+function _nfsBaseInfo(N){
+  const I=DB.recebidos_info||{}, mes=N&&N.mesFech||'';
+  const noMes=(DB.recebidos||[]).filter(m=>String(m.dt||'').slice(0,7)===mes);
+  const nNotas=new Set((N&&N.mesmoMes||[]).map(x=>String(x.fil)+'|'+String(x.nf))).size;
+  return `<div style="font-weight:400;font-size:11px;color:var(--gray-5);margin-top:4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span>📂 Baixas financeiras: <b>${I.arquivo?_nvEsc(I.arquivo):'vpdpcl2'}</b>${I.importado_em?' · importado '+new Date(I.importado_em).toLocaleString('pt-BR'):''}
+      · ${noMes.length} baixa(s) no mês em todas as filiais · ${nNotas} nota(s) emitida(s) e paga(s) no mês</span>
+    <button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:11px" onclick="importarBaixasNFS()">📥 Importar baixas (vpdpcl2)</button></div>`;
 }
 function N_fonteAviso(N){
   if(!N) return '';
@@ -4759,7 +4787,7 @@ function modalPosReceber(){
     <div style="padding:10px 12px;background:var(--gray-1);border-radius:8px;margin-bottom:10px">
       <div style="font-weight:700;margin-bottom:6px">Prévia · NFS emitidas e recebidas no mês
         <span style="font-weight:400;color:var(--gray-5);font-size:12px">(☑ = sai no relatório · desmarque a caixinha para tirar a linha do PDF; aqui na tela ela continua, riscada)</span>
-        ${N_fonteAviso(_nfsPrev)}</div>
+        ${N_fonteAviso(_nfsPrev)}${_nfsBaseInfo(_nfsPrev)}</div>
       <style>#pos-nfs td{padding:3px 6px;border-bottom:1px solid var(--gray-2);font-size:12px}#pos-nfs .r{text-align:right}#pos-nfs .sub td{font-weight:700;border-top:1px solid var(--gray-3)}</style>
       <table style="width:100%;border-collapse:collapse">
         <tbody id="pos-nfs">${_nfsMesHtml(_nfsPrev,true)}</tbody>
@@ -6249,7 +6277,7 @@ async function importarTudoAuto() {
         const file = await cand.getFile();
         const r = await lerArqImport(file); const rows=(r&&r.rows)||[];
         if(rows.length && ('vup-codimovi' in rows[0])){
-          processarPagamentos(rows);
+          processarPagamentos(rows, cand.nome);
           if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();
           const nn=Object.keys(DB.abat_repo||{}).length;
           toast(`Troca (vpdpcl2) processada automaticamente da pasta (${nn} nota(s))`,'success');
@@ -6837,7 +6865,7 @@ function confirmarImport(tipoKey) {
     totalLinhas=cabRows.length+itnRows.length;
     // Troca (vpdpcl2) junto: processa ANTES p/ o abat_repo já existir quando o faturamento reaplicar
     if(parsed['pagamentos']?.rows?.length){
-      const rp=processarPagamentos(parsed['pagamentos'].rows);
+      const rp=processarPagamentos(parsed['pagamentos'].rows, parsed['pagamentos'].file);
       totalLinhas+=rp.total; avisos.push(...(rp.avisos||[]), `Troca (vpdpcl2) processada automaticamente`);
     }
     if(!cabRows.length){ avisos.push('Cabeçalho de NF (vpfatu1) não carregado'); erros++; }
@@ -6871,7 +6899,7 @@ function confirmarImport(tipoKey) {
     const res=processarRecebiveis(tRows);
     sucesso=res.total-res.erros; erros=res.erros; avisos=res.avisos||[];
     if(parsed['pagamentos']?.rows?.length) {
-      const r2=processarPagamentos(parsed['pagamentos'].rows);
+      const r2=processarPagamentos(parsed['pagamentos'].rows, parsed['pagamentos'].file);
       totalLinhas+=r2.total; avisos.push(...(r2.avisos||[]));
     }
     if(parsed['baixas']?.rows?.length) {
@@ -7092,7 +7120,7 @@ async function importarTrocaDireto(){
   };
   inp.click();
 }
-function processarPagamentos(rows) {
+function processarPagamentos(rows, arquivo) {
   function col(row,...keys){for(const k of keys){const v=row[k]||'';if(String(v).trim())return String(v).trim();}return '';}
   let sucesso=0,erros=0,semTitulo=0;
   DB.abat_repo = {};   // reconstruído a cada import de vpdpcl2
@@ -7108,7 +7136,7 @@ function processarPagamentos(rows) {
   });
   // v2.14.325: até que dia vai o arquivo (qualquer movimento) — para saber se as baixas do mês estão completas
   let _ateArq=''; rows.forEach(row=>{ const d=pDate(col(row,'vup-datacont')); if(d && d>_ateArq) _ateArq=d; });
-  DB.recebidos_info={ ate:_ateArq, importado_em:new Date().toISOString() };
+  DB.recebidos_info={ ate:_ateArq, importado_em:new Date().toISOString(), arquivo:arquivo||'' };
   // Movimentos de RECEBIMENTO (baixa, codimovi 92) para a visão "Recebidos por dia"
   DB.recebidos = [];
   rows.forEach(row=>{
@@ -11377,7 +11405,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.327","2026-11-05 19:20","extrato do banco: clicar em créditos, débitos, categoria ou cruzamento abre os lançamentos (com CSV); filtros do extrato no topo; contas com nome certo"],
+const ALTERACOES=[["2.14.328","2026-11-05 19:45","NFS emitidas e recebidas: mostra qual arquivo de baixas está carregado e botão para importar o vpdpcl2 direto na prévia"],
+  ["2.14.327","2026-11-05 19:20","extrato do banco: clicar em créditos, débitos, categoria ou cruzamento abre os lançamentos (com CSV); filtros do extrato no topo; contas com nome certo"],
   ["2.14.326","2026-11-05 18:50","prévia de NFS emitidas e recebidas: caixinha em cada linha para tirar ou pôr no relatório"],
   ["2.14.325","2026-11-05 18:30","NFS emitidas e recebidas no mês: aviso quando as baixas carregadas não chegam ao fim do mês; nota fora do faturamento usa a emissão do título"],
   ["2.14.324","2026-11-05 18:05","NFS emitidas e recebidas no mês: todas as linhas sempre aparecem na tela (sem o botão de modo); ocultar só no PDF, por linha"],
