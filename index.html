@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.318</span>
+      ">v2.14.319</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5971,7 +5971,8 @@ async function _varrerEntradas(brutos, nomePasta) {
     _progresso('');
 
     const achados = Object.keys(porSlot).length;
-    toast(achados ? `${achados} arquivo(s) identificado(s) 📂` : 'Nenhum arquivo reconhecido', achados ? 'success' : 'error');
+    const _nExt = (_scan.extratos || []).length;
+    if (achados || !_nExt) toast(achados ? `${achados} arquivo(s) identificado(s) 📂` : 'Nenhum arquivo reconhecido', achados ? 'success' : 'error');
     renderImportacao();
   } finally {
     _scanning = false;
@@ -6214,6 +6215,36 @@ async function importarTudoAuto() {
 }
 
 // ── Card da varredura, no topo da tela de Importação ─────────────
+// v2.14.319: EXTRATO BANCÁRIO também na tela de Importação — o que a varredura achou, o que já está na base e
+// botão para escolher os extratos (vários de uma vez, de qualquer banco). Tudo vai para a Conciliação bancária.
+function _extResumoContas(){
+  const L=DB.extrato_banco||[]; if(!L.length) return [];
+  const g={}; L.forEach(m=>{ const k=((m.banco||'Bradesco')+' '+(m.ag||'')+(m.ct?' / '+m.ct:'')).trim().toUpperCase();
+    const x=g[k]||(g[k]={n:0,ini:m.data,fim:m.data}); x.n++; if(m.data<x.ini) x.ini=m.data; if(m.data>x.fim) x.fim=m.data; });
+  return Object.keys(g).sort().map(k=>({conta:k, ...g[k]}));
+}
+function _extLinhaImpHtml(){
+  const contas=_extResumoContas(), ach=(_scan&&_scan.extratos)||[];
+  const novos=ach.filter(x=>!x.ja).length;
+  const lin=(ico,cor,rot,txt)=>`<div style="display:flex;gap:6px;align-items:baseline;font-size:12px;color:${cor}"><span>${ico}</span>
+      <span style="color:var(--gray-5);min-width:150px">${rot}</span><span style="font-family:monospace;white-space:normal">${txt}</span></div>`;
+  let sub='';
+  if(_scan) sub+=lin(ach.length?'✓':'—', ach.length?'var(--gray-5)':'var(--gray-3)', 'NA PASTA',
+      ach.length?`${ach.length} arquivo(s): ${novos} novo(s), ${ach.length-novos} já importado(s) — ${ach.map(x=>_nvEsc(x.nome)).join(', ')}`:'nenhum extrato nesta varredura');
+  sub+= contas.length ? contas.map(c=>lin('✓','var(--green)',c.conta,`${c.n} lançamento(s) · ${fmtDate(c.ini)} a ${fmtDate(c.fim)}`)).join('')
+                      : lin('—','var(--gray-3)','NA BASE','nenhum extrato importado ainda');
+  return `<tr>
+      <td style="white-space:normal"><strong>🏦 EXTRATO BANCÁRIO</strong>
+        <div style="font-size:11px;color:var(--gray-5);margin-top:2px">Bradesco, Santander, Itaú, BB, Caixa, Sicoob, Inter, BTG… (.xls, .xlsx, .csv). Entra sozinho na varredura da pasta; vai para a Conciliação bancária.</div>
+        <div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">${sub}</div>
+      </td>
+      <td style="text-align:right;vertical-align:middle;white-space:nowrap">
+        ${contas.length?'<span class="badge badge-green" style="margin-right:6px">● PRONTO</span>':''}
+        <button class="btn btn-primary btn-sm" onclick="importarExtratoBanco(true)">📄 Selecionar extratos</button>
+        ${contas.length?`<button class="btn btn-secondary btn-sm" onclick="window._concTab='extrato';navigate('conciliacao')">Ver conciliação</button>`:''}
+      </td>
+    </tr>`;
+}
 function _scanCardHtml() {
   const conectada = !!_pastaHandle;
   const cabecalho = `
@@ -6261,6 +6292,8 @@ function _scanCardHtml() {
         ${cabecalho}
         ${SUPORTA_FS?_impAutoHtml():''}
       </div>
+      <div class="card-table"><table><thead><tr><th>Tipo de importação</th><th style="text-align:right">Ação</th></tr></thead>
+        <tbody>${_extLinhaImpHtml()}</tbody></table></div>
     </div>`;
   }
 
@@ -6334,7 +6367,7 @@ function _scanCardHtml() {
     <div class="card-table">
       <table>
         <thead><tr><th>Tipo de importação</th><th style="text-align:right">Ação</th></tr></thead>
-        <tbody>${linhas}</tbody>
+        <tbody>${linhas}${_extLinhaImpHtml()}</tbody>
       </table>
     </div>
     ${naoReconhecidos ? `<div class="card-body" style="border-top:1px solid var(--gray-2);font-size:12px;color:var(--gray-5)">
@@ -8761,19 +8794,27 @@ function _ehExtratoBanco(aoa){
   const L=(aoa||[]).slice(0,60).map(r=>(r||[]).map(c=>String(c==null?'':c).trim()));
   return L.some(r=>/^data$/i.test(r[0]||'') && /lan[çc]amento|hist[óo]rico/i.test(r[1]||'') && r.some(c=>/valor|cr[ée]dito|d[ée]bito/i.test(c)));
 }
-async function importarExtratoBanco(){
-  const inp=document.createElement('input'); inp.type='file'; inp.accept='.xls,.xlsx,.csv,.txt';
+async function importarExtratoBanco(daImportacao){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.xls,.xlsx,.csv,.txt'; inp.multiple=true;
   inp.onchange=async ev=>{
-    const f=ev.target.files&&ev.target.files[0]; if(!f) return;
-    try{
-      let aoa=[]; try{ aoa=await _extAoaDeArquivo(f); }catch(e){ toast(e.message,'error'); return; }
-      const r=processarExtratoBanco(aoa, f.name);
-      if(r.erro){ toast(r.erro,'error'); return; }
-      const _f=v=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
-      toast(`Extrato ${r.banco||''} ${r.agencia||''}/${r.conta||''}: ${r.lancamentos} lançamentos · créditos R$ ${_f(r.totCred)} · débitos R$ ${_f(r.totDeb)}`);
-      window._concTab='extrato';
-      if(typeof renderConciliacao==='function') renderConciliacao();
-    }catch(e){ toast('Erro ao ler o extrato: '+e.message,'error'); console.error(e); }
+    const fs=[...(ev.target.files||[])]; if(!fs.length) return;
+    const _f=v=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
+    const ok=[], erros=[], reg=[];
+    for(const f of fs){
+      try{
+        const aoa=await _extAoaDeArquivo(f);
+        const r=processarExtratoBanco(aoa, f.name);
+        if(r.erro){ erros.push(f.name+': '+r.erro); continue; }
+        ok.push(`${r.banco||''} ${r.agencia||''}/${r.conta||''}: ${r.lancamentos} lanç. · créd. R$ ${_f(r.totCred)} · déb. R$ ${_f(r.totDeb)}`);
+        try{ reg.push({hash:await _hashArquivo(f), nome:f.name, slot:'extrato'}); }catch(e){}
+      }catch(e){ erros.push(f.name+': '+e.message); console.error(e); }
+    }
+    if(reg.length){ try{ _registrarImportados(reg,'extrato_banco'); }catch(e){} }
+    if(ok.length) toast((ok.length>1?ok.length+' extratos — ':'Extrato ')+ok.join(' | '));
+    if(erros.length) toast(erros.join(' | '),'error');
+    if(daImportacao){ renderImportacao(); return; }
+    window._concTab='extrato';
+    if(typeof renderConciliacao==='function') renderConciliacao();
   };
   inp.click();
 }
