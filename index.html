@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.347</span>
+      ">v2.14.348</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5156,12 +5156,68 @@ function _bgPuxar(r, emp, mes){
       r.v.atr1=_bgR(ultimo); r.v.atr5=_bgR(A.subAtras-ultimo);
       const fx=A.faixas||{}; r.v.f30=_bgR(_bgN(fx.f30)+_bgN(C.total)); r.v.f60=_bgR(fx.f60); r.v.f90=_bgR(fx.f90); r.v.f120=_bgR(fx.f120); r.v.f150=_bgR(fx.f150); r.v.f180=_bgR(_bgN(fx.f180)+_bgN(fx.f180p));
     } finally { window._posMes=oldM; window._posEmp=oldE; } }
-  try{ const P=_pgPosicao(emp==='RK'?'RK':'RMF', mes, false), f=P.faixas||{};
-    r.v.pAtras=_bgR(P.vAtras||0); r.v.p30=_bgR(f.f30); r.v.p60=_bgR(f.f60); r.v.p90=_bgR(f.f90); r.v.p120=_bgR(f.f120); r.v.p150=_bgR(f.mais); r.v.p180=0; r.v.p210=0;
+  try{ const D=_bgPagarDados(emp, mes);
+    BG_PAG.forEach(([k])=>{ r.v[k]=_bgR((D.grupos[k]||[]).reduce((s,p)=>s+(Number(p.valor)||0),0)); });
+    r.pagOff=_bgPagOff(emp).slice();
   }catch(e){ console.warn('pagar', e); }
   r.fonte='sistema'; return r;
 }
 function _bgMesAnt(m){ return _mesAnterior(m); }
+// v2.14.348: CONTAS A PAGAR do balanço — por plano de contas, com escolha de quais planos entram (por empresa)
+function _bgPagOff(emp){ try{ return JSON.parse(localStorage.getItem('pinkpoa_bg_pag_off_'+emp)||'[]')||[]; }catch(e){ return []; } }
+function _bgPagOffSet(emp, arr){ try{ localStorage.setItem('pinkpoa_bg_pag_off_'+emp, JSON.stringify(arr)); }catch(e){} }
+function _bgPagarDados(emp, mes){
+  const P=_pgPosicao(emp==='RK'?'RK':'RMF', mes, false), off=_bgPagOff(emp);
+  const todos=[...(P.itens.atras||[]), ...['f30','f60','f90','f120','mais'].flatMap(k=>P.itens[k]||[])];
+  const grupos={}, planos={};
+  todos.forEach(p=>{ const pl=p.plano||'—';
+    const g=planos[pl]||(planos[pl]={desc:p.planoDesc||'', tot:0, n:0, off:off.includes(pl)}); g.tot+=Number(p.valor)||0; g.n++;
+    if(off.includes(pl)) return;
+    const o=_pgOffMes(p.venc, mes);
+    const k=o<=0?'pAtras':o===1?'p30':o===2?'p60':o===3?'p90':o===4?'p120':o===5?'p150':o===6?'p180':'p210';
+    (grupos[k]=grupos[k]||[]).push(p); });
+  return {grupos, planos};
+}
+function _bgPagPlanoToggle(pl){
+  const emp=window._bgEmp, off=_bgPagOff(emp), i=off.indexOf(pl); if(i>=0) off.splice(i,1); else off.push(pl);
+  _bgPagOffSet(emp, off); _bgRepuxarPagar();
+}
+function _bgPagPlanosTodos(marcar){ const emp=window._bgEmp; if(marcar) _bgPagOffSet(emp, []);
+  else _bgPagOffSet(emp, Object.keys(_bgPagarDados(emp, window._bgMes).planos)); _bgRepuxarPagar(); }
+function _bgRepuxarPagar(){ const W=window._bgWork; if(!W) return;
+  try{ const D=_bgPagarDados(window._bgEmp, window._bgMes); BG_PAG.forEach(([k])=>{ W.v[k]=_bgR((D.grupos[k]||[]).reduce((s,p)=>s+(Number(p.valor)||0),0)); }); W.pagOff=_bgPagOff(window._bgEmp).slice(); }catch(e){ console.warn(e); }
+  window._bgPainel='planos'; modalLiquidez(); }
+function _bgPainelHtml(){
+  const pn=window._bgPainel; if(!pn) return '';
+  const emp=window._bgEmp, mes=window._bgMes; let D; try{ D=_bgPagarDados(emp, mes); }catch(e){ return ''; }
+  const esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const fechar=`<button class="btn btn-secondary btn-sm" style="padding:1px 8px" onclick="window._bgPainel=null;modalLiquidez()">✕ fechar</button>`;
+  if(pn==='planos'){
+    const L=Object.entries(D.planos).sort((a,b)=>b[1].tot-a[1].tot), nOn=L.filter(([,g])=>!g.off).length;
+    return `<div style="border:1px solid var(--gray-2);border-radius:8px;padding:10px;margin-top:10px;background:#fff">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+        <b>⚙ Planos de contas no Contas a Pagar do balanço — ${nOn} de ${L.length} entram</b>
+        <span><button class="btn btn-secondary btn-sm" style="padding:1px 8px" onclick="_bgPagPlanosTodos(true)">marcar todos</button>
+          <button class="btn btn-secondary btn-sm" style="padding:1px 8px" onclick="_bgPagPlanosTodos(false)">desmarcar todos</button> ${fechar}</span></div>
+      <div style="font-size:11px;color:var(--gray-5);margin-bottom:6px">Desmarque o que não é obrigação de curto prazo do balanço (ex.: financiamentos, parcelamentos, transferências). A escolha fica gravada para ${emp}.</div>
+      <div style="max-height:300px;overflow:auto"><table style="width:100%;font-size:12px;border-collapse:collapse"><tbody>${L.map(([pl,g])=>`<tr style="${g.off?'color:var(--gray-3);text-decoration:line-through':''}">
+        <td style="padding:2px 4px;width:22px"><input type="checkbox" ${g.off?'':'checked'} onchange="_bgPagPlanoToggle('${esc(pl).replace(/'/g,"\\'")}')"></td>
+        <td style="padding:2px 4px;font-family:monospace">${esc(pl)}</td><td style="padding:2px 4px">${esc(g.desc)}</td>
+        <td style="padding:2px 4px;text-align:right;color:var(--gray-5)">${g.n}</td><td style="padding:2px 4px;text-align:right;font-weight:700">${_rcFmt(g.tot)}</td></tr>`).join('')}</tbody></table></div></div>`;
+  }
+  const it=(D.grupos[pn]||[]).slice().sort((a,b)=>String(a.venc).localeCompare(String(b.venc)));
+  const rot=(BG_PAG.find(([k])=>k===pn)||[])[1]||pn, tot=it.reduce((s,p)=>s+(Number(p.valor)||0),0);
+  return `<div style="border:1px solid var(--gray-2);border-radius:8px;padding:10px;margin-top:10px;background:#fff">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><b>Contas a pagar — ${rot}: ${it.length} título(s) · ${_rcFmt(tot)}</b>
+      <span><button class="btn btn-secondary btn-sm" style="padding:1px 8px" onclick="window._bgPainel='planos';modalLiquidez()">⚙ Planos de contas</button> ${fechar}</span></div>
+    <div style="max-height:300px;overflow:auto"><table style="width:100%;font-size:11.5px;border-collapse:collapse">
+      <thead><tr style="background:var(--gray-1)"><th style="text-align:left;padding:3px 4px">Fornecedor</th><th style="text-align:left;padding:3px 4px">Doc.</th><th style="text-align:left;padding:3px 4px">Venc.</th><th style="text-align:left;padding:3px 4px">Plano de contas</th><th style="text-align:right;padding:3px 4px">Valor</th><th></th></tr></thead>
+      <tbody>${it.slice(0,800).map(p=>`<tr style="border-bottom:1px solid var(--gray-2)"><td style="padding:2px 4px">${esc(p.forn)}</td><td style="padding:2px 4px">${esc(p.doc)}</td>
+        <td style="padding:2px 4px;white-space:nowrap">${fmtDate(p.venc)}</td><td style="padding:2px 4px">${esc(p.plano)} ${esc(p.planoDesc)}</td>
+        <td style="padding:2px 4px;text-align:right;white-space:nowrap">${_rcFmt(p.valor)}</td>
+        <td><button class="btn btn-secondary btn-sm" style="padding:0 6px;font-size:10px" title="Tirar este plano de contas do balanço" onclick="_bgPagPlanoToggle('${esc(p.plano||'—').replace(/'/g,"\\'")}')">✕ plano</button></td></tr>`).join('')
+        ||'<tr><td colspan="6" style="padding:10px;color:var(--gray-3)">Nenhum título</td></tr>'}</tbody></table></div></div>`;
+}
 function modalLiquidez(){
   window._bgEmp=window._bgEmp||'RM';
   window._bgMes=window._bgMes||window._posMes||_mesAnterior(new Date().toISOString().slice(0,7));
@@ -5213,11 +5269,11 @@ function modalLiquidez(){
       </tbody></table></div>
       <div><table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>
         <tr><td colspan="2" style="padding:6px;font-weight:800;color:#fff;background:#555">PASSIVO</td></tr>
-        ${sec('1 - CONTAS A PAGAR')}${BG_PAG.map(linV).join('')}
+        ${sec('1 - CONTAS A PAGAR <button class="btn btn-secondary btn-sm" style="padding:0 7px;font-size:10.5px;float:right" onclick="window._bgPainel=\'planos\';modalLiquidez()">⚙ planos de contas'+(_bgPagOff(emp).length?' ('+_bgPagOff(emp).length+' fora)':'')+'</button>')}${BG_PAG.map(([k,l])=>linV([k,`<a href="javascript:void(0)" style="color:var(--pink);text-decoration:underline dotted" title="Abrir os títulos" onclick="window._bgPainel='${k}';modalLiquidez()">▸ ${l}</a>`])).join('')}
         ${sec('2 - EMPRÉSTIMOS BANCÁRIOS')}${linL('emprBanc')}
         ${sec('3 - EMPRÉSTIMOS DE INVESTIMENTO (longo prazo)')}${BG_INV.map(linV).join('')}
         <tr><td colspan="2" style="padding:6px;font-size:11px;color:var(--gray-5)">4 - PATRIMÔNIO LÍQUIDO = ativo − passivo (calculado)</td></tr>
-      </tbody></table></div>
+      </tbody></table>${_bgPainelHtml()}</div>
     </div>`,
     `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
      ${W._salvo&&_ehAdmin()?`<button class="btn btn-secondary" style="color:var(--red)" onclick="_bgExcluir()">Apagar mês</button>`:''}
@@ -12112,7 +12168,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.347","2026-11-06 04:05","balanço gerencial (PDF 3 meses): faixas ATIVO/PASSIVO no rosa do sistema e logo sem cortar"],
+const ALTERACOES=[["2.14.348","2026-11-06 04:30","índices de liquidez: contas a pagar abre os títulos e escolhe quais planos de contas entram no balanço"],
+  ["2.14.347","2026-11-06 04:05","balanço gerencial (PDF 3 meses): faixas ATIVO/PASSIVO no rosa do sistema e logo sem cortar"],
   ["2.14.346","2026-11-06 03:50","fechamento travado: alterar ou destravar só com a senha de login"],
   ["2.14.345","2026-11-06 03:30","índices de liquidez: PDF no modelo da planilha Balanço Gerencial (3 meses lado a lado, RM e RK)"],
   ["2.14.344","2026-11-06 03:00","impressão: linhas mais finas (traço fino entre as linhas, tracejado e topo das seções mais leves)"],
