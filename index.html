@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.341</span>
+      ">v2.14.342</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4174,7 +4174,11 @@ function importarBaixasNFS(){
         if(!e){ toast('Este .zip não tem o vpdpcl2.csv','error'); return; } f=new File([await e.async('blob')], e.name); }
       const r=await lerArqImport(f); const rows=(r&&r.rows)||[];
       if(!rows.length || !('vup-codimovi' in rows[0])){ toast('Este arquivo não é o vpdpcl2 (baixas financeiras)','error'); return; }
-      processarPagamentos(rows, f.name);
+      let _ateF=''; rows.forEach(r=>{ const d=pDate(String(r['vup-datacont']||'').trim()); if(d && d>_ateF) _ateF=d; });
+      const _atu=(DB.recebidos_info&&DB.recebidos_info.ate)||'';
+      const _forcar = _atu && _ateF && _ateF<_atu ? confirm(`Este arquivo vai até ${fmtDate(_ateF)}, mas as baixas carregadas vão até ${fmtDate(_atu)}.\n\nSubstituir mesmo assim pelas mais antigas?`) : true;
+      if(!_forcar) return;
+      processarPagamentos(rows, f.name, {forcar:true});
       if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();
       toast(`Baixas importadas: ${(DB.recebidos||[]).length} baixa(s) · movimentos até ${fmtDate(DB.recebidos_info.ate)}`);
       try{ _asAgendar(); }catch(e){}
@@ -6812,10 +6816,12 @@ async function importarTudoAuto() {
       const cands=(_scan.lidos||[]).filter(c=>(c.cols||[]).includes('vup-codimovi') && (c.cols||[]).includes('dc2-vlorliqu') && c.dados!==false && c.getFile);
       cands.sort((a,b)=>_ordemArq(b,a));
       const c=cands[0];
-      if(c && (_impForcar || !(_jaImportado(c.hash,'recebiveis') || _jaImportado(c.hash,'recebidos')))){
+      if(c && (_impForcar || !(_jaImportado(c.hash,'recebiveis') || _jaImportado(c.hash,'recebidos')) || ((DB.recebidos_info||{}).hash && DB.recebidos_info.hash!==c.hash))){
         const r=await lerArqImport(await c.getFile()); const rows=(r&&r.rows)||[];
         if(rows.length && ('vup-codimovi' in rows[0])){
-          processarPagamentos(rows, c.nome);
+          const _rp=processarPagamentos(rows, c.nome);
+          if(_rp && _rp.ignorado){ throw new Error('vpdpcl2 mais antigo que o carregado'); }
+          try{ DB.recebidos_info.hash=c.hash; }catch(e){}
           _registrarImportados([{hash:c.hash, nome:c.nome, slot:'pagamentos'}], 'recebidos');
           toast(`Baixas financeiras (vpdpcl2) atualizadas: ${(DB.recebidos||[]).length} baixa(s), movimentos até ${fmtDate((DB.recebidos_info||{}).ate)}`,'success');
           ok++;
@@ -7676,8 +7682,17 @@ async function importarTrocaDireto(){
   };
   inp.click();
 }
-function processarPagamentos(rows, arquivo) {
+function processarPagamentos(rows, arquivo, opts) {
   function col(row,...keys){for(const k of keys){const v=row[k]||'';if(String(v).trim())return String(v).trim();}return '';}
+  // v2.14.342: arquivo de baixas MAIS ANTIGO que o já carregado nunca substitui (um vpdpcl2 velho de outra pasta/computador
+  // desfazia as baixas novas — ex.: outubro voltava de 50 para 28 baixas)
+  { let _ate0=''; (rows||[]).forEach(row=>{ const d=pDate(col(row,'vup-datacont')); if(d && d>_ate0) _ate0=d; });
+    const _atual=(DB.recebidos_info&&DB.recebidos_info.ate)||'';
+    if(!(opts&&opts.forcar) && _atual && _ate0 && _ate0<_atual){
+      const msg=`Baixas (vpdpcl2) ${arquivo?'"'+arquivo+'" ':''}ignoradas: o arquivo vai até ${fmtDate(_ate0)} e as baixas carregadas vão até ${fmtDate(_atual)} (mais novas)`;
+      console.warn(msg); try{ toast(msg,'error'); }catch(e){}
+      return {total:(rows||[]).length, erros:0, avisos:[msg], ignorado:true};
+    } }
   let sucesso=0,erros=0,semTitulo=0;
   DB.abat_repo = {};   // reconstruído a cada import de vpdpcl2
   let _nAbat=0;
@@ -11976,7 +11991,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.341","2026-11-06 01:45","impressão: traço preto mais fino entre as linhas"],
+const ALTERACOES=[["2.14.342","2026-11-06 02:10","baixas financeiras: vpdpcl2 mais antigo que o carregado nunca substitui; ao juntar com o servidor ficam as baixas mais novas"],
+  ["2.14.341","2026-11-06 01:45","impressão: traço preto mais fino entre as linhas"],
   ["2.14.340","2026-11-06 01:30","evolução da carteira: prazo médio de recebimento pelo faturamento dos últimos 3 meses (carteira sem duvidosos ÷ faturamento × 90)"],
   ["2.14.339","2026-11-06 01:10","índices de liquidez: campos com ponto de milhar (1.101.687,16)"],
   ["2.14.338","2026-11-06 00:50","índices de liquidez: a planilha do balanço gerencial entra pela Importação (RM e RK sozinhos) e estoques/imobilizado/empréstimos do mês vêm do último mês da planilha"],
@@ -12399,6 +12415,11 @@ async function _asMesclarServidor(v){
   Object.keys(agora).forEach(k=>{ if(agora[k]!==(_asBaseListas||{})[k]) mud.push(k); });
   Object.keys(_asBaseListas||{}).forEach(k=>{ if(!(k in agora)) mud.push(k); });
   srv.db=srv.db||{}; srv.local=srv.local||{};
+  // v2.14.342: baixas financeiras — fica a cópia com o movimento MAIS NOVO (nunca volta para um vpdpcl2 antigo)
+  { const aL=((loc.db||{}).recebidos_info||{}).ate||'', aS=((srv.db||{}).recebidos_info||{}).ate||'';
+    const BX=['db:recebidos','db:recebidos_outros','db:recebidos_info','db:abat_repo'];
+    if(aS && aS>aL){ for(let i=mud.length-1;i>=0;i--) if(BX.includes(mud[i])) mud.splice(i,1); }
+    else if(aL && aL>aS){ BX.forEach(k=>{ if(!mud.includes(k)) mud.push(k); }); } }
   mud.forEach(k=>{ const [t,...r]=k.split(':'), n=r.join(':');
     if(t==='db'){ if(n in loc.db) srv.db[n]=loc.db[n]; else delete srv.db[n]; }
     else { if(n in loc.local) srv.local[n]=loc.local[n]; } });
