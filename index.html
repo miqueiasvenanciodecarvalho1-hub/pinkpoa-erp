@@ -482,7 +482,7 @@ License: MIT
     <div class="nav-label">Financeiro</div>
     <div class="nav-item" onclick="navigate('faturamento')"><span class="nav-icon">🧾</span> Faturamento</div>
     <div class="nav-item" onclick="navigate('comissoes')"><span class="nav-icon">💰</span> Comissões</div>
-    <div class="nav-item" onclick="navigate('recebiveis')"><span class="nav-icon">📋</span> Recebíveis</div>
+    <div class="nav-item" onclick="navigate('recebiveis')"><span class="nav-icon">📋</span> Contas a Receber</div>
     <div class="nav-item" onclick="navigate('pagar')"><span class="nav-icon">🧾</span> Contas a Pagar</div>
     <div class="nav-item" onclick="navigate('fluxo')"><span class="nav-icon">💵</span> Fluxo de Caixa</div>
   </div>
@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.309</span>
+      ">v2.14.310</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1142,7 +1142,7 @@ const REL_CATALOGO=[
     {n:'Previsto × realizado', d:'Abre a comparação do previsto congelado com o realizado', f:"_fxAba('pxr')"}]},
   {mod:'produtos', area:'Produtos', ic:'👗', itens:[
     {n:'Relatório de produtos', d:'Produtos com preços, margem e vendas', f:'gerarRelatorioProdutos()'}]},
-  {mod:'recebiveis', area:'Recebíveis', ic:'📋', itens:[
+  {mod:'recebiveis', area:'Contas a Receber', ic:'📋', itens:[
     {n:'Posição de fechamento (clientes)', d:'Carteira em aberto, vencidos e a vencer na data de corte', f:'modalPosReceber()'},
     {n:'Recebidos por dia', d:'Baixas de clientes dia a dia (PDF)', f:'modalRecebidosDia()'}]},
   {mod:'vendas', area:'Vendas', ic:'🛍️', itens:[
@@ -1772,7 +1772,7 @@ async function renderConfiguracoes(){
   _cfgHistorico();
 }
 // v215: histórico de versões (API v4.3) — compara cada versão com a anterior, lista a lista
-const _HIST_NOMES={faturamento:'Faturamento',comissoes:'Comissões',recebiveis:'Recebíveis',recebidos:'Recebidos (baixas)',clientes:'Clientes',
+const _HIST_NOMES={faturamento:'Faturamento',comissoes:'Comissões',recebiveis:'Contas a Receber',recebidos:'Recebidos (baixas)',clientes:'Clientes',
   representantes:'Representantes',naturezas:'Naturezas',movimentos_banc:'Movimentos bancários',duplicatas_banc:'Duplicatas (banco)',
   documentos_banc:'Documentos (banco)',conciliacao_banc:'Conciliação',vendas_agr:'Vendas (resumo)',vendas_linhas:'Vendas (linhas)',
   produtos_vend:'Produtos',estoques_vend:'Estoques',precos_vend:'Preços',pagar:'Contas a Pagar',extrato_banco:'Extrato bancário',
@@ -1888,7 +1888,7 @@ const PAGE_TITLES = {
   dashboard:'Dashboard', clientes:'Clientes', representantes:'Representantes',
   usuarios:'Usuários e Acessos', configuracoes:'Configurações',
   produtos:'Produtos', faturamento:'Faturamento', comissoes:'Comissões',
-  recebiveis:'Recebíveis', pagar:'Contas a Pagar (Fornecedores)', fluxo:'Fluxo de Caixa Realizado', conciliacao:'Conciliação Bancária', vendas:'Análise de Vendas', estoques:'Gestão de Estoques', naturezas:'Naturezas de Operação', compras:'Compras', importacao:'Importação de Arquivos', automacao:'Automação', relatorios:'Relatórios'
+  recebiveis:'Contas a Receber (Clientes)', pagar:'Contas a Pagar (Fornecedores)', fluxo:'Fluxo de Caixa Realizado', conciliacao:'Conciliação Bancária', vendas:'Análise de Vendas', estoques:'Gestão de Estoques', naturezas:'Naturezas de Operação', compras:'Compras', importacao:'Importação de Arquivos', automacao:'Automação', relatorios:'Relatórios'
 };
 
 const _NAV_ITEMS = Array.from(document.querySelectorAll('#sidebar .nav-item'));
@@ -2009,7 +2009,7 @@ function renderDashboard() {
         <div class="kpi-sub">Efetivamente descontado</div>
       </div>
       <div class="kpi-card blue">
-        <div class="kpi-label">Recebíveis em Aberto</div>
+        <div class="kpi-label">Contas a Receber em Aberto</div>
         <div class="kpi-value">${fmt(totalRecAb)}</div>
         <div class="kpi-sub">${_recAb.length.toLocaleString('pt-BR')} títulos</div>
       </div>
@@ -3122,7 +3122,7 @@ function gerarNotaPDF(id){
   const repoBloco = (f.abatRepo||0)>0 ? `
     <div class="sec">Origem do abatimento (troca) — NF Bruto ${fmt(f.vnBruto!=null?f.vnBruto:f.vn)} − abatimentos</div>
     <table class="tb"><thead><tr><th>Data (datacont)</th><th>Descrição</th><th class="r">Valor</th></tr></thead><tbody>
-      ${_rl.length?_rl.map(x=>`<tr><td>${_dt(x.dt)||x.mes}</td><td>Abatimento (troca)</td><td class="r">−${fmt(x.valor)}</td></tr>`).join(''):`<tr><td colspan="2">Total abatido (sem detalhamento — importar Recebíveis/vpdpcl2)</td><td class="r">−${fmt(f.abatRepo)}</td></tr>`}
+      ${_rl.length?_rl.map(x=>`<tr><td>${_dt(x.dt)||x.mes}</td><td>Abatimento (troca)</td><td class="r">−${fmt(x.valor)}</td></tr>`).join(''):`<tr><td colspan="2">Total abatido (sem detalhamento — importar Contas a Receber/vpdpcl2)</td><td class="r">−${fmt(f.abatRepo)}</td></tr>`}
       <tr class="tot"><td colspan="2">Total troca</td><td class="r">−${fmt(f.abatRepo)}</td></tr>
     </tbody></table>` : '';
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>NF ${f.nf}/${f.sr}</title><style>@page{size:A4 portrait;margin:16mm}*{box-sizing:border-box;margin:0;padding:0}html,body{background:#fff}body{font-family:Arial,sans-serif;font-size:12px;color:#1a1a1a;background:#fff;padding:26px;max-width:900px;margin:0 auto}@media print{body{padding:0;max-width:none}}h1{font-size:17px;color:#E8368F}.sub{color:#666;margin:2px 0 14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 24px;margin-bottom:6px}.lbl{font-size:9px;color:#555;text-transform:uppercase;font-weight:700}.val{font-weight:600;font-size:13px}.sec{font-size:11px;font-weight:700;color:#1F3864;text-transform:uppercase;border-bottom:2px solid #1F3864;padding-bottom:3px;margin:14px 0 6px}.tb{width:100%;border-collapse:collapse;margin-bottom:8px}.tb th{background:#1F3864;color:#fff;padding:5px 8px;text-align:left;font-size:10px}.tb th.r,.tb td.r{text-align:right}.tb td{padding:5px 8px;border-bottom:1px solid #eee}.tb tr.tot td{font-weight:700;background:#fafafa;border-top:1px solid #bbb}.cards{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0}.card{border:1px solid #ddd;border-radius:6px;padding:8px 14px;min-width:100px}.card .lbl{margin-bottom:2px}</style></head><body>`
@@ -3204,7 +3204,7 @@ function modalVerNota(id) {
               <span style="font-size:10px;font-weight:700;color:#b45309;text-transform:uppercase">🔎 Origem do abatimento (troca) — NF Bruto ${fmt(f.vnBruto!=null?f.vnBruto:f.vn)} − abatimentos</span>
               <span style="font-size:10px;color:var(--gray-5)">abatimentos com datacont no mês do fechamento</span>
             </div>
-            ${_repoLst.length?_repoLst.map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0"><span>${_repoDt(x.dt)||x.mes} · abatimento (troca)</span><span style="font-weight:600;color:#b45309">−${fmt(x.valor)}</span></div>`).join(''):`<div style="font-size:12px;color:var(--gray-5)">Sem detalhamento por lançamento (importe o Recebíveis/vpdpcl2 para ver a origem). Total abatido: −${fmt(f.abatRepo)}</div>`}
+            ${_repoLst.length?_repoLst.map(x=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0"><span>${_repoDt(x.dt)||x.mes} · abatimento (troca)</span><span style="font-weight:600;color:#b45309">−${fmt(x.valor)}</span></div>`).join(''):`<div style="font-size:12px;color:var(--gray-5)">Sem detalhamento por lançamento (importe o Contas a Receber/vpdpcl2 para ver a origem). Total abatido: −${fmt(f.abatRepo)}</div>`}
             ${_repoLst.length?`<div style="display:flex;justify-content:space-between;font-size:12px;border-top:1px solid #fed7aa;margin-top:4px;padding-top:4px;font-weight:700"><span>Total troca</span><span style="color:#b45309">−${fmt(f.abatRepo||0)}</span></div>`:''}
           </div>`:''}
           <div style="background:var(--blue-lt);border-radius:var(--radius);padding:10px;text-align:center">
@@ -4581,7 +4581,7 @@ function _pmCorrigirAgora(){
 }
 
 function _chkSaldoAviso(D){
-  if(D && D.semSaldo) return '<div style="background:#fdeef0;border:1px solid #f3c6cd;color:#c0392b;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700">⚠ Saldo em aberto não carregado. Reimporte o <b>vpdpcl1</b> (Recebíveis) para os vencidos usarem só o saldo em aberto (dca-vlorsald), e não o valor cheio do título.</div>';
+  if(D && D.semSaldo) return '<div style="background:#fdeef0;border:1px solid #f3c6cd;color:#c0392b;border-radius:8px;padding:10px 12px;margin-bottom:10px;font-weight:700">⚠ Saldo em aberto não carregado. Reimporte o <b>vpdpcl1</b> (Contas a Receber) para os vencidos usarem só o saldo em aberto (dca-vlorsald), e não o valor cheio do título.</div>';
   return '';
 }
 function modalPosReceber(){
@@ -5064,7 +5064,7 @@ function renderRecebiveis() {
   if(fSit)  dados=dados.filter(r=>r._sit===fSit);
   const tTotal = dados.reduce((s,r)=>s+_vlin(r),0);   // total do que está listado (respeita mês/ano/status)
   const _semSaldoRec = !(DB.recebiveis||[]).some(r=>r.sal!=null);
-  const _avisoSaldoRec = _semSaldoRec ? `<div style="background:#fdeef0;border:1px solid #f3c6cd;color:#c0392b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;font-weight:700">⚠ Saldo em aberto não carregado — Em Aberto pode sair zerado. Reimporte o <b>vpdpcl1</b> (Recebíveis) para usar o saldo real (dca-vlorsald).</div>` : '';
+  const _avisoSaldoRec = _semSaldoRec ? `<div style="background:#fdeef0;border:1px solid #f3c6cd;color:#c0392b;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;font-weight:700">⚠ Saldo em aberto não carregado — Em Aberto pode sair zerado. Reimporte o <b>vpdpcl1</b> (Contas a Receber) para usar o saldo real (dca-vlorsald).</div>` : '';
 
   const total     = dados.length;
   const totalPags = Math.ceil(total/POR_PAG)||1;
@@ -5230,7 +5230,7 @@ const IMPORT_TIPOS = [
     ]
   },
   {
-    key:'recebiveis', icon:'📋', title:'Recebíveis', desc:'Títulos + Pagamentos + Baixas',
+    key:'recebiveis', icon:'📋', title:'Contas a Receber', desc:'Títulos + Pagamentos + Baixas',
     slots:[
       { key:'titulos', label:'Títulos', icon:'📋', desc:'vpdpcl1', required:true,
         cols_req:['vup-numrdpcl','vup-numrclie','dc1-vlorvenc'],
@@ -5266,7 +5266,7 @@ const IMPORT_TIPOS = [
     ]
   },
   {
-    key:'pagarme', icon:'💳', title:'Cartão Pagar.me', desc:'Extrato de recebíveis (.xlsx) — base salva em Recebíveis',
+    key:'pagarme', icon:'💳', title:'Cartão Pagar.me', desc:'Extrato de recebíveis (.xlsx) — base salva em Contas a Receber',
     slots:[
       { key:'extrato', label:'Extrato Pagar.me', icon:'💳', desc:'PagarMe_Extrato_Recebiveis (.xlsx/.csv)', required:true,
         cols_req:['data de pagamento','id da transação','entrada'],
@@ -11285,7 +11285,7 @@ async function _nvTabelas(){
 // v210: lista das duplicidades devolvidas pela API (por tabela), com os registros de cada ocorrência
 let _nvDupCache=[];
 const _NV_DUP_ORIGEM={clientes:'vpclie1 (Clientes)',representantes:'vprepr1 (Representantes)',faturamento:'vpfatu1/2 (Faturamento)',
-  comissoes:'vp42541a/b (Comissões)',recebiveis:'vpdpcl1 / Pagar.me (Recebíveis)',duplicatas_banco:'Conciliação — duplicatas',
+  comissoes:'vp42541a/b (Comissões)',recebiveis:'vpdpcl1 / Pagar.me (Contas a Receber)',duplicatas_banco:'Conciliação — duplicatas',
   movimentos_bancarios:'vpbanc3 (Conciliação — movimentos)',naturezas_operacao:'Naturezas',produtos:'vp0000 / produtos (Vendas)',estoques:'Estoques (Vendas)'};
 async function _nvDuplicidades(tab){
   openModal('⛔ Duplicidades recusadas','<div style="padding:16px;color:var(--gray-5)">Carregando…</div>','<button class="btn btn-secondary" onclick="abrirNuvem()">Voltar</button>');
