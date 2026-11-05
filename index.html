@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.343</span>
+      ">v2.14.344</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -11980,7 +11980,7 @@ function abrirPDFOverlay(htmlContent) {
   if(htmlContent && htmlContent.indexOf('pp-cores')<0){
     const _st='<style id="pp-cores">*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}'
       // v2.14.333: traço entre as linhas (#eee) sumia no papel — na impressão fica cinza visível; o tracejado dos subtotais fica preto
-      +'@media print{td,th{border-bottom:0.5pt solid #000!important}tr.tot td,.tot td{border-bottom:none!important}tr.sub td,.sub td{border-top:2px dashed #000!important}tr.sec td,.sec td{border-top-color:#222!important}}</style>';
+      +'@media print{td,th{border-bottom:0.5px solid #555!important}tr.tot td,.tot td{border-bottom:none!important}tr.sub td,.sub td{border-top:1px dashed #000!important}tr:has(+ tr.sub) td,tr:has(+ tr.det + tr.sub) td,tr:has(+ tr.sec) td,tr:has(+ tr.det + tr.sec) td{border-bottom:none!important}tr.sec td,.sec td{border-top:1px solid #000!important}}</style>';
     htmlContent = /<\/head>/i.test(htmlContent) ? htmlContent.replace(/<\/head>/i, _st+'</head>') : _st+htmlContent;
   }
   overlay.style.display = 'flex';
@@ -12024,7 +12024,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.343","2026-11-06 02:40","baixas financeiras: recupera sozinho do histórico do servidor a versão com as baixas mais novas (sem subir o arquivo de novo)"],
+const ALTERACOES=[["2.14.344","2026-11-06 03:00","impressão: linhas mais finas (traço fino entre as linhas, tracejado e topo das seções mais leves)"],
+  ["2.14.343","2026-11-06 02:40","baixas financeiras: recupera sozinho do histórico do servidor a versão com as baixas mais novas (sem subir o arquivo de novo)"],
   ["2.14.342","2026-11-06 02:10","baixas financeiras: vpdpcl2 mais antigo que o carregado nunca substitui; ao juntar com o servidor ficam as baixas mais novas"],
   ["2.14.341","2026-11-06 01:45","impressão: traço preto mais fino entre as linhas"],
   ["2.14.340","2026-11-06 01:30","evolução da carteira: prazo médio de recebimento pelo faturamento dos últimos 3 meses (carteira sem duvidosos ÷ faturamento × 90)"],
