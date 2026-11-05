@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.342</span>
+      ">v2.14.343</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4187,6 +4187,37 @@ function importarBaixasNFS(){
   };
   inp.click();
 }
+// v2.14.343: as baixas certas podem estar numa VERSÃO ANTERIOR do servidor (alguém salvou por cima com um vpdpcl2 velho).
+// Procura no histórico do servidor a versão com mais baixas, baixa só ela e repõe as baixas se forem mais novas.
+let _bxRecRodou=false;
+async function recuperarBaixasHistorico(silencioso){
+  if(!_ehAdmin() || !_nvLer(NV_TOKEN)) return 0;
+  const atualN=(DB.recebidos||[]).length, atualAte=(DB.recebidos_info&&DB.recebidos_info.ate)||'';
+  let j; try{ j=await _nvFetch('/dados/historico'); }catch(e){ if(!silencioso) toast('Histórico do servidor indisponível: '+e.message,'error'); return 0; }
+  const vs=(j.versoes||[]).filter(v=>v.lote && v.detalhes && v.detalhes.recebidos);
+  const nDe=v=>{ const d=v.detalhes.recebidos; return Array.isArray(d)?(+d[0]||0):(+d||0); };
+  let cands=vs.filter(v=>nDe(v)>atualN).sort((a,b)=>String(b.criado_em).localeCompare(String(a.criado_em)));
+  // histórico sem o detalhe por lista: no clique, confere as versões mais recentes uma a uma
+  if(!vs.length && !silencioso) cands=(j.versoes||[]).filter(v=>v.lote).slice(1,6);
+  for(const v of cands.slice(0,5)){
+    try{
+      _nvStatusDados && _nvStatusDados('procurando baixas no histórico…');
+      const obj=JSON.parse(await _nvBaixarTexto({lote:v.lote}));
+      const d=(obj&&obj.db)||{}, ate=(d.recebidos_info&&d.recebidos_info.ate)||(d.recebidos||[]).reduce((m,x)=>x.dt>m?x.dt:m,'');
+      if(!Array.isArray(d.recebidos) || !d.recebidos.length || (atualAte && ate && ate<atualAte)) continue;
+      DB.recebidos=d.recebidos;
+      if(d.recebidos_outros) DB.recebidos_outros=d.recebidos_outros;
+      if(d.abat_repo) DB.abat_repo=d.abat_repo;
+      DB.recebidos_info=Object.assign({}, d.recebidos_info||{}, {ate, recuperado_de:v.criado_em});
+      try{ if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat(); }catch(e){}
+      try{ _asAgendar(); }catch(e){}
+      toast(`Baixas recuperadas do histórico do servidor (versão de ${new Date(v.criado_em).toLocaleString('pt-BR')}): ${d.recebidos.length} baixa(s), movimentos até ${fmtDate(ate)} — salvando de novo no servidor`);
+      return d.recebidos.length;
+    }catch(e){ console.warn('histórico', v.lote, e); }
+  }
+  if(!silencioso) toast(cands.length?'Nenhuma versão do histórico tem baixas mais novas que as carregadas':'O histórico do servidor não tem versão com mais baixas que a atual','error');
+  return 0;
+}
 function _nfsBaseInfo(N){
   const I=DB.recebidos_info||{}, mes=N&&N.mesFech||'';
   const noMes=(DB.recebidos||[]).filter(m=>String(m.dt||'').slice(0,7)===mes);
@@ -4194,6 +4225,7 @@ function _nfsBaseInfo(N){
   return `<div style="font-weight:400;font-size:11px;color:var(--gray-5);margin-top:4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <span>📂 Baixas financeiras: <b>${I.arquivo?_nvEsc(I.arquivo):'vpdpcl2'}</b>${I.importado_em?' · importado '+new Date(I.importado_em).toLocaleString('pt-BR'):''}
       · ${noMes.length} baixa(s) no mês em todas as filiais · ${nNotas} nota(s) emitida(s) e paga(s) no mês</span>
+    <button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:11px" onclick="recuperarBaixasHistorico(false).then(n=>{ if(n) modalPosReceber(); })" title="Busca no histórico do servidor a versão com as baixas mais novas">↩ Buscar baixas no histórico do servidor</button>
     <button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:11px" onclick="importarBaixasNFS()">📥 Importar baixas (vpdpcl2)</button></div>`;
 }
 function N_fonteAviso(N){
@@ -4730,6 +4762,7 @@ function _chkSaldoAviso(D){
 }
 function modalPosReceber(){
   try{ _pmAutoCorrigir(); }catch(e){}
+  if(!_bxRecRodou){ _bxRecRodou=true; setTimeout(()=>{ recuperarBaixasHistorico(true).then(n=>{ if(n && document.getElementById('pos-nfs')) modalPosReceber(); }).catch(()=>{}); }, 300); }
   window._posEmp = window._posEmp || 'rmf1';
   window._posMes = window._posMes || (new Date().toISOString().slice(0,7));
   const bancos=_lerBancos();
@@ -11991,7 +12024,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.342","2026-11-06 02:10","baixas financeiras: vpdpcl2 mais antigo que o carregado nunca substitui; ao juntar com o servidor ficam as baixas mais novas"],
+const ALTERACOES=[["2.14.343","2026-11-06 02:40","baixas financeiras: recupera sozinho do histórico do servidor a versão com as baixas mais novas (sem subir o arquivo de novo)"],
+  ["2.14.342","2026-11-06 02:10","baixas financeiras: vpdpcl2 mais antigo que o carregado nunca substitui; ao juntar com o servidor ficam as baixas mais novas"],
   ["2.14.341","2026-11-06 01:45","impressão: traço preto mais fino entre as linhas"],
   ["2.14.340","2026-11-06 01:30","evolução da carteira: prazo médio de recebimento pelo faturamento dos últimos 3 meses (carteira sem duvidosos ÷ faturamento × 90)"],
   ["2.14.339","2026-11-06 01:10","índices de liquidez: campos com ponto de milhar (1.101.687,16)"],
