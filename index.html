@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.321</span>
+      ">v2.14.322</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4435,6 +4435,39 @@ function _posSecToggle(k){
   try{ localStorage.setItem(POS_SECOES_KEY, JSON.stringify(S)); }catch(e){}
   modalPosReceber();
 }
+// v2.14.322: LINHAS do relatório — cada linha pode sair ou não do PDF (só a exibição; os totais continuam os mesmos)
+const POS_LIN_KEY='pinkpoa_pos_linhas_off';
+const _posLinNorm=l=>String(l||'').replace(/\([^)]*\)/g,'').replace(/·.*$/,'').replace(/\s+\d{4}$/,'').replace(/\s+/g,' ').trim().toUpperCase();
+function _posLinOff(){ try{ return JSON.parse(localStorage.getItem(POS_LIN_KEY)||'{}')||{}; }catch(e){ return {}; } }
+function _posLinOn(sec,l){ return !_posLinOff()[sec+'|'+_posLinNorm(l)]; }
+function _posLinToggle(sec,l){ const o=_posLinOff(), k=sec+'|'+_posLinNorm(l); if(o[k]) delete o[k]; else o[k]=1;
+  try{ localStorage.setItem(POS_LIN_KEY, JSON.stringify(o)); }catch(e){} window._posLinAberta=sec; modalPosReceber(); }
+function _posLinTodas(sec){ const o=_posLinOff(); Object.keys(o).forEach(k=>{ if(k.indexOf(sec+'|')===0) delete o[k]; });
+  try{ localStorage.setItem(POS_LIN_KEY, JSON.stringify(o)); }catch(e){} window._posLinAberta=sec; modalPosReceber(); }
+// as linhas que cada seção pode ter (mesmas do PDF)
+function _posLinhasDe(sec){
+  const emp=window._posEmp||'rmf1', mes=window._posMes;
+  try{
+    if(sec==='atras'){ const A=_posAgregar(_posItens()); return [..._posAtrasLinhas(mes, A.atrArr).map(x=>x[0]), 'SUB-TOTAL']; }
+    if(sec==='aVencer') return ['Duplicatas à Vencer 30 dias','Duplicatas à Vencer 60 dias','Duplicatas à Vencer 90 dias','Duplicatas à Vencer 120 dias',
+      'Duplicatas à Vencer 150 dias','Duplicatas à Vencer 180 dias','Duplicatas à Vencer +180 dias','SUB-TOTAL','TOTAL DO CONTAS A RECEBER'];
+    if(sec==='nfs') return _nfsMesLinhas(_nfsMesDados(_empresaFiliais(emp), mes)).map(x=>x[0]);
+    if(sec==='duvidosos'){ const A=_posAgregar(_posItens()); return [...A.duvArr.map(d=>'ANO '+d.ano), 'TOTAL - ATRASADOS']; }
+    if(sec==='bancos') return [..._lerBancos().map(b=>b.nome), 'TOTAL - SALDOS'];
+  }catch(e){ console.warn('linhas', sec, e); }
+  return [];
+}
+function _posLinhasHtml(sec){
+  const L=[...new Map(_posLinhasDe(sec).map(l=>[_posLinNorm(l),l])).values()]; if(!L.length) return '';
+  const nOff=L.filter(l=>!_posLinOn(sec,l)).length;
+  const esc=t=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+  return `<details style="margin:0 0 4px 30px;font-size:12px" ${window._posLinAberta===sec?'open':''}>
+    <summary style="cursor:pointer;color:var(--gray-5)">linhas${nOff?` <b style="color:var(--amber)">(${nOff} fora do PDF)</b>`:''}</summary>
+    <div style="padding:4px 0 4px 10px">${L.map(l=>{ const on=_posLinOn(sec,l);
+      return `<label style="display:flex;gap:6px;align-items:center;cursor:pointer;padding:1px 0${on?'':';color:var(--gray-3);text-decoration:line-through'}">
+        <input type="checkbox" ${on?'checked':''} onchange="_posLinToggle('${sec}','${esc(l)}')"> ${esc(l)}</label>`; }).join('')}
+      ${nOff?`<button class="btn btn-secondary btn-sm" style="margin-top:4px;padding:1px 8px;font-size:11px" onclick="_posLinTodas('${sec}')">Mostrar todas</button>`:''}</div></details>`;
+}
 
 // Os 6 meses do bloco ATRASADOS (fechamento + 5 anteriores) — sempre todos, mesmo zerados.
 function _posAtrasLinhas(mesFech, ...arrs){
@@ -4685,7 +4718,7 @@ function modalPosReceber(){
         return `<label style="display:flex;align-items:center;gap:8px;font-size:13px;padding:2px 0;cursor:pointer${on?'':';color:var(--gray-3)'}">
           <input type="checkbox" ${on?'checked':''} onchange="_posSecToggle('${sec.k}')">
           <span style="min-width:22px;font-weight:700;color:${on?'var(--pink)':'var(--gray-3)'}">${on?num+' -':'—'}</span>
-          <span>${sec.rot}</span></label>`;}).join('');})()}
+          <span>${sec.rot}</span></label>${on?_posLinhasHtml(sec.k):''}`;}).join('');})()}
     </div>
     <div style="padding:10px 12px;background:var(--gray-1);border-radius:8px;margin-bottom:10px">
       <div style="font-weight:700;margin-bottom:6px">Relatório <span style="font-weight:400;color:var(--gray-5);font-size:12px">(clique num valor para ver os títulos)</span></div>
@@ -4774,12 +4807,13 @@ function gerarPosReceberPDF(){
       +`</table></td></tr>`; };
   const _chAtr=(()=>{ const [fy,fm]=String(window._posMes||'').split('-').map(Number); const ks=[]; if(fy&&fm) for(let k=5;k>=0;k--){ const d=new Date(fy,fm-1-k,1); ks.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
     A.atrArr.forEach(x=>{ if(!ks.includes(x.m)) ks.push(x.m); }); return ks; })();
-  const linhaAtras=_posAtrasLinhas(window._posMes, A.atrArr).map(([l,v,m])=>_linP('a:'+m,l,v)).join('')||'<tr><td colspan="2" style="color:#999">Sem atrasados</td></tr>';
+  const _on=_posLinOn;
+  const linhaAtras=_posAtrasLinhas(window._posMes, A.atrArr).filter(([l])=>_on('atras',l)).map(([l,v,m])=>_linP('a:'+m,l,v)).join('')||'<tr><td colspan="2" style="color:#999">Sem atrasados</td></tr>';
   const _subAtras=A.subAtras, _subAven=A.subAven, _subDuv=A.subDuv, _duvArr=A.duvArr;
   const fx=A.faixas;
-  const linhaFaixa=[['Duplicatas à Vencer 30 dias',fx.f30],['Duplicatas à Vencer 60 dias',fx.f60],['Duplicatas à Vencer 90 dias',fx.f90],['Duplicatas à Vencer 120 dias',fx.f120],['Duplicatas à Vencer 150 dias',fx.f150],['Duplicatas à Vencer 180 dias',fx.f180],...(fx.f180p>0?[['Duplicatas à Vencer +180 dias',fx.f180p]]:[])].map(([l,v])=>_linP('f:'+({'Duplicatas à Vencer 30 dias':'f30','Duplicatas à Vencer 60 dias':'f60','Duplicatas à Vencer 90 dias':'f90','Duplicatas à Vencer 120 dias':'f120','Duplicatas à Vencer 150 dias':'f150','Duplicatas à Vencer 180 dias':'f180','Duplicatas à Vencer +180 dias':'f180p'}[l]||''),l,v)).join('');
-  const linhaDuv=_duvArr.map(d=>_linP('d:'+d.ano,'ANO '+d.ano,d.v)).join('') || '<tr><td colspan="2" style="color:#999">—</td></tr>';
-  const linhaBanco=bancos.map(b=>`<tr><td>${b.nome}</td><td class="r">${_rcFmt(b.valor)}</td></tr>`).join('');
+  const linhaFaixa=[['Duplicatas à Vencer 30 dias',fx.f30],['Duplicatas à Vencer 60 dias',fx.f60],['Duplicatas à Vencer 90 dias',fx.f90],['Duplicatas à Vencer 120 dias',fx.f120],['Duplicatas à Vencer 150 dias',fx.f150],['Duplicatas à Vencer 180 dias',fx.f180],...(fx.f180p>0?[['Duplicatas à Vencer +180 dias',fx.f180p]]:[])].filter(([l])=>_on('aVencer',l)).map(([l,v])=>_linP('f:'+({'Duplicatas à Vencer 30 dias':'f30','Duplicatas à Vencer 60 dias':'f60','Duplicatas à Vencer 90 dias':'f90','Duplicatas à Vencer 120 dias':'f120','Duplicatas à Vencer 150 dias':'f150','Duplicatas à Vencer 180 dias':'f180','Duplicatas à Vencer +180 dias':'f180p'}[l]||''),l,v)).join('');
+  const linhaDuv=_duvArr.filter(d=>_on('duvidosos','ANO '+d.ano)).map(d=>_linP('d:'+d.ano,'ANO '+d.ano,d.v)).join('') || '<tr><td colspan="2" style="color:#999">—</td></tr>';
+  const linhaBanco=bancos.filter(b=>_on('bancos',b.nome)).map(b=>`<tr><td>${b.nome}</td><td class="r">${_rcFmt(b.valor)}</td></tr>`).join('');
   // Seções escolhidas; a numeração é sempre 1,2,3… na ordem em que saem
   const S=_posSecoes();
   let _nSec=0;
@@ -4787,16 +4821,16 @@ function gerarPosReceberPDF(){
   let corpo='';
   if(S.atras || S.aVencer){
     corpo+='<table>';
-    if(S.atras)   corpo+=_sec('ATRASADOS')+linhaAtras+`<tr class="sub"><td>SUB-TOTAL</td><td class="r">${_rcFmt(_subAtras)}</td></tr>`;
-    if(S.aVencer) corpo+=_sec('CONTAS À RECEBER')+linhaFaixa+`<tr class="sub"><td>SUB-TOTAL</td><td class="r">${_rcFmt(_subAven)}</td></tr>`;
+    if(S.atras)   corpo+=_sec('ATRASADOS')+linhaAtras+(_on('atras','SUB-TOTAL')?`<tr class="sub"><td>SUB-TOTAL</td><td class="r">${_rcFmt(_subAtras)}</td></tr>`:'');
+    if(S.aVencer) corpo+=_sec('CONTAS À RECEBER')+linhaFaixa+(_on('aVencer','SUB-TOTAL')?`<tr class="sub"><td>SUB-TOTAL</td><td class="r">${_rcFmt(_subAven)}</td></tr>`:'');
     const _tot=(S.atras?_subAtras:0)+(S.aVencer?_subAven:0);
-    corpo+=`<tr class="tot"><td>TOTAL DO CONTAS A RECEBER</td><td class="r">${_rcFmt(_tot)}</td></tr></table>`;
+    corpo+=(_on('aVencer','TOTAL DO CONTAS A RECEBER')?`<tr class="tot"><td>TOTAL DO CONTAS A RECEBER</td><td class="r">${_rcFmt(_tot)}</td></tr>`:'')+'</table>';
   }
-  if(S.nfs && _tipo==='Todos') corpo+='<table style="margin-top:14px">'+_sec('NFS EMITIDAS E RECEBIDAS NO MÊS')+_nfsMesHtml(N)+'</table>';
+  if(S.nfs && _tipo==='Todos') corpo+='<table style="margin-top:14px">'+_sec('NFS EMITIDAS E RECEBIDAS NO MÊS')+_nfsMesLinhas(N).filter(([l])=>_on('nfs',l)).map(([l,v,cls])=>`<tr class="${cls}"><td>${l}</td><td class="r">${_rcFmt(v)}</td></tr>`).join('')+'</table>';
   if(S.duvidosos) corpo+='<table style="margin-top:14px">'+_sec('DEVEDORES DUVIDOSOS + DE 6 MESES')+linhaDuv
-                        +`<tr class="sub"><td>TOTAL - ATRASADOS</td><td class="r">${_rcFmt(_subDuv)}</td></tr>`+'</table>';
+                        +(_on('duvidosos','TOTAL - ATRASADOS')?`<tr class="sub"><td>TOTAL - ATRASADOS</td><td class="r">${_rcFmt(_subDuv)}</td></tr>`:'')+'</table>';
   if(S.bancos && _tipo==='Todos') corpo+='<table style="margin-top:14px">'+_sec('BANCOS')+linhaBanco
-                        +`<tr class="tot"><td>TOTAL - SALDOS</td><td class="r">${_rcFmt(totBancos)}</td></tr>`+'</table>';
+                        +(_on('bancos','TOTAL - SALDOS')?`<tr class="tot"><td>TOTAL - SALDOS</td><td class="r">${_rcFmt(totBancos)}</td></tr>`:'')+'</table>';
   const html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>'
     +'html,body{background:#fff}body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:20px;max-width:760px;margin:0 auto}'
     +'h1{text-align:center;font-size:17px;margin:6px 0}h2{text-align:center;font-size:13px;margin:0 0 16px;font-weight:600}'
