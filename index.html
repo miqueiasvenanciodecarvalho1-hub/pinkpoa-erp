@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.311</span>
+      ">v2.14.312</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4615,7 +4615,7 @@ function modalPosReceber(){
   const _pmT=_pmN.reduce((a,r)=>a+(Number(r.sal)||0),0);
   openModal(`Posição de Contas a Receber — fechamento`
     + `  ·  v${APP_VER}`
-    + (_pmN.length?`  ·  cartão ${_pmN.length} parcelas ${_rcFmt(_pmT)}`:''), `
+    + (_pmN.length?`  ·  cartão ${_pmN.length} parcelas ${_rcFmt(_pmT)}${(()=>{ let i=DB.pagarme_info; if(!i){ try{ i=JSON.parse(localStorage.getItem('pinkpoa_pagarme_info')||'null'); }catch(e){} } return i&&i.extrato?` · extrato até ${fmtDate(i.extrato)}`:' · extrato sem data (reimporte)'; })()}`:''), `
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
       <div><label style="font-size:11px;color:var(--gray-5)">Empresa</label>
         <select class="form-control" style="width:220px" onchange="window._posEmp=this.value;window._posDrillB=null;modalPosReceber()">
@@ -11829,6 +11829,10 @@ function processarPagarme(rows, base){
     });
     n++; totB+=vB; totL+=vL;
   });
+  // v2.14.312: guarda de QUAL extrato é a carteira de cartão (data do lançamento mais recente + quando importou)
+  let _ultCri=''; (rows||[]).forEach(row=>{ const d=_pmDate(_pmCol(row,'data de criação','data de criacao')); if(d && d>_ultCri) _ultCri=d; });
+  try{ DB.pagarme_info={ extrato:_ultCri, importado_em:new Date().toISOString(), n, total:+(base==='bruto'?totB:totL).toFixed(2), base };
+       localStorage.setItem('pinkpoa_pagarme_info', JSON.stringify(DB.pagarme_info)); }catch(e){}
   return {n, totB:+totB.toFixed(2), totL:+totL.toFixed(2), base,
           nEst, vEstB:+vEstB.toFixed(2), vEstL:+vEstL.toFixed(2), semData, zerados, colFalha};
 }
