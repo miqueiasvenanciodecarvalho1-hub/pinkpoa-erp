@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.333</span>
+      ">v2.14.334</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -11615,7 +11615,7 @@ function abrirPDFOverlay(htmlContent) {
   if(htmlContent && htmlContent.indexOf('pp-cores')<0){
     const _st='<style id="pp-cores">*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}'
       // v2.14.333: traço entre as linhas (#eee) sumia no papel — na impressão fica cinza visível; o tracejado dos subtotais fica preto
-      +'@media print{td,th{border-bottom-color:#9a9a9a!important}tr.sub td,.sub td{border-top-color:#222!important}tr.sec td,.sec td{border-top-color:#222!important}}</style>';
+      +'@media print{td,th{border-bottom:1px solid #000!important}tr.tot td,.tot td{border-bottom:none!important}tr.sub td,.sub td{border-top-color:#222!important}tr.sec td,.sec td{border-top-color:#222!important}}</style>';
     htmlContent = /<\/head>/i.test(htmlContent) ? htmlContent.replace(/<\/head>/i, _st+'</head>') : _st+htmlContent;
   }
   overlay.style.display = 'flex';
@@ -11659,7 +11659,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.333","2026-11-05 22:20","impressão: o traço entre as linhas dos relatórios agora sai no papel (antes era claro demais)"],
+const ALTERACOES=[["2.14.334","2026-11-05 22:50","impressão: traço entre as linhas em preto"],
+  ["2.14.333","2026-11-05 22:20","impressão: o traço entre as linhas dos relatórios agora sai no papel (antes era claro demais)"],
   ["2.14.332","2026-11-05 22:00","Evolução da carteira: impressão cabe numa folha A4"],
   ["2.14.331","2026-11-05 21:40","Contas a Receber: travar o fechamento do mês (cópia espelho da Posição e da Evolução); impressão mantém as cores — linhas de TOTAL voltam a sair"],
   ["2.14.330","2026-11-05 21:00","novo demonstrativo: Evolução da carteira — carteira do mês anterior + faturamento − recebido = esperada × real, de onde vem a diferença e + saldo bancário (tela e PDF)"],
