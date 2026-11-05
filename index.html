@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.344</span>
+      ">v2.14.345</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5195,7 +5195,8 @@ function modalLiquidez(){
     </div>`,
     `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
      ${W._salvo&&_ehAdmin()?`<button class="btn btn-secondary" style="color:var(--red)" onclick="_bgExcluir()">Apagar mês</button>`:''}
-     <button class="btn btn-secondary" onclick="gerarLiquidezPDF()">🖨 PDF</button>
+     <button class="btn btn-secondary" onclick="gerarLiquidezPDF()">🖨 PDF índices</button>
+     <button class="btn btn-secondary" onclick="gerarBalancoModeloPDF()" title="Modelo da planilha: 3 meses lado a lado">📄 PDF balanço (3 meses)</button>
      <button class="btn btn-primary" onclick="_bgSalvar()">💾 Salvar mês</button>`, 'lg');
 }
 function _bgSet(path, val){
@@ -5275,6 +5276,67 @@ function gerarLiquidezPDF(){
     +_bgResumoHtml(W, ant, true)
     +`<div class="cols"><div>${ativo}</div><div>${passivo}</div></div>`
     +`<div class="rod">liquidez corrente/seca/geral: acima de 1,00 = paga as obrigações de curto prazo com folga · ${W.em?'gravado em '+new Date(W.em).toLocaleString('pt-BR')+(W.por?' por '+String(W.por).replace(/</g,'&lt;'):''):'não gravado'} · gerado em ${new Date().toLocaleString('pt-BR')} · v${_versaoApp()}</div>`
+    +'</body></html>';
+  abrirPDFOverlay(html);
+}
+// v2.14.345: PDF no MODELO DA PLANILHA "Balanço Gerencial" — 3 meses lado a lado (mês e os 2 anteriores), ativo × passivo
+function gerarBalancoModeloPDF(){
+  const emp=window._bgEmp||'RM', mes=window._bgMes, m1=_bgMesAnt(mes), m2=_bgMesAnt(m1);
+  const recs=[[m2,_bgGet(emp,m2)],[m1,_bgGet(emp,m1)],[mes,window._bgWork||_bgGet(emp,mes)]];
+  const C=recs.map(([,r])=>r?_bgCalc(r):null);
+  const MN=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+  const cab=m=>{ const [y,mo]=String(m).split('-'); return MN[+mo-1]+' '+String(y).slice(2); };
+  const val=x=>{ const n=Number(x)||0; return `<td class="rs">R$</td><td class="v">${Math.abs(n)<0.005?'-':n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}</td>`; };
+  const linha=(cls,rot,fn)=>`<tr class="${cls}"><td class="l">${rot}</td>${recs.map(([m,r],i)=>val(r?fn(r,C[i]):0)).join('')}</tr>`;
+  const vazia=()=>`<tr class="vz"><td class="l">&nbsp;</td>${recs.map(()=>'<td class="rs"></td><td class="v"></td>').join('')}</tr>`;
+  const nomes=lk=>{ const s=[]; recs.forEach(([,r])=>((r&&r.listas&&r.listas[lk])||[]).forEach(x=>{ if(x.n && !s.includes(x.n)) s.push(x.n); })); return s; };
+  const itensL=(lk)=>nomes(lk).map(n=>linha('',n,r=>((r.listas||{})[lk]||[]).filter(x=>x.n===n).reduce((s,x)=>s+(Number(x.v)||0),0))).join('');
+  const itensV=(arr)=>arr.map(([k,t])=>linha('',t.toUpperCase(),r=>(r.v||{})[k])).join('');
+  const head=t=>`<tr class="hd"><td class="l"></td>${recs.map(([m])=>`<td colspan="2" class="mh">${cab(m)}</td>`).join('')}</tr>`;
+  const ativo=`<table><tr class="titulo"><td colspan="7">ATIVO</td></tr>${head()}
+    ${linha('circ','ATIVO CIRCULANTE',(r,c)=>c.ac)}
+    ${linha('am','1 - CAIXA',(r,c)=>c.caixa)}${itensL('caixa')}${vazia()}
+    ${linha('sec','2 - APLICAÇÕES FINANC.',(r,c)=>c.aplic)}${itensL('aplic')}${vazia()}
+    ${linha('sec','3 - EMPRÉSTIMOS A TERCEIROS',(r,c)=>c.emprTerc)}${itensL('emprTerc')}${vazia()}
+    ${linha('sec','4 - CONTAS À RECEBER',(r,c)=>c.receber)}${vazia()}
+    ${linha('neg','4.1 - ATRASADAS',(r,c)=>c.atras)}
+    ${linha('','4.2 - ÚLTIMOS 5 MESES',r=>(r.v||{}).atr5)}${linha('','4.3 - ÚLTIMO MÊS',r=>(r.v||{}).atr1)}${vazia()}
+    ${linha('neg','4.4 - DUPLICATAS À VENCER',(r,c)=>c.aVencer)}
+    ${BG_REC.slice(2).map(([k,t],i)=>linha('',`4.${5+i} - ${t.toUpperCase()}`,r=>(r.v||{})[k])).join('')}${vazia()}
+    ${linha('sec','5 - ESTOQUE',(r,c)=>c.estoque)}${itensV(BG_EST)}${vazia()}
+    ${linha('sec','6 - IMOBILIZADO',(r,c)=>c.imob)}${itensV(BG_IMOB)}${vazia()}
+    ${linha('tot','TOTAL ATIVO',(r,c)=>c.ativo)}</table>`;
+  const passivo=`<table><tr class="titulo"><td colspan="7">PASSIVO</td></tr>${head()}
+    ${linha('circ','PASSIVO CIRCULANTE',(r,c)=>c.pc)}
+    ${linha('am','1 - CONTAS A PAGAR',(r,c)=>c.pagar)}${itensV(BG_PAG)}${vazia()}
+    ${linha('sec','2 - EMPRÉSTIMOS BANCÁRIOS',(r,c)=>c.emprBanc)}${itensL('emprBanc')}${vazia()}
+    ${linha('sec','3 - EMPRÉSTIMO INVESTIMENTOS',(r,c)=>c.inv)}${itensV(BG_INV)}${vazia()}
+    ${linha('neg','SUBTOTAL (PASSIVO EXIGÍVEL)',(r,c)=>c.exig)}${vazia()}
+    ${linha('neg','4 - PATRIMÔNIO LÍQUIDO',(r,c)=>c.pl)}${vazia()}
+    <tr class="ind"><td colspan="7">ÍNDICES DE LIQUIDEZ</td></tr>
+    ${BG_IND.map(([k,t])=>`<tr><td class="l">${t.toUpperCase()}</td>${recs.map(([,r],i)=>`<td></td><td class="v" style="font-weight:700">${C[i]&&C[i].ind[k]!=null?C[i].ind[k].toFixed(2).replace('.',','):'-'}</td>`).join('')}</tr>`).join('')}
+    ${vazia()}
+    ${linha('tot','TOTAL PASSIVO',(r,c)=>c.ativo)}</table>`;
+  const [ay,am]=String(mes).split('-').map(Number), db=new Date(ay,am,1);
+  const dataBase='01/'+String(db.getMonth()+1).padStart(2,'0')+'/'+db.getFullYear();
+  const empNome=emp==='RK'?'RK COMERCIO':'RM FASHION';
+  const logo=(typeof _logoRel==='function' && _logoRel())||'';
+  const html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>'
+    +'html,body{background:#fff}body{font-family:Arial,Helvetica,sans-serif;color:#000;padding:14px;max-width:1120px;margin:0 auto}'
+    +'.top{display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:12px}.top h1{font-size:17px;font-style:italic;margin:0}.top img{position:absolute;right:0;top:-6px;max-height:42px}'
+    +'.cols{display:grid;grid-template-columns:1fr 1fr;gap:12px}table{width:100%;border-collapse:collapse;font-size:8.6px}'
+    +'td{padding:1.4px 4px;border-bottom:0.5px solid #bbb;white-space:nowrap}td.l{white-space:normal}.rs{width:12px;color:#000;padding-right:0}.v{text-align:right;width:62px}'
+    +'.titulo td{background:#e02020;color:#fff;font-weight:800;text-align:center;font-size:11px;padding:3px;border:none}'
+    +'.hd td{font-weight:700;text-align:center;border-bottom:1px solid #000;padding:3px}.mh{border-left:1px solid #000}'
+    +'.circ td{background:#9bd06a;font-weight:800}.am td{background:#ffd34d;font-weight:800}.sec td{background:#d9d9d9;font-weight:800}'
+    +'.neg td{font-weight:800}.tot td{background:#000;color:#fff;font-weight:800;border:none}.ind td{background:#E8368F;color:#fff;font-weight:800;border:none}'
+    +'.vz td{border-bottom:none;height:7px;padding:0}'
+    +'.rod{display:flex;justify-content:space-between;margin-top:14px;font-size:9px}'
+    +'@page{size:A4 landscape;margin:7mm}@media print{body{padding:0;max-width:none}}'
+    +'</style></head><body>'
+    +`<div class="top"><h1>${empNome} - BALANÇO GERENCIAL - ${ay}</h1>${logo?`<img src="${logo}">`:''}</div>`
+    +`<div class="cols"><div>${ativo}</div><div>${passivo}</div></div>`
+    +`<div class="rod"><span>Informações Financeiras</span><span>PINKPOÁ - ${ay}</span><span>Data Base ${dataBase}</span></div>`
     +'</body></html>';
   abrirPDFOverlay(html);
 }
@@ -12024,7 +12086,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.344","2026-11-06 03:00","impressão: linhas mais finas (traço fino entre as linhas, tracejado e topo das seções mais leves)"],
+const ALTERACOES=[["2.14.345","2026-11-06 03:30","índices de liquidez: PDF no modelo da planilha Balanço Gerencial (3 meses lado a lado, RM e RK)"],
+  ["2.14.344","2026-11-06 03:00","impressão: linhas mais finas (traço fino entre as linhas, tracejado e topo das seções mais leves)"],
   ["2.14.343","2026-11-06 02:40","baixas financeiras: recupera sozinho do histórico do servidor a versão com as baixas mais novas (sem subir o arquivo de novo)"],
   ["2.14.342","2026-11-06 02:10","baixas financeiras: vpdpcl2 mais antigo que o carregado nunca substitui; ao juntar com o servidor ficam as baixas mais novas"],
   ["2.14.341","2026-11-06 01:45","impressão: traço preto mais fino entre as linhas"],
