@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.310</span>
+      ">v2.14.311</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2677,11 +2677,28 @@ function _fatConsolDrill(k){
   const _n=v=>Number(v)||0;
   const tot=notas.reduce((t,f)=>{const sg=f.tp==='devolucao'?-1:1;t.vnB+=sg*_n(f.vnBruto!=null?f.vnBruto:f.vn);t.ab+=_n(f.abatRepo);t.vn+=sg*_n(f.vn);t.comi+=_n(_comiNota(f));return t;},{vnB:0,ab:0,vn:0,comi:0});
   const rows=notas.map(f=>`<tr onclick="closeModal();modalVerNota(${f.id})" style="cursor:pointer"><td style="font-family:monospace">${f.nf}/${f.sr}</td><td>${_fd(f.dt)}</td><td>${dim==='cli'?_nr(f.rep):_nc(f.cli)}</td><td><span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:10px">${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devol.':'Entr.'}</span></td><td style="text-align:right;color:${f.tp==='devolucao'?'var(--red)':'var(--gray-5)'}">${f.tp==='devolucao'?'−':''}${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td><td style="text-align:right;color:${(f.abatRepo||0)>0?'#b45309':'var(--gray-3)'}">${(f.abatRepo||0)>0?'−'+fmt(f.abatRepo):'—'}</td><td style="text-align:right;font-weight:700;color:${f.tp==='devolucao'?'var(--red)':'inherit'}">${f.tp==='devolucao'?'−':''}${fmt(f.vn)}</td><td style="text-align:right;color:var(--pink)">${f.tp==='devolucao'?'−':''}${fmt(_comiNota(f))}</td></tr>`).join('');
-  const html=`<div style="font-size:12px;color:var(--gray-5);margin-bottom:8px">${dimLbl}: <strong>${grpLbl}</strong> · ${notas.length} nota(s) · clique numa nota para ver o detalhe</div>`
-    + `<div class="card-table" style="max-height:60vh;overflow:auto"><table style="font-size:12px"><thead><tr><th>Nota/Sér.</th><th>Data</th><th>${dim==='cli'?'Rep.':'Cliente'}</th><th>Tipo</th><th style="text-align:right">NF Bruto</th><th style="text-align:right">Troca</th><th style="text-align:right">NF Líq.</th><th style="text-align:right">Comissão</th></tr></thead>`
-    + `<tbody>${rows||'<tr><td colspan=8>Sem notas</td></tr>'}</tbody>`
-    + `<tfoot style="background:var(--gray-1);font-weight:700"><tr style="border-top:2px solid var(--gray-2)"><td colspan=4>TOTAL (${notas.length})</td><td style="text-align:right">${fmt(tot.vnB)}</td><td style="text-align:right;color:#b45309">−${fmt(tot.ab)}</td><td style="text-align:right">${fmt(tot.vn)}</td><td style="text-align:right;color:var(--pink)">${fmt(tot.comi)}</td></tr></tfoot></table></div>`;
-  openModal('Notas — '+grpLbl, html, `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>`);
+  // v2.14.311: resumo POR REPRESENTANTE (clique abre as notas dele) + lista completa com a coluna do representante
+  window._fatDrillK=k;
+  const modo=(dim==='rep')?'lista':(window._fatDrillModo||'rep');
+  const sg=f=>f.tp==='devolucao'?-1:1;
+  const linhaNota=(f,semRep)=>`<tr onclick="closeModal();modalVerNota(${f.id})" style="cursor:pointer"><td style="font-family:monospace">${f.nf}/${f.sr}</td><td>${_fd(f.dt)}</td><td>${_nc(f.cli)}</td>${(dim==='rep'||semRep)?'':`<td>${_nr(f.rep)}</td>`}<td><span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:10px">${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devol.':'Entr.'}</span></td><td style="text-align:right;color:${f.tp==='devolucao'?'var(--red)':'var(--gray-5)'}">${f.tp==='devolucao'?'−':''}${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td><td style="text-align:right;color:${(f.abatRepo||0)>0?'#b45309':'var(--gray-3)'}">${(f.abatRepo||0)>0?'−'+fmt(f.abatRepo):'—'}</td><td style="text-align:right;font-weight:700;color:${f.tp==='devolucao'?'var(--red)':'inherit'}">${f.tp==='devolucao'?'−':''}${fmt(f.vn)}</td><td style="text-align:right;color:var(--pink)" class="so-master">${f.tp==='devolucao'?'−':''}${fmt(_comiNota(f))}</td></tr>`;
+  const cab=(semRep)=>`<tr><th>Nota/Sér.</th><th>Data</th><th>Cliente</th>${(dim==='rep'||semRep)?'':'<th>Representante</th>'}<th>Tipo</th><th style="text-align:right">NF Bruto</th><th style="text-align:right">Troca</th><th style="text-align:right">NF Líq.</th><th style="text-align:right" class="so-master">Comissão</th></tr>`;
+  const ncol=dim==='rep'?8:9;
+  const totLinha=`<tfoot style="background:var(--gray-1);font-weight:700"><tr style="border-top:2px solid var(--gray-2)"><td colspan=${ncol-4}>TOTAL (${notas.length})</td><td style="text-align:right">${fmt(tot.vnB)}</td><td style="text-align:right;color:#b45309">−${fmt(tot.ab)}</td><td style="text-align:right">${fmt(tot.vn)}</td><td style="text-align:right;color:var(--pink)" class="so-master">${fmt(tot.comi)}</td></tr></tfoot>`;
+  let corpo='';
+  if(modo==='rep'){
+    const G={}; notas.forEach(f=>{ const r=String(f.rep||''); const g=G[r]||(G[r]={r,n:0,vnB:0,ab:0,vn:0,comi:0,notas:[]}); g.n++; g.vnB+=sg(f)*_n(f.vnBruto!=null?f.vnBruto:f.vn); g.ab+=_n(f.abatRepo); g.vn+=sg(f)*_n(f.vn); g.comi+=_n(_comiNota(f)); g.notas.push(f); });
+    const arr=Object.values(G).sort((a,b)=>b.vn-a.vn);
+    corpo=`<div class="card-table" style="max-height:60vh;overflow:auto"><table style="font-size:12px"><thead><tr><th>Representante</th><th style="text-align:right">Notas</th><th style="text-align:right">NF Bruto</th><th style="text-align:right">Troca</th><th style="text-align:right">NF Líq.</th><th style="text-align:right">%</th><th style="text-align:right" class="so-master">Comissão</th></tr></thead><tbody>`
+      + arr.map((g,ix)=>`<tr style="cursor:pointer;background:#fafafa" onclick="const d=document.getElementById('fdr-${ix}');d.style.display=d.style.display==='table-row'?'none':'table-row';this.querySelector('.sx').textContent=d.style.display==='table-row'?'▾':'▸'"><td style="font-weight:700"><span class="sx" style="color:var(--pink)">▸</span> ${g.r?_nr(g.r):'(sem representante)'}</td><td style="text-align:right">${g.n}</td><td style="text-align:right">${fmt(g.vnB)}</td><td style="text-align:right;color:#b45309">${g.ab?'−'+fmt(g.ab):'—'}</td><td style="text-align:right;font-weight:700">${fmt(g.vn)}</td><td style="text-align:right;color:var(--gray-5)">${tot.vn?(g.vn/tot.vn*100).toFixed(1).replace('.',','):0}%</td><td style="text-align:right;color:var(--pink)" class="so-master">${fmt(g.comi)}</td></tr>`
+        +`<tr id="fdr-${ix}" style="display:none"><td colspan="7" style="padding:4px 0 10px 14px;background:#fff"><table style="font-size:11.5px;width:100%"><thead>${cab(true)}</thead><tbody>${g.notas.map(f=>linhaNota(f,true)).join('')}</tbody></table></td></tr>`).join('')
+      + `</tbody><tfoot style="background:var(--gray-1);font-weight:700"><tr style="border-top:2px solid var(--gray-2)"><td>TOTAL (${arr.length} representante(s))</td><td style="text-align:right">${notas.length}</td><td style="text-align:right">${fmt(tot.vnB)}</td><td style="text-align:right;color:#b45309">−${fmt(tot.ab)}</td><td style="text-align:right">${fmt(tot.vn)}</td><td style="text-align:right">100%</td><td style="text-align:right;color:var(--pink)" class="so-master">${fmt(tot.comi)}</td></tr></tfoot></table></div>`;
+  } else {
+    corpo=`<div class="card-table" style="max-height:60vh;overflow:auto"><table style="font-size:12px"><thead>${cab(false)}</thead><tbody>${notas.map(f=>linhaNota(f,false)).join('')||`<tr><td colspan=${ncol}>Sem notas</td></tr>`}</tbody>${totLinha}</table></div>`;
+  }
+  const botoes = dim==='rep' ? '' : `<div style="display:flex;gap:6px;margin-bottom:8px"><button class="btn btn-sm ${modo==='rep'?'btn-primary':'btn-secondary'}" onclick="window._fatDrillModo='rep';_fatConsolDrill(window._fatDrillK)">👤 Por representante</button><button class="btn btn-sm ${modo==='lista'?'btn-primary':'btn-secondary'}" onclick="window._fatDrillModo='lista';_fatConsolDrill(window._fatDrillK)">🧾 Todas as notas</button></div>`;
+  const html=`<div style="font-size:12px;color:var(--gray-5);margin-bottom:8px">${dimLbl}: <strong>${grpLbl}</strong> · ${notas.length} nota(s) · ${modo==='rep'?'clique num representante para abrir as notas; numa nota, para o detalhe':'clique numa nota para ver o detalhe'}</div>` + botoes + corpo;
+  openModal('Notas — '+grpLbl, html, `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>`, 'lg');
 }
 function _fatConsolHtml(dados){
   const dim=window._fatConsol; if(!dim) return '';
