@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.340</span>
+      ">v2.14.341</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5228,7 +5228,7 @@ function gerarLiquidezPDF(){
   const html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>'
     +'html,body{background:#fff}body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:16px;max-width:1000px;margin:0 auto}'
     +'h1{text-align:center;font-size:16px;margin:4px 0}h2{text-align:center;font-size:12px;margin:0 0 10px;font-weight:600}'
-    +'.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}table{width:100%;border-collapse:collapse;font-size:10.5px}td{padding:2px 5px;border-bottom:1px solid #000}'
+    +'.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}table{width:100%;border-collapse:collapse;font-size:10.5px}td{padding:2px 5px;border-bottom:0.5pt solid #000}'
     +'.r{text-align:right;white-space:nowrap}.a{color:#888}.h td{font-weight:700;border-bottom:2px solid #000;font-size:10px}.sec td{font-weight:800;background:#E8368F;color:#fff;border:none}'
     +'.sub td{font-weight:700;background:#f3f3f3}.sub2 td{font-weight:800;border-top:2px dashed #000}.tot td{font-weight:800;background:#333;color:#fff;border:none}.tot .a{color:#ccc}'
     +'.rod{margin-top:10px;padding-top:6px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}'
@@ -11932,7 +11932,7 @@ function abrirPDFOverlay(htmlContent) {
   if(htmlContent && htmlContent.indexOf('pp-cores')<0){
     const _st='<style id="pp-cores">*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important}'
       // v2.14.333: traço entre as linhas (#eee) sumia no papel — na impressão fica cinza visível; o tracejado dos subtotais fica preto
-      +'@media print{td,th{border-bottom:1px solid #000!important}tr.tot td,.tot td{border-bottom:none!important}tr.sub td,.sub td{border-top-color:#222!important}tr.sec td,.sec td{border-top-color:#222!important}}</style>';
+      +'@media print{td,th{border-bottom:0.5pt solid #000!important}tr.tot td,.tot td{border-bottom:none!important}tr.sub td,.sub td{border-top:2px dashed #000!important}tr.sec td,.sec td{border-top-color:#222!important}}</style>';
     htmlContent = /<\/head>/i.test(htmlContent) ? htmlContent.replace(/<\/head>/i, _st+'</head>') : _st+htmlContent;
   }
   overlay.style.display = 'flex';
@@ -11976,7 +11976,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.340","2026-11-06 01:30","evolução da carteira: prazo médio de recebimento pelo faturamento dos últimos 3 meses (carteira sem duvidosos ÷ faturamento × 90)"],
+const ALTERACOES=[["2.14.341","2026-11-06 01:45","impressão: traço preto mais fino entre as linhas"],
+  ["2.14.340","2026-11-06 01:30","evolução da carteira: prazo médio de recebimento pelo faturamento dos últimos 3 meses (carteira sem duvidosos ÷ faturamento × 90)"],
   ["2.14.339","2026-11-06 01:10","índices de liquidez: campos com ponto de milhar (1.101.687,16)"],
   ["2.14.338","2026-11-06 00:50","índices de liquidez: a planilha do balanço gerencial entra pela Importação (RM e RK sozinhos) e estoques/imobilizado/empréstimos do mês vêm do último mês da planilha"],
   ["2.14.337","2026-11-06 00:20","Evolução da carteira: ponte da carteira de duplicatas ao total da Posição de fechamento (− duvidosos + cartão + cobrança); posição financeira usa o total do fechamento"],
