@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.328</span>
+      ">v2.14.329</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5908,7 +5908,14 @@ async function _hashArquivo(file){
        return [...new Uint8Array(h)].map(x=>x.toString(16).padStart(2,'0')).join(''); }
   catch(e){ return 'n:'+file.name+'|'+file.size+'|'+file.lastModified; }
 }
-function _jaImportado(hash){ return (hash && DB.arquivos_importados && DB.arquivos_importados[hash]) || null; }
+// v2.14.329: "já importado" é POR TIPO — o vpdpcl2 lido pelas Comissões não pode contar como lido pelo Contas a Receber
+// (era isso que deixava as baixas financeiras antigas: o arquivo novo aparecia como "já importado" e era pulado)
+function _jaImportado(hash, tipo){
+  const r=(hash && DB.arquivos_importados && DB.arquivos_importados[hash]) || null;
+  if(!r || !tipo) return r;
+  if(r.tipos) return r.tipos[tipo] ? Object.assign({}, r, {em:r.tipos[tipo]}) : null;
+  return r.tipo===tipo ? r : null;
+}
 function _ordemArq(a,b){ return _stampArq(a).localeCompare(_stampArq(b)) || ((a.lastMod||0)-(b.lastMod||0)); }
 // arquivos que vão de fato entrar num slot multi/acumula
 function _novosDoBucket(b){   // v2.14.297: não importados E não mais antigos que o último já importado
@@ -5932,7 +5939,9 @@ function _tipoTemNovo(tipoKey){
 function _registrarImportados(lista, tipoKey){
   DB.arquivos_importados = DB.arquivos_importados || {};
   const em=new Date().toISOString();
-  lista.forEach(a=>{ if(a && a.hash) DB.arquivos_importados[a.hash]={ nome:a.nome, tipo:tipoKey, slot:a.slot||'', em, tamanho:a.tamanho||0 }; });
+  lista.forEach(a=>{ if(a && a.hash){ const ant=DB.arquivos_importados[a.hash]||{};
+    const tipos=Object.assign({}, ant.tipos||(ant.tipo?{[ant.tipo]:ant.em}:{}), {[tipoKey]:em});
+    DB.arquivos_importados[a.hash]={ nome:a.nome, tipo:tipoKey, tipos, slot:a.slot||'', em, tamanho:a.tamanho||0 }; } });
   const ks=Object.keys(DB.arquivos_importados);       // guarda os 1000 mais recentes
   if(ks.length>1000) ks.sort((x,y)=>String(DB.arquivos_importados[x].em).localeCompare(String(DB.arquivos_importados[y].em)))
     .slice(0,ks.length-1000).forEach(k=>delete DB.arquivos_importados[k]);
@@ -6010,7 +6019,7 @@ async function _varrerEntradas(brutos, nomePasta) {
         const chave = entrada.tipoKey + '|' + entrada.slotKey;
         const atual = porSlot[chave];
         const carimbo = _carimboDoNome(c.caminho) || _carimboDoNome(c.nome);
-        const novo = { ...c, pontos: p, carimbo, colunas: cols.length, dados: info.dados, tamanho: info.tamanho, hash, ja, lastMod, slot: entrada.slotKey };
+        const novo = { ...c, pontos: p, carimbo, colunas: cols.length, dados: info.dados, tamanho: info.tamanho, hash, ja: _jaImportado(hash, entrada.tipoKey), lastMod, slot: entrada.slotKey };
         if (entrada.slot.multi || _SLOT_ACUMULA[chave]) {
           // slot multi-arquivo (ex.: vp42541a + vp42541b, colunas idênticas): junta todos
           const bucket = (atual && atual.multi) ? atual : { multi: true, arquivos: [] };
@@ -6260,13 +6269,31 @@ async function importarTipoAuto(tipoKey, silencioso) {
 async function importarTudoAuto() {
   if (!_scan) return;
   const completos = IMPORT_TIPOS.filter(t => _tipoPronto(t.key));
-  if (!completos.length) return toast('Nenhum tipo está completo', 'error');
+  if (!completos.length) toast('Nenhum tipo está completo — conferindo as baixas financeiras (vpdpcl2)…');
   const prontos = completos.filter(t => _tipoTemNovo(t.key));   // v217: nada novo = não reimporta
-  if (!prontos.length) { toast('Nenhum arquivo novo: tudo o que está na pasta já foi importado ✅'); renderImportacao(); return; }
+  if (!prontos.length) toast('Nenhum tipo com arquivo novo — conferindo as baixas financeiras (vpdpcl2)…');
   const _semNovo = completos.length - prontos.length;
   if (_semNovo) toast(`${_semNovo} tipo(s) sem arquivo novo — pulados`);
-  let ok = 0;
-  for (const t of prontos) { if (await importarTipoAuto(t.key, true)) ok++; }
+  let ok = 0; const _feitos = new Set();
+  for (const t of prontos) { if (await importarTipoAuto(t.key, true)) { ok++; _feitos.add(t.key); } }
+  // v2.14.329: BAIXAS FINANCEIRAS (vpdpcl2) sempre atualizadas — mesmo que o Contas a Receber não tenha rodado
+  // (ex.: só o vpdpcl2 é novo e o vpdpcl1 não está na pasta). Usa o vpdpcl2 mais novo COM dados.
+  try{
+    if(!_feitos.has('recebiveis')){
+      const cands=(_scan.lidos||[]).filter(c=>(c.cols||[]).includes('vup-codimovi') && (c.cols||[]).includes('dc2-vlorliqu') && c.dados!==false && c.getFile);
+      cands.sort((a,b)=>_ordemArq(b,a));
+      const c=cands[0];
+      if(c && (_impForcar || !(_jaImportado(c.hash,'recebiveis') || _jaImportado(c.hash,'recebidos')))){
+        const r=await lerArqImport(await c.getFile()); const rows=(r&&r.rows)||[];
+        if(rows.length && ('vup-codimovi' in rows[0])){
+          processarPagamentos(rows, c.nome);
+          _registrarImportados([{hash:c.hash, nome:c.nome, slot:'pagamentos'}], 'recebidos');
+          toast(`Baixas financeiras (vpdpcl2) atualizadas: ${(DB.recebidos||[]).length} baixa(s), movimentos até ${fmtDate((DB.recebidos_info||{}).ate)}`,'success');
+          ok++;
+        }
+      }
+    }
+  }catch(e){ console.warn('baixas vpdpcl2:', e); }
   // Fallback da TROCA: garante o vpdpcl2 processado mesmo se o tipo dele não ficou pronto
   try{
     if(!Object.keys(DB.abat_repo||{}).length){
@@ -11405,7 +11432,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.328","2026-11-05 19:45","NFS emitidas e recebidas: mostra qual arquivo de baixas está carregado e botão para importar o vpdpcl2 direto na prévia"],
+const ALTERACOES=[["2.14.329","2026-11-05 20:10","importação: o vpdpcl2 (baixas financeiras) é lido sozinho pelo Contas a Receber mesmo já lido pelas Comissões — 'já importado' agora vale por tipo"],
+  ["2.14.328","2026-11-05 19:45","NFS emitidas e recebidas: mostra qual arquivo de baixas está carregado e botão para importar o vpdpcl2 direto na prévia"],
   ["2.14.327","2026-11-05 19:20","extrato do banco: clicar em créditos, débitos, categoria ou cruzamento abre os lançamentos (com CSV); filtros do extrato no topo; contas com nome certo"],
   ["2.14.326","2026-11-05 18:50","prévia de NFS emitidas e recebidas: caixinha em cada linha para tirar ou pôr no relatório"],
   ["2.14.325","2026-11-05 18:30","NFS emitidas e recebidas no mês: aviso quando as baixas carregadas não chegam ao fim do mês; nota fora do faturamento usa a emissão do título"],
