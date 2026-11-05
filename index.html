@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.313</span>
+      ">v2.14.314</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5897,6 +5897,33 @@ async function _varrerEntradas(brutos, nomePasta) {
     _scan = { pasta: nomePasta, quando: new Date().toLocaleString('pt-BR'),
               total: brutos.length, analisados: candidatos.length,
               zips: zips.length, porSlot, lidos };
+    // v2.14.314: EXTRATO DO BANCO (Bradesco Net Empresa) na pasta → vai sozinho para a Conciliação bancária.
+    // Não tem cabeçalho na 1ª linha, por isso não casa com nenhum tipo: confere o conteúdo das planilhas que sobraram.
+    try {
+      const sobra = lidos.filter(l => !(l.slots || []).length && /\.(xls|xlsx|csv|txt)$/i.test(l.nome || ''));
+      const ext = [];
+      for (let i = 0; i < sobra.length; i++) {
+        const l = sobra[i];
+        _progresso(`Procurando extratos do banco… ${i + 1}/${sobra.length}`);
+        try {
+          const f = await l.getFile();
+          const aoa = await _extAoaDeArquivo(f);
+          if (!_ehExtratoBanco(aoa)) continue;
+          const hash = l.hash || await _hashArquivo(f);
+          ext.push({ nome: l.nome, caminho: l.caminho, aoa, hash, ja: _jaImportado(hash), lastMod: f.lastModified || 0, carimbo: _carimboDoNome(l.caminho) || _carimboDoNome(l.nome) });
+        } catch (e) { /* não é extrato ou ilegível */ }
+      }
+      ext.sort(_ordemArq);
+      _scan.extratos = ext.map(x => ({ nome: x.nome, ja: !!x.ja }));
+      const novos = ext.filter(x => _impForcar || !x.ja);
+      if (novos.length) {
+        let nL = 0, ok = [];
+        novos.forEach(x => { const r = processarExtratoBanco(x.aoa, x.nome); if (!r.erro) { nL += r.lancamentos; ok.push(x); } });
+        _registrarImportados(ok.map(x => ({ hash: x.hash, nome: x.nome, slot: 'extrato' })), 'extrato_banco');
+        if (ok.length) toast(`🏦 ${ok.length} extrato(s) do banco importado(s) para a Conciliação — ${nL} lançamento(s)`);
+      }
+    } catch (e) { console.warn('extratos na pasta:', e); }
+    _progresso('');
 
     const achados = Object.keys(porSlot).length;
     toast(achados ? `${achados} arquivo(s) identificado(s) 📂` : 'Nenhum arquivo reconhecido', achados ? 'success' : 'error');
@@ -8515,15 +8542,28 @@ function processarExtratoBanco(aoa, arquivo){
                saldo:_extNum(cS>=0?r[cS]:'') });
   }
   mov.sort((a,b)=>a.data.localeCompare(b.data)||a.id-b.id);
-  const cr=mov.filter(m=>m.valor>0), db=mov.filter(m=>m.valor<0);
-  DB.extrato_banco=mov;
-  DB.extrato_meta={ banco:'Bradesco', agencia, conta, arquivo:arquivo||'', quando:new Date().toLocaleString('pt-BR'),
-    ini:mov.length?mov[0].data:'', fim:mov.length?mov[mov.length-1].data:'',
+  // v2.14.314: vários extratos convivem — cada conta (agência|conta) guarda os seus lançamentos; um arquivo novo
+  // substitui só o MESMO período da MESMA conta (sem duplicar). Antes cada importação apagava o extrato anterior.
+  const acc=(agencia||'?')+'|'+(conta||'?');
+  mov.forEach(m=>{ m.ag=agencia; m.ct=conta; m.arq=arquivo||''; });
+  const iniN=mov.length?mov[0].data:'', fimN=mov.length?mov[mov.length-1].data:'';
+  const antigos=(DB.extrato_banco||[]).filter(m=>{ const a=(m.ag||DB.extrato_meta&&DB.extrato_meta.agencia||'?')+'|'+(m.ct||DB.extrato_meta&&DB.extrato_meta.conta||'?');
+    return !(a===acc && m.data>=iniN && m.data<=fimN); });
+  antigos.forEach(m=>{ if(!m.ag && DB.extrato_meta){ m.ag=DB.extrato_meta.agencia; m.ct=DB.extrato_meta.conta; } });
+  const tudo=antigos.concat(mov).sort((a,b)=>a.data.localeCompare(b.data)||String(a.ag+a.ct).localeCompare(String(b.ag+b.ct)));
+  tudo.forEach((m,i)=>m.id=i+1);
+  const cr=tudo.filter(m=>m.valor>0), db=tudo.filter(m=>m.valor<0);
+  const contas=[...new Set(tudo.map(m=>(m.ag||'?')+'/'+(m.ct||'?')))];
+  DB.extrato_banco=tudo;
+  DB.extrato_meta={ banco:'Bradesco', agencia:contas.length>1?'várias':agencia, conta:contas.length>1?contas.join(' · '):conta, contas,
+    arquivo:arquivo||'', quando:new Date().toLocaleString('pt-BR'),
+    ini:tudo.length?tudo[0].data:'', fim:tudo.length?tudo[tudo.length-1].data:'',
     totCred:+cr.reduce((s,m)=>s+m.valor,0).toFixed(2), totDeb:+db.reduce((s,m)=>s+m.valor,0).toFixed(2),
     saldoFim: mov.length?mov[mov.length-1].saldo:0, ignoradas, aposTotal };
   _extCruzar(window._extJC||5, window._extJD||10);
-  return { lancamentos:mov.length, creditos:cr.length, debitos:db.length, agencia, conta,
-           totCred:DB.extrato_meta.totCred, totDeb:DB.extrato_meta.totDeb };
+  const crN=mov.filter(m=>m.valor>0), dbN=mov.filter(m=>m.valor<0);
+  return { lancamentos:mov.length, creditos:crN.length, debitos:dbN.length, agencia, conta, ini:iniN, fim:fimN,
+           totCred:+crN.reduce((s,m)=>s+m.valor,0).toFixed(2), totDeb:+dbN.reduce((s,m)=>s+m.valor,0).toFixed(2) };
 }
 
 // parcelas a pagar das NF-e de compra (vencimentos do XML)
@@ -8651,24 +8691,31 @@ function _extResumo(mes){
     rej:mov.filter(m=>m._mem==='nao').length, orf:mov.filter(m=>m.par&&m.par.orfao).length,
     saldoFim: mov.length?mov[mov.length-1].saldo:0 };
 }
+// v2.14.314: lê o arquivo do extrato (xls/xlsx/csv) em linhas — usado pelo botão e pela varredura da pasta
+async function _extAoaDeArquivo(f){
+  const bytes=await _lerBytes(f);
+  const tipo=_assinatura(bytes);
+  if(tipo==='xlsx'||tipo==='xls'){
+    if(typeof XLSX==='undefined') throw new Error('Planilha .xls exige a biblioteca do CDN (sem internet agora) — salve o extrato em .csv');
+    const wb=XLSX.read(bytes,{type:'array',codepage:1252,cellText:true,raw:false});
+    return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:'',raw:false});
+  }
+  const d=_decodificar(bytes);
+  const am=d.texto.slice(0,3000);
+  const sep=am.split(';').length>am.split(',').length?';':(am.split('\t').length>am.split(',').length?'\t':',');
+  return d.texto.split(/\r\n|\n|\r/).map(l=>l.split(sep).map(c=>c.replace(/^"|"$/g,'')));
+}
+// é extrato do banco? (cabeçalho "Data | Lançamento" nas primeiras linhas)
+function _ehExtratoBanco(aoa){
+  const L=(aoa||[]).slice(0,60).map(r=>(r||[]).map(c=>String(c==null?'':c).trim()));
+  return L.some(r=>/^data$/i.test(r[0]||'') && /lan[çc]amento/i.test(r[1]||''));
+}
 async function importarExtratoBanco(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.xls,.xlsx,.csv,.txt';
   inp.onchange=async ev=>{
     const f=ev.target.files&&ev.target.files[0]; if(!f) return;
     try{
-      const bytes=await _lerBytes(f);
-      const tipo=_assinatura(bytes);
-      let aoa=[];
-      if(tipo==='xlsx'||tipo==='xls'){
-        if(typeof XLSX==='undefined'){ toast('Planilha .xls exige a biblioteca do CDN (sem internet agora) — salve o extrato em .csv','error'); return; }
-        const wb=XLSX.read(bytes,{type:'array',codepage:1252,cellText:true,raw:false});
-        aoa=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,defval:'',raw:false});
-      } else {
-        const d=_decodificar(bytes);
-        const am=d.texto.slice(0,3000);
-        const sep=am.split(';').length>am.split(',').length?';':(am.split('\t').length>am.split(',').length?'\t':',');
-        aoa=d.texto.split(/\r\n|\n|\r/).map(l=>l.split(sep).map(c=>c.replace(/^"|"$/g,'')));
-      }
+      let aoa=[]; try{ aoa=await _extAoaDeArquivo(f); }catch(e){ toast(e.message,'error'); return; }
       const r=processarExtratoBanco(aoa, f.name);
       if(r.erro){ toast(r.erro,'error'); return; }
       const _f=v=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
