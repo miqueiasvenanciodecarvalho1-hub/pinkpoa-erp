@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.339</span>
+      ">v2.14.340</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4869,10 +4869,13 @@ function _evolDados(emp, mes){
   const trav=(DB.fech_receber||{})[emp+'|'+mesA];
   const posicao=r2(fechF.total + totBancos);
   const base=ini.total+N.emitLiq;
+  // v2.14.340: PMR = carteira (sem duvidosos) ÷ faturamento líquido dos ÚLTIMOS 3 MESES × 90 (um mês fraco não distorce)
+  const _m2=_mesAnterior(mesA); let fat3=N.emitLiq; try{ fat3+= _nfsMesDados(fil, mesA).emitLiq + _nfsMesDados(fil, _m2).emitLiq; }catch(e){}
+  const _cartPMR=fim.atras+fim.aVencer;
   return { emp, mes, mesA, ini, fim, N, titV:r2(titV), titN, outros, outV:r2(outV), outN, temOutros, esperado, dif, semTitulo, resid,
     bancos, totBancos, cob, cobI, fechI, fechF, travI:trav&&trav.totais?trav.totais.total:null, posicao, semPM:_posSemPM(),
     ind:{ pctReceb: base>0 ? +(100*N.recebTotal/base).toFixed(1) : 0,
-          pmr: N.emitLiq>0 ? Math.round(fim.total/N.emitLiq*30) : 0,
+          pmr: fat3>0 ? Math.round(_cartPMR/fat3*90) : null, fat3:r2(fat3),
           variacao: r2(fim.total-ini.total), pctVar: ini.total>0 ? +(100*(fim.total-ini.total)/ini.total).toFixed(1) : 0,
           pctAtras: fim.total>0 ? +(100*fim.atras/fim.total).toFixed(1) : 0 } };
 }
@@ -4931,7 +4934,7 @@ function _evolIndHtml(E, pdf){
   return `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0 0 12px">
     ${card('Variação da carteira',(I.variacao>=0?'+':'−')+' '+_rcFmt(Math.abs(I.variacao)).replace('R$ ','R$ '),(I.pctVar>=0?'+':'')+String(I.pctVar).replace('.',',')+'% no mês',I.variacao>0?'#c0392b':'#1e8449')}
     ${card('Recebido / (carteira + faturamento)',String(I.pctReceb).replace('.',',')+'%','quanto da carteira girou','#1f6fb2')}
-    ${card('Prazo médio de recebimento',I.pmr+' dias','carteira ÷ faturamento × 30','#8e44ad')}
+    ${card('Prazo médio de recebimento',I.pmr==null?'—':I.pmr+' dias','carteira ÷ faturamento 3 meses × 90','#8e44ad')}
     ${card('Atrasado na carteira',String(I.pctAtras).replace('.',',')+'%','atrasados até 6 meses','#d35400')}
   </div>`;
 }
@@ -11973,7 +11976,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.339","2026-11-06 01:10","índices de liquidez: campos com ponto de milhar (1.101.687,16)"],
+const ALTERACOES=[["2.14.340","2026-11-06 01:30","evolução da carteira: prazo médio de recebimento pelo faturamento dos últimos 3 meses (carteira sem duvidosos ÷ faturamento × 90)"],
+  ["2.14.339","2026-11-06 01:10","índices de liquidez: campos com ponto de milhar (1.101.687,16)"],
   ["2.14.338","2026-11-06 00:50","índices de liquidez: a planilha do balanço gerencial entra pela Importação (RM e RK sozinhos) e estoques/imobilizado/empréstimos do mês vêm do último mês da planilha"],
   ["2.14.337","2026-11-06 00:20","Evolução da carteira: ponte da carteira de duplicatas ao total da Posição de fechamento (− duvidosos + cartão + cobrança); posição financeira usa o total do fechamento"],
   ["2.14.336","2026-11-05 23:50","Evolução da carteira: abatimentos do financeiro explicam a diferença com o vpdpcl2 já carregado (sem reimportar)"],
