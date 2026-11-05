@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.316</span>
+      ">v2.14.317</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -8527,13 +8527,17 @@ function processarExtratoBanco(aoa, arquivo){
     const j=linhas[i].join(' ');
     const ag=j.match(/Ag[êe]ncia:\s*([\d-]+)/i); if(ag && !agencia) agencia=ag[1];
     const ct=j.match(/Conta:\s*([\d-]+)/i);      if(ct && !conta)   conta=ct[1];
-    if(iCab<0 && /(^|\s)Data(\s|$)/.test(linhas[i][0]||'') && /Lan[çc]amento/i.test(linhas[i][1]||'')) iCab=i;
+    if(iCab<0 && /(^|\s)Data(\s|$)/.test(linhas[i][0]||'') && /Lan[çc]amento|Hist[óo]rico/i.test(linhas[i][1]||'')) iCab=i;
   }
-  if(iCab<0) return {erro:'Cabeçalho "Data | Lançamento | Crédito | Débito" não encontrado — este arquivo é o extrato do banco?'};
+  if(iCab<0) return {erro:'Cabeçalho "Data | Lançamento (ou Histórico) | Valor" não encontrado — este arquivo é o extrato do banco?'};
+  // v2.14.317: banco pelo conteúdo ou pelo nome do arquivo (Bradesco, Santander, Itaú, BTG, Sicoob, Inter, Caixa, BB…)
+  const _tudo=(linhas.slice(0,iCab+1).map(r=>r.join(' ')).join(' ')+' '+String(arquivo||'')).toUpperCase();
+  const banco=/BRADESCO/.test(_tudo)?'Bradesco':/SANTANDER/.test(_tudo)?'Santander':/ITA[UÚ]/.test(_tudo)?'Itaú':/BTG/.test(_tudo)?'BTG':/SICOOB/.test(_tudo)?'Sicoob':/SICREDI/.test(_tudo)?'Sicredi':/INTER\b/.test(_tudo)?'Inter':/CAIXA|CEF\b/.test(_tudo)?'Caixa':/BANCO DO BRASIL|\bBB\b/.test(_tudo)?'Banco do Brasil':'Banco';
   const cab=linhas[iCab].map(c=>_extNorm(c));
   const col=(...alvos)=>{ for(const a of alvos){ const i=cab.findIndex(c=>c.includes(a)); if(i>=0) return i; } return -1; };
   const cD=col('DATA'), cH=col('LANCAMENTO','HISTORICO'), cDoc=col('DCTO','DOCUMENTO'),
-        cC=col('CREDITO'), cB=col('DEBITO'), cS=col('SALDO');
+        cC=col('CREDITO'), cB=col('DEBITO'), cS=col('SALDO'), cRz=col('RAZAO SOCIAL','NOME'),
+        cV=(cC<0 && cB<0) ? col('VALOR') : -1;   // extrato de UMA coluna de valor (+ crédito / − débito): Santander, BTG…
   const mov=[]; let id=1, ignoradas=0, aposTotal=0, fechado=false;
   for(let i=iCab+1;i<linhas.length;i++){
     const r=linhas[i]; if(!r.length) continue;
@@ -8545,38 +8549,40 @@ function processarExtratoBanco(aoa, arquivo){
     const hist=r[cH>=0?cH:1]||'';
     const hN=_extNorm(hist);
     if(/SALDO ANTERIOR|SALDO INVEST|SALDO DO DIA/.test(hN)) continue;
-    const cred=_extNum(cC>=0?r[cC]:''), deb=_extNum(cB>=0?r[cB]:'');
-    const valor=+(Math.abs(cred)>0 ? Math.abs(cred) : -Math.abs(deb)).toFixed(2);
+    let valor;
+    if(cV>=0){ valor=+_extNum(r[cV]).toFixed(2); }
+    else { const cred=_extNum(cC>=0?r[cC]:''), deb=_extNum(cB>=0?r[cB]:''); valor=+(Math.abs(cred)>0 ? Math.abs(cred) : -Math.abs(deb)).toFixed(2); }
     if(!valor){ ignoradas++; continue; }
     if(fechado){ aposTotal++; continue; }
     const doc=r[cDoc>=0?cDoc:2]||'';
     const credito=valor>0;
     mov.push({ id:id++, data, mes:data.slice(0,7), hist, doc, valor,
-               tipo: credito?'C':'D', cat:_extCat(hist,credito), nome:_extNome(hist),
+               tipo: credito?'C':'D', cat:_extCat(hist,credito), nome:(cRz>=0&&r[cRz])?r[cRz]:_extNome(hist), banco,
                saldo:_extNum(cS>=0?r[cS]:'') });
   }
   mov.sort((a,b)=>a.data.localeCompare(b.data)||a.id-b.id);
   // v2.14.314: vários extratos convivem — cada conta (agência|conta) guarda os seus lançamentos; um arquivo novo
   // substitui só o MESMO período da MESMA conta (sem duplicar). Antes cada importação apagava o extrato anterior.
-  const acc=(agencia||'?')+'|'+(conta||'?');
-  mov.forEach(m=>{ m.ag=agencia; m.ct=conta; m.arq=arquivo||''; });
+  const acc=banco+'|'+(agencia||'?')+'|'+(conta||'?');
+  mov.forEach(m=>{ m.ag=agencia; m.ct=conta; m.arq=arquivo||''; m.banco=banco; });
   const iniN=mov.length?mov[0].data:'', fimN=mov.length?mov[mov.length-1].data:'';
-  const antigos=(DB.extrato_banco||[]).filter(m=>{ const a=(m.ag||DB.extrato_meta&&DB.extrato_meta.agencia||'?')+'|'+(m.ct||DB.extrato_meta&&DB.extrato_meta.conta||'?');
+  const antigos=(DB.extrato_banco||[]).filter(m=>{ const a=(m.banco||'Bradesco')+'|'+(m.ag||DB.extrato_meta&&DB.extrato_meta.agencia||'?')+'|'+(m.ct||DB.extrato_meta&&DB.extrato_meta.conta||'?');
     return !(a===acc && m.data>=iniN && m.data<=fimN); });
   antigos.forEach(m=>{ if(!m.ag && DB.extrato_meta){ m.ag=DB.extrato_meta.agencia; m.ct=DB.extrato_meta.conta; } });
   const tudo=antigos.concat(mov).sort((a,b)=>a.data.localeCompare(b.data)||String(a.ag+a.ct).localeCompare(String(b.ag+b.ct)));
   tudo.forEach((m,i)=>m.id=i+1);
   const cr=tudo.filter(m=>m.valor>0), db=tudo.filter(m=>m.valor<0);
-  const contas=[...new Set(tudo.map(m=>(m.ag||'?')+'/'+(m.ct||'?')))];
+  const contas=[...new Set(tudo.map(m=>(m.banco||'Bradesco')+' '+(m.ag||'')+(m.ct?'/'+m.ct:'')))].map(x=>x.trim());
+  const bancos=[...new Set(tudo.map(m=>m.banco||'Bradesco'))];
   DB.extrato_banco=tudo;
-  DB.extrato_meta={ banco:'Bradesco', agencia:contas.length>1?'várias':agencia, conta:contas.length>1?contas.join(' · '):conta, contas,
+  DB.extrato_meta={ banco:bancos.join(' + '), agencia:contas.length>1?'várias':agencia, conta:contas.length>1?contas.join(' · '):conta, contas,
     arquivo:arquivo||'', quando:new Date().toLocaleString('pt-BR'),
     ini:tudo.length?tudo[0].data:'', fim:tudo.length?tudo[tudo.length-1].data:'',
     totCred:+cr.reduce((s,m)=>s+m.valor,0).toFixed(2), totDeb:+db.reduce((s,m)=>s+m.valor,0).toFixed(2),
     saldoFim: mov.length?mov[mov.length-1].saldo:0, ignoradas, aposTotal };
   _extCruzar(window._extJC||5, window._extJD||10);
   const crN=mov.filter(m=>m.valor>0), dbN=mov.filter(m=>m.valor<0);
-  return { lancamentos:mov.length, creditos:crN.length, debitos:dbN.length, agencia, conta, ini:iniN, fim:fimN,
+  return { lancamentos:mov.length, creditos:crN.length, debitos:dbN.length, agencia, conta, banco, ini:iniN, fim:fimN,
            totCred:+crN.reduce((s,m)=>s+m.valor,0).toFixed(2), totDeb:+dbN.reduce((s,m)=>s+m.valor,0).toFixed(2) };
 }
 
@@ -8722,7 +8728,7 @@ async function _extAoaDeArquivo(f){
 // é extrato do banco? (cabeçalho "Data | Lançamento" nas primeiras linhas)
 function _ehExtratoBanco(aoa){
   const L=(aoa||[]).slice(0,60).map(r=>(r||[]).map(c=>String(c==null?'':c).trim()));
-  return L.some(r=>/^data$/i.test(r[0]||'') && /lan[çc]amento/i.test(r[1]||''));
+  return L.some(r=>/^data$/i.test(r[0]||'') && /lan[çc]amento|hist[óo]rico/i.test(r[1]||'') && r.some(c=>/valor|cr[ée]dito|d[ée]bito/i.test(c)));
 }
 async function importarExtratoBanco(){
   const inp=document.createElement('input'); inp.type='file'; inp.accept='.xls,.xlsx,.csv,.txt';
@@ -8733,7 +8739,7 @@ async function importarExtratoBanco(){
       const r=processarExtratoBanco(aoa, f.name);
       if(r.erro){ toast(r.erro,'error'); return; }
       const _f=v=>(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2});
-      toast(`Extrato ${r.agencia||''}/${r.conta||''}: ${r.lancamentos} lançamentos · créditos R$ ${_f(r.totCred)} · débitos R$ ${_f(r.totDeb)}`);
+      toast(`Extrato ${r.banco||''} ${r.agencia||''}/${r.conta||''}: ${r.lancamentos} lançamentos · créditos R$ ${_f(r.totCred)} · débitos R$ ${_f(r.totDeb)}`);
       window._concTab='extrato';
       if(typeof renderConciliacao==='function') renderConciliacao();
     }catch(e){ toast('Erro ao ler o extrato: '+e.message,'error'); console.error(e); }
