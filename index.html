@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.312</span>
+      ">v2.14.313</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4552,7 +4552,9 @@ function _pmCarteiraSuspeita(pm){
   const tot=+pm.reduce((s,r)=>s+(Number(r.sal)||0),0).toFixed(2);
   if(pm.some(r=>r.pmv!==PM_VER)) return 'carimbo antigo';
   if(PM_RUINS.some(v=>Math.abs(tot-v)<1)) return 'total de importação quebrada ('+tot+')';
-  if(pm.length!==PM_CARTEIRA.length && Math.abs(tot-PM_META.carteira)>1) return 'não bate com a carteira conferida';
+  // v2.14.313: REMOVIDO o "não bate com a carteira conferida" — ele trocava TODO extrato novo (ex.: 04/11, 1286 parcelas,
+  // R$ 275.644,32) pela carteira embutida de 03/09 (1509 / R$ 338.129,54) e a importação era desfeita na hora.
+  // Agora só corrige carteira com carimbo antigo ou com os totais sabidamente quebrados.
   return '';
 }
 function _pmAutoCorrigir(){
