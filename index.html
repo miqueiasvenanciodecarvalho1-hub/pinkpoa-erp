@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.315</span>
+      ">v2.14.316</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4686,6 +4686,7 @@ function modalPosReceber(){
         </div>`).join('')}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-secondary btn-sm" onclick="_bancoNovaLinha()">➕ Incluir banco</button>
+        <button class="btn btn-secondary btn-sm" title="Valor já liberado no Pagar.me que pode ser sacado (entra na seção BANCOS)" onclick="_bancoNovaLinha('PAGAR.ME — SALDO DISPONÍVEL PARA SAQUE')">💳 Saldo cartão disponível p/ saque</button>
         <button class="btn btn-primary btn-sm" onclick="_bancoSalvar()">💾 Salvar bancos</button>
       </div>
     </div>`,
@@ -4693,11 +4694,13 @@ function modalPosReceber(){
      <button class="btn btn-primary" onclick="gerarPosReceberPDF()">🖨 Gerar PDF${_posTipoAtual()==='Todos'?'':' · somente '+_posTipoAtual()}</button>`);
 }
 // v2.14.315: incluir/tirar bancos da lista de saldos (vale para os relatórios de receber e pagar)
-function _bancoNovaLinha(){
+function _bancoNovaLinha(nome){
   const box=document.getElementById('bancos-lista'); if(!box) return;
+  if(nome && [...box.querySelectorAll('.bco-nome')].some(x=>x.value.trim().toUpperCase()===nome)){ toast('Essa linha já está na lista — é só informar o valor'); return; }
   const d=document.createElement('div'); d.className='bco-linha'; d.style.cssText='display:flex;gap:8px;margin-bottom:4px';
   d.innerHTML='<input class="form-control bco-nome" style="flex:1;text-transform:uppercase" placeholder="Banco (ex.: ITAÚ RM FASHION)"><input class="form-control bco-valor" style="width:140px" type="number" step="0.01" value="0"><button class="btn btn-secondary btn-sm" title="Tirar este banco">✕</button>';
-  d.querySelector('button').onclick=()=>d.remove(); box.appendChild(d); d.querySelector('.bco-nome').focus();
+  d.querySelector('button').onclick=()=>d.remove(); box.appendChild(d);
+  if(nome){ d.querySelector('.bco-nome').value=nome; d.querySelector('.bco-valor').select(); d.querySelector('.bco-valor').focus(); } else d.querySelector('.bco-nome').focus();
 }
 function _bancoSalvar(){
   const nomes=[...document.querySelectorAll('.bco-nome')].map(x=>x.value.trim().toUpperCase());
