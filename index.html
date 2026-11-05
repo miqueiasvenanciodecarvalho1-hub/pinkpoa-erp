@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.334</span>
+      ">v2.14.336</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4814,6 +4814,7 @@ function modalPosReceber(){
     </div>`,
     `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
      <button class="btn btn-secondary" onclick="modalEvolCarteira()">📈 Evolução da carteira</button>
+     <button class="btn btn-secondary" onclick="modalLiquidez()">📊 Índices de liquidez</button>
      <button class="btn btn-primary" onclick="gerarPosReceberPDF()">🖨 Gerar PDF${_posTipoAtual()==='Todos'?'':' · somente '+_posTipoAtual()}</button>`);
 }
 // ═══════════ v2.14.330: EVOLUÇÃO DA CARTEIRA (demonstrativo) ═══════════
@@ -4839,7 +4840,13 @@ function _evolDados(emp, mes){
   const outros={}; let outV=0, outN=0;
   (DB.recebidos_outros||[]).forEach(m=>{ if(!okF(m.fil) || String(m.dt).slice(0,7)!==mes) return;
     const k=(m.cod||'?')+' · '+(m.tx||''); const o=outros[k]||(outros[k]={v:0,n:0}); o.v+=n(m.valor); o.n++; outV+=n(m.valor); outN++; });
-  const temOutros=Array.isArray(DB.recebidos_outros);
+  // sem o detalhe novo (vpdpcl2 importado antes da v2.14.330): usa os ABATIMENTOS (mov. 90) que já estão guardados em abat_repo
+  if(!Array.isArray(DB.recebidos_outros) && DB.abat_repo){
+    Object.keys(DB.abat_repo).forEach(k=>{ const f=k.split('|')[0]; if(!okF(f)) return;
+      (DB.abat_repo[k]||[]).forEach(a=>{ if(String(a.mes||String(a.dt||'').slice(0,7))!==mes) return;
+        const o=outros['90 · Abatimento']||(outros['90 · Abatimento']={v:0,n:0}); o.v+=n(a.valor); o.n++; outV+=n(a.valor); outN++; }); });
+  }
+  const temOutros=Array.isArray(DB.recebidos_outros) || outN>0;
   const esperado=r2(ini.total + N.emitLiq - N.recebTotal);
   const dif=r2(fim.total - esperado);
   // explicação da diferença
@@ -5024,6 +5031,259 @@ function _fechRecHtml(){
     ${atual?`<div style="font-size:12px;color:#a01f62;margin-top:6px">${_evMesNome(mes)} já está travado (${new Date(atual.em).toLocaleString('pt-BR')}). O relatório abaixo é o de <b>agora</b>; a cópia travada abre em 📄 Posição.</div>`:''}
     ${L.length?`<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:6px"><tbody>${L.map(linha).join('')}</tbody></table>`:'<div style="font-size:12px;color:var(--gray-5);margin-top:4px">Nenhum mês travado ainda.</div>'}
   </div>`;
+}
+// ═══════════ v2.14.335: BALANÇO GERENCIAL + ÍNDICES DE LIQUIDEZ (modelo da planilha "Balanço Gerencial RM/RK") ═══════════
+// Ativo (caixa, aplicações, empréstimos a terceiros, contas a receber, estoque, imobilizado) × Passivo (contas a pagar,
+// empréstimos bancários, empréstimos de investimento) e PL = ativo − passivo. Caixa, receber e pagar vêm do sistema;
+// o resto é digitado e fica gravado por empresa/mês em DB.balanco_ger (vai para o servidor). Histórico importa da planilha.
+const BG_REC=[['atr5','Atrasadas — últimos 5 meses'],['atr1','Atrasadas — último mês'],['f30','Vencer 30 dias'],['f60','Vencer 60 dias'],['f90','Vencer 90 dias'],['f120','Vencer 120 dias'],['f150','Vencer 150 dias'],['f180','Vencer 180 dias e mais']];
+const BG_EST=[['acab','Produtos acabados'],['proc','Produtos em processo de fabricação'],['mpTec','Matéria-prima — tecidos'],['mpTecAnt','Matéria-prima — tecidos (antigos)'],['mpAvi','Matéria-prima — aviamentos']];
+const BG_IMOB=[['imobLeasing','Leasing/CDC'],['imobDireto','Investimento direto']];
+const BG_PAG=[['pAtras','Atrasadas'],['p30','À vencer 30 dias'],['p60','À vencer 60 dias'],['p90','À vencer 90 dias'],['p120','À vencer 120 dias'],['p150','À vencer 150 dias'],['p180','À vencer 180 dias'],['p210','À vencer 210 dias e mais']];
+const BG_INV=[['invLeasing','Leasing/CDC'],['invDireto','Direto']];
+const BG_LISTAS=[['caixa','1 - CAIXA (bancos)'],['aplic','2 - APLICAÇÕES FINANCEIRAS'],['emprTerc','3 - EMPRÉSTIMOS A TERCEIROS'],['emprBanc','2 - EMPRÉSTIMOS BANCÁRIOS']];
+const _bgN=v=>Number(v)||0, _bgR=v=>+(+v).toFixed(2);
+function _bgNovo(){ return {listas:{caixa:[],aplic:[],emprTerc:[],emprBanc:[]}, v:{}}; }
+function _bgCalc(r){
+  r=r||_bgNovo(); const v=r.v||{}, L=r.listas||{}, sl=k=>(L[k]||[]).reduce((s,x)=>s+_bgN(x.v),0), sv=a=>a.reduce((s,[k])=>s+_bgN(v[k]),0);
+  const caixa=sl('caixa'), aplic=sl('aplic'), emprTerc=sl('emprTerc');
+  const atras=_bgN(v.atr5)+_bgN(v.atr1), aVencer=sv(BG_REC.slice(2)), receber=atras+aVencer;
+  const estoque=sv(BG_EST), imob=sv(BG_IMOB);
+  const ac=caixa+aplic+emprTerc+receber+estoque, ativo=ac+imob;
+  const pagar=sv(BG_PAG), emprBanc=sl('emprBanc'), inv=sv(BG_INV);
+  const pc=pagar+emprBanc, exig=pc+inv, pl=ativo-exig;
+  const q=(a,b)=>b>0?a/b:null;
+  return {caixa,aplic,emprTerc,atras,aVencer,receber,estoque,imob,ac,ativo,pagar,emprBanc,inv,pc,exig,pl,
+    giro:ac-pc, ind:{ geral:q(ac,exig), corrente:q(ac,pc), seca:q(ac-estoque,pc), imediata:q(caixa+aplic,pc), endiv:q(exig,ativo) }};
+}
+function _bgKey(emp,mes){ return emp+'|'+mes; }
+function _bgGet(emp,mes){ return (DB.balanco_ger||{})[_bgKey(emp,mes)]||null; }
+function _bgRecEmp(emp){ try{ return localStorage.getItem('pinkpoa_bg_rec_'+emp)||(emp==='RK'?'':'cons'); }catch(e){ return emp==='RK'?'':'cons'; } }
+// puxa do sistema: bancos, contas a receber (posição) e contas a pagar (posição) do mês
+function _bgPuxar(r, emp, mes){
+  r=r||_bgNovo(); r.v=r.v||{}; r.listas=r.listas||{};
+  const b=(_lerBancos()||[]).filter(x=>_bgN(x.valor)).map(x=>({n:String(x.nome||'').toUpperCase(), v:_bgR(_bgN(x.valor))}));
+  if(b.length) r.listas.caixa=b.filter(x=>!/PAGAR\.?ME/.test(x.n));
+  const pm=b.filter(x=>/PAGAR\.?ME/.test(x.n)); if(pm.length) r.listas.aplic=(r.listas.aplic||[]).filter(x=>!/PAGAR\.?ME/.test(x.n)).concat(pm);
+  const re=_bgRecEmp(emp);
+  if(re){ const oldM=window._posMes, oldE=window._posEmp; window._posMes=mes; window._posEmp=re;
+    try{ const A=_posAgregar(_posItens()), C=_posCobrancaDados(mes, re);
+      const ultimo=(A.atrArr||[]).filter(x=>x.m===mes).reduce((s,x)=>s+x.v,0);
+      r.v.atr1=_bgR(ultimo); r.v.atr5=_bgR(A.subAtras-ultimo);
+      const fx=A.faixas||{}; r.v.f30=_bgR(_bgN(fx.f30)+_bgN(C.total)); r.v.f60=_bgR(fx.f60); r.v.f90=_bgR(fx.f90); r.v.f120=_bgR(fx.f120); r.v.f150=_bgR(fx.f150); r.v.f180=_bgR(_bgN(fx.f180)+_bgN(fx.f180p));
+    } finally { window._posMes=oldM; window._posEmp=oldE; } }
+  try{ const P=_pgPosicao(emp==='RK'?'RK':'RMF', mes, false), f=P.faixas||{};
+    r.v.pAtras=_bgR(P.vAtras||0); r.v.p30=_bgR(f.f30); r.v.p60=_bgR(f.f60); r.v.p90=_bgR(f.f90); r.v.p120=_bgR(f.f120); r.v.p150=_bgR(f.mais); r.v.p180=0; r.v.p210=0;
+  }catch(e){ console.warn('pagar', e); }
+  r.fonte='sistema'; return r;
+}
+function _bgMesAnt(m){ return _mesAnterior(m); }
+function modalLiquidez(){
+  window._bgEmp=window._bgEmp||'RM';
+  window._bgMes=window._bgMes||window._posMes||_mesAnterior(new Date().toISOString().slice(0,7));
+  const emp=window._bgEmp, mes=window._bgMes;
+  if(!window._bgWork || window._bgWork._k!==_bgKey(emp,mes)){
+    const salvo=_bgGet(emp,mes);
+    // mês novo: parte do mês anterior gravado (estoques, aplicações, empréstimos digitados) e puxa do sistema caixa/receber/pagar
+    const _ant=_bgGet(emp,_bgMesAnt(mes)), _base=_ant?JSON.parse(JSON.stringify({listas:_ant.listas||{}, v:_ant.v||{}})):_bgNovo();
+    window._bgWork=salvo?JSON.parse(JSON.stringify(salvo)):_bgPuxar(_base, emp, mes);
+    window._bgWork._k=_bgKey(emp,mes); window._bgWork._salvo=!!salvo;
+  }
+  const W=window._bgWork, ant=_bgGet(emp,_bgMesAnt(mes));
+  const meses=[]; for(let k=0;k<18;k++){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-k); meses.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
+  const inp=(path,val)=>`<input class="form-control" style="width:130px;text-align:right;padding:2px 6px;height:26px" type="number" step="0.01" value="${val===undefined||val===null||val===''?'':_bgR(val)}" onchange="_bgSet('${path}',this.value)">`;
+  const linV=([k,l])=>`<tr><td style="padding:2px 6px">${l}</td><td style="padding:2px 6px;text-align:right">${inp('v.'+k,W.v[k])}</td></tr>`;
+  const linL=(lk)=>(W.listas[lk]||[]).map((x,i)=>`<tr><td style="padding:2px 6px"><input class="form-control" style="height:26px;padding:2px 6px;text-transform:uppercase" value="${_nvEsc(x.n||'')}" onchange="_bgSet('listas.${lk}.${i}.n',this.value)"></td>
+      <td style="padding:2px 6px;text-align:right;white-space:nowrap">${inp('listas.'+lk+'.'+i+'.v',x.v)} <button class="btn btn-secondary btn-sm" style="padding:0 6px" onclick="_bgDelLinha('${lk}',${i})">✕</button></td></tr>`).join('')
+      +`<tr><td colspan="2" style="padding:2px 6px"><button class="btn btn-secondary btn-sm" style="padding:1px 8px;font-size:11px" onclick="_bgAddLinha('${lk}')">➕ linha</button></td></tr>`;
+  const sec=t=>`<tr><td colspan="2" style="padding:5px 6px;font-weight:800;background:var(--gray-1);font-size:12px">${t}</td></tr>`;
+  const recSel=_bgRecEmp(emp);
+  openModal(`📊 Balanço gerencial e índices de liquidez — ${emp} · ${_evMesNome(mes)}`, `
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:10px">
+      <div><label style="font-size:11px;color:var(--gray-5)">Empresa</label>
+        <select class="form-control" style="width:120px" onchange="window._bgEmp=this.value;window._bgWork=null;modalLiquidez()">
+          ${['RM','RK'].map(e=>`<option ${emp===e?'selected':''}>${e}</option>`).join('')}</select></div>
+      <div><label style="font-size:11px;color:var(--gray-5)">Mês</label>
+        <select class="form-control" style="width:160px" onchange="window._bgMes=this.value;window._bgWork=null;modalLiquidez()">
+          ${meses.map(m=>`<option value="${m}" ${mes===m?'selected':''}>${_evMesNome(m)}${_bgGet(emp,m)?' ✓':''}</option>`).join('')}</select></div>
+      <div><label style="font-size:11px;color:var(--gray-5)">Contas a receber de</label>
+        <select class="form-control" style="width:220px" onchange="try{localStorage.setItem('pinkpoa_bg_rec_${emp}',this.value)}catch(e){}">
+          <option value="">— digitar —</option>${Object.keys(_EMP_NOME).map(k=>`<option value="${k}" ${recSel===k?'selected':''}>${_EMP_NOME[k]}</option>`).join('')}</select></div>
+      <button class="btn btn-secondary btn-sm" onclick="window._bgWork=_bgPuxar(window._bgWork, window._bgEmp, window._bgMes);modalLiquidez();toast('Caixa, contas a receber e contas a pagar atualizados do sistema')">↻ Puxar do sistema</button>
+      <button class="btn btn-secondary btn-sm" onclick="importarBalancoPlanilha()">📥 Importar histórico da planilha</button>
+    </div>
+    <div style="font-size:12px;margin-bottom:8px;color:${W._salvo?'var(--green)':'var(--amber)'}">${W._salvo?'✓ Mês gravado'+(W.em?' em '+new Date(W.em).toLocaleString('pt-BR'):''):'⚠ Ainda não gravado — confira e clique em 💾 Salvar mês'} · caixa = saldos da lista "Bancos" (Posição de fechamento) · receber = posição do mês (com cobrança${_posSemPM()?'':' e cartão'}) · pagar = posição do Contas a Pagar</div>
+    <div id="bg-resumo">${_bgResumoHtml(W, ant)}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
+      <div><table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>
+        <tr><td colspan="2" style="padding:6px;font-weight:800;color:#fff;background:var(--pink)">ATIVO</td></tr>
+        ${sec('1 - CAIXA (bancos)')}${linL('caixa')}
+        ${sec('2 - APLICAÇÕES FINANCEIRAS')}${linL('aplic')}
+        ${sec('3 - EMPRÉSTIMOS A TERCEIROS')}${linL('emprTerc')}
+        ${sec('4 - CONTAS A RECEBER')}${BG_REC.map(linV).join('')}
+        ${sec('5 - ESTOQUE')}${BG_EST.map(linV).join('')}
+        ${sec('6 - IMOBILIZADO')}${BG_IMOB.map(linV).join('')}
+      </tbody></table></div>
+      <div><table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>
+        <tr><td colspan="2" style="padding:6px;font-weight:800;color:#fff;background:#555">PASSIVO</td></tr>
+        ${sec('1 - CONTAS A PAGAR')}${BG_PAG.map(linV).join('')}
+        ${sec('2 - EMPRÉSTIMOS BANCÁRIOS')}${linL('emprBanc')}
+        ${sec('3 - EMPRÉSTIMOS DE INVESTIMENTO (longo prazo)')}${BG_INV.map(linV).join('')}
+        <tr><td colspan="2" style="padding:6px;font-size:11px;color:var(--gray-5)">4 - PATRIMÔNIO LÍQUIDO = ativo − passivo (calculado)</td></tr>
+      </tbody></table></div>
+    </div>`,
+    `<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>
+     ${W._salvo&&_ehAdmin()?`<button class="btn btn-secondary" style="color:var(--red)" onclick="_bgExcluir()">Apagar mês</button>`:''}
+     <button class="btn btn-secondary" onclick="gerarLiquidezPDF()">🖨 PDF</button>
+     <button class="btn btn-primary" onclick="_bgSalvar()">💾 Salvar mês</button>`, 'lg');
+}
+function _bgSet(path, val){
+  const W=window._bgWork; if(!W) return; const p=path.split('.'); let o=W;
+  for(let i=0;i<p.length-1;i++){ o=o[p[i]]=o[p[i]]||(isNaN(+p[i+1])?{}:[]); }
+  const k=p[p.length-1]; o[k]= k==='n' ? String(val||'').toUpperCase() : (val===''?'':_bgR(_bgN(val)));
+  const el=document.getElementById('bg-resumo'); if(el) el.innerHTML=_bgResumoHtml(W, _bgGet(window._bgEmp,_bgMesAnt(window._bgMes)));
+}
+function _bgAddLinha(lk){ const W=window._bgWork; (W.listas[lk]=W.listas[lk]||[]).push({n:'',v:0}); modalLiquidez(); }
+function _bgDelLinha(lk,i){ const W=window._bgWork; (W.listas[lk]||[]).splice(i,1); modalLiquidez(); }
+function _bgSalvar(){
+  const W=window._bgWork; if(!W) return; const emp=window._bgEmp, mes=window._bgMes;
+  const r=JSON.parse(JSON.stringify(W)); delete r._k; delete r._salvo; r.emp=emp; r.mes=mes; r.em=new Date().toISOString(); r.por=(USER&&(USER.nome||USER.email))||'';
+  DB.balanco_ger=DB.balanco_ger||{}; DB.balanco_ger[_bgKey(emp,mes)]=r; W._salvo=true; W.em=r.em;
+  try{ _asAgendar(); }catch(e){} toast(`Balanço de ${_evMesNome(mes)} (${emp}) gravado`); modalLiquidez();
+}
+function _bgExcluir(){ const emp=window._bgEmp, mes=window._bgMes; if(!confirm(`Apagar o balanço gravado de ${_evMesNome(mes)} (${emp})?`)) return;
+  delete (DB.balanco_ger||{})[_bgKey(emp,mes)]; window._bgWork=null; try{ _asAgendar(); }catch(e){} modalLiquidez(); }
+const _bgFmtI=x=>x==null?'—':x.toFixed(2).replace('.',',');
+function _bgIndCor(k,x){ if(x==null) return '#888'; if(k==='endiv') return x<=0.5?'#1e8449':x<=0.7?'#d35400':'#c0392b'; return x>=1.5?'#1e8449':x>=1?'#1f6fb2':'#c0392b'; }
+const BG_IND=[['corrente','Liquidez corrente','ativo circulante ÷ passivo circulante'],['seca','Liquidez seca','(ativo circ. − estoque) ÷ passivo circ.'],
+  ['imediata','Liquidez imediata','(caixa + aplicações) ÷ passivo circ.'],['geral','Liquidez geral','ativo circulante ÷ passivo exigível total'],['endiv','Endividamento','passivo exigível ÷ ativo total']];
+function _bgResumoHtml(W, ant, pdf){
+  const C=_bgCalc(W), A=ant?_bgCalc(ant):null;
+  const card=([k,t,f])=>{ const x=C.ind[k], xa=A?A.ind[k]:null, cor=_bgIndCor(k,x);
+    const seta= (x!=null&&xa!=null) ? (x>xa?'▲':x<xa?'▼':'=') : '';
+    return `<div style="border:1px solid #ddd;border-left:4px solid ${cor};border-radius:8px;padding:${pdf?'4px 7px':'8px 10px'};background:#fff">
+      <div style="font-size:10px;color:#888;text-transform:uppercase">${t}</div>
+      <div style="font-size:${pdf?15:20}px;font-weight:800;color:${cor}">${_bgFmtI(x)} <span style="font-size:11px;color:#999">${seta}${xa!=null?' '+_bgFmtI(xa):''}</span></div>
+      <div style="font-size:9.5px;color:#999">${f}</div></div>`; };
+  const tot=(t,v,va)=>`<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-size:12px"><span>${t}</span><b>${_rcFmt(v)}${va!=null?` <span style="font-weight:400;color:#999;font-size:10.5px">(ant. ${_rcFmt(va)})</span>`:''}</b></div>`;
+  return `<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-bottom:8px">${BG_IND.map(card).join('')}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;background:${pdf?'#fafafa':'var(--gray-1)'};border-radius:8px;padding:8px 12px">
+      <div>${tot('Ativo circulante',C.ac,A&&A.ac)}${tot('Ativo total',C.ativo,A&&A.ativo)}</div>
+      <div>${tot('Passivo circulante',C.pc,A&&A.pc)}${tot('Passivo exigível total',C.exig,A&&A.exig)}</div>
+      <div>${tot('Capital de giro (AC − PC)',C.giro,A&&A.giro)}${tot('Patrimônio líquido',C.pl,A&&A.pl)}</div>
+    </div>`;
+}
+function gerarLiquidezPDF(){
+  const W=window._bgWork||_bgNovo(), emp=window._bgEmp, mes=window._bgMes, mA=_bgMesAnt(mes), ant=_bgGet(emp,mA);
+  const C=_bgCalc(W), A=ant?_bgCalc(ant):null, v=W.v||{}, va=(ant&&ant.v)||{};
+  const f=x=>_rcFmt(x||0), fa=x=>A?_rcFmt(x||0):'—';
+  const lin=(t,x,xa,cls)=>`<tr class="${cls||''}"><td>${t}</td><td class="r">${f(x)}</td><td class="r a">${fa(xa)}</td></tr>`;
+  const lst=(lk)=>{ const L=(W.listas||{})[lk]||[], LA=((ant||{}).listas||{})[lk]||[]; const nomes=[...new Set([...L.map(x=>x.n),...LA.map(x=>x.n)])];
+    return nomes.map(n=>lin('&nbsp;&nbsp;'+String(n).replace(/</g,'&lt;'), (L.find(x=>x.n===n)||{}).v, (LA.find(x=>x.n===n)||{}).v)).join(''); };
+  const sl=(o,lk)=>((o&&o.listas&&o.listas[lk])||[]).reduce((s,x)=>s+_bgN(x.v),0);
+  const grp=(arr)=>arr.map(([k,t])=>lin('&nbsp;&nbsp;'+t, v[k], va[k])).join('');
+  const sv=(o,arr)=>arr.reduce((s,[k])=>s+_bgN(((o&&o.v)||{})[k]),0);
+  const cab=`<tr class="h"><td></td><td class="r">${_evMesNome(mes)}</td><td class="r a">${_evMesNome(mA)}</td></tr>`;
+  const ativo=`<table>${cab}<tr class="sec"><td colspan="3">ATIVO</td></tr>
+    ${lin('1 - CAIXA', C.caixa, A&&A.caixa, 'sub')}${lst('caixa')}
+    ${lin('2 - APLICAÇÕES FINANCEIRAS', C.aplic, A&&A.aplic, 'sub')}${lst('aplic')}
+    ${lin('3 - EMPRÉSTIMOS A TERCEIROS', C.emprTerc, A&&A.emprTerc, 'sub')}${lst('emprTerc')}
+    ${lin('4 - CONTAS A RECEBER', C.receber, A&&A.receber, 'sub')}${grp(BG_REC)}
+    ${lin('5 - ESTOQUE', C.estoque, A&&A.estoque, 'sub')}${grp(BG_EST)}
+    ${lin('ATIVO CIRCULANTE', C.ac, A&&A.ac, 'sub2')}
+    ${lin('6 - IMOBILIZADO', C.imob, A&&A.imob, 'sub')}${grp(BG_IMOB)}
+    ${lin('TOTAL DO ATIVO', C.ativo, A&&A.ativo, 'tot')}</table>`;
+  const passivo=`<table>${cab}<tr class="sec"><td colspan="3">PASSIVO</td></tr>
+    ${lin('1 - CONTAS A PAGAR', C.pagar, A&&A.pagar, 'sub')}${grp(BG_PAG)}
+    ${lin('2 - EMPRÉSTIMOS BANCÁRIOS', C.emprBanc, A&&A.emprBanc, 'sub')}${lst('emprBanc')}
+    ${lin('PASSIVO CIRCULANTE', C.pc, A&&A.pc, 'sub2')}
+    ${lin('3 - EMPRÉSTIMOS DE INVESTIMENTO', C.inv, A&&A.inv, 'sub')}${grp(BG_INV)}
+    ${lin('PASSIVO EXIGÍVEL', C.exig, A&&A.exig, 'sub2')}
+    ${lin('4 - PATRIMÔNIO LÍQUIDO', C.pl, A&&A.pl, 'sub2')}
+    ${lin('TOTAL DO PASSIVO + PL', C.ativo, A&&A.ativo, 'tot')}</table>`;
+  const html='<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><style>'
+    +'html,body{background:#fff}body{font-family:Arial,Helvetica,sans-serif;color:#222;padding:16px;max-width:1000px;margin:0 auto}'
+    +'h1{text-align:center;font-size:16px;margin:4px 0}h2{text-align:center;font-size:12px;margin:0 0 10px;font-weight:600}'
+    +'.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:10px}table{width:100%;border-collapse:collapse;font-size:10.5px}td{padding:2px 5px;border-bottom:1px solid #000}'
+    +'.r{text-align:right;white-space:nowrap}.a{color:#888}.h td{font-weight:700;border-bottom:2px solid #000;font-size:10px}.sec td{font-weight:800;background:#E8368F;color:#fff;border:none}'
+    +'.sub td{font-weight:700;background:#f3f3f3}.sub2 td{font-weight:800;border-top:2px dashed #000}.tot td{font-weight:800;background:#333;color:#fff;border:none}.tot .a{color:#ccc}'
+    +'.rod{margin-top:10px;padding-top:6px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}'
+    +'@page{size:A4 landscape;margin:7mm}@media print{body{padding:0;max-width:none}}'
+    +'</style></head><body>'
+    +`<h1>${emp==='RK'?'RK - R.K. COMÉRCIO E CONFECÇÕES':'RM FASHION (PINKPOÁ)'}</h1><h2>BALANÇO GERENCIAL E ÍNDICES DE LIQUIDEZ · ${_evMesNome(mes).toUpperCase()}</h2>`
+    +_bgResumoHtml(W, ant, true)
+    +`<div class="cols"><div>${ativo}</div><div>${passivo}</div></div>`
+    +`<div class="rod">liquidez corrente/seca/geral: acima de 1,00 = paga as obrigações de curto prazo com folga · ${W.em?'gravado em '+new Date(W.em).toLocaleString('pt-BR')+(W.por?' por '+String(W.por).replace(/</g,'&lt;'):''):'não gravado'} · gerado em ${new Date().toLocaleString('pt-BR')} · v${_versaoApp()}</div>`
+    +'</body></html>';
+  abrirPDFOverlay(html);
+}
+// importa o histórico da planilha "Balanço Gerencial RM/RK" (abas com os meses em colunas)
+function importarBalancoPlanilha(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx,.xls';
+  inp.onchange=async ev=>{ const f=ev.target.files&&ev.target.files[0]; if(!f) return;
+    try{
+      if(typeof XLSX==='undefined'){ toast('Biblioteca de planilha indisponível (sem internet?)','error'); return; }
+      const wb=XLSX.read(await f.arrayBuffer(), {type:'array'});
+      const abas=wb.SheetNames.filter(n=>/balan/i.test(n));
+      const emp=window._bgEmp||'RM';
+      const cands=abas.filter(n=>new RegExp('\\b'+emp+'\\b','i').test(n.replace(/[-_]/g,' ')));
+      const lista=(cands.length?cands:abas);
+      const pad=lista[lista.length-1]||'';
+      const esc=prompt(`Qual aba importar para ${emp}?\n\n${lista.map((n,i)=>(i+1)+' - '+n).join('\n')}\n\nDigite o número:`, String(lista.indexOf(pad)+1));
+      if(!esc) return; const nome=lista[(+esc||0)-1]; if(!nome){ toast('Aba inválida','error'); return; }
+      const r=_bgLerAba(wb.Sheets[nome]);
+      if(!r.meses.length){ toast('Não achei os meses nessa aba','error'); return; }
+      const jaTem=r.meses.filter(m=>_bgGet(emp,m.mes)).length;
+      if(!confirm(`Aba "${nome}": ${r.meses.length} mês(es), de ${_evMesNome(r.meses[0].mes)} a ${_evMesNome(r.meses[r.meses.length-1].mes)}.\n${jaTem?jaTem+' mês(es) já gravado(s) serão substituídos.\n':''}\nImportar para ${emp}?`)) return;
+      DB.balanco_ger=DB.balanco_ger||{};
+      r.meses.forEach(m=>{ DB.balanco_ger[_bgKey(emp,m.mes)]=Object.assign(m.rec,{emp, mes:m.mes, em:new Date().toISOString(), por:(USER&&(USER.nome||USER.email))||'', fonte:'planilha: '+nome}); });
+      try{ _asAgendar(); }catch(e){}
+      window._bgWork=null; toast(`${r.meses.length} mês(es) importado(s) da planilha`); modalLiquidez();
+    }catch(e){ console.error(e); toast('Não importou: '+e.message,'error'); }
+  };
+  inp.click();
+}
+function _bgLerAba(ws){
+  const rg=XLSX.utils.decode_range(ws['!ref']||'A1:A1');
+  const cel=(r,c)=>{ const x=ws[XLSX.utils.encode_cell({r,c})]; return x?x.v:undefined; };
+  const txt=(r,c)=>String(cel(r,c)==null?'':cel(r,c)).trim();
+  const MES=['JANEIRO','FEVEREIRO','MARÇO','ABRIL','MAIO','JUNHO','JULHO','AGOSTO','SETEMBRO','OUTUBRO','NOVEMBRO','DEZEMBRO'];
+  const norm=s=>s.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  // coluna do rótulo do PASSIVO (linha 1)
+  let cP=-1; for(let c=1;c<=rg.e.c;c++) if(/^PASSIVO$/i.test(txt(0,c))){ cP=c; break; }
+  const hdr=(c0,c1)=>{ const out=[]; for(let c=c0;c<=c1;c++){ const t=norm(txt(1,c)); const i=MES.findIndex(m=>t.startsWith(norm(m))); if(i<0) continue;
+      const y=(t.match(/(\d{2,4})\s*$/)||[])[1]; out.push({c, m:i, y:y?(y.length===2?2000+(+y):+y):null}); } return out; };
+  const anos=h=>{ let k=h.findIndex(x=>x.y); if(k<0) return h; for(let i=k+1;i<h.length;i++){ if(!h[i].y) h[i].y=h[i-1].y+(h[i].m<=h[i-1].m?1:0); }
+    for(let i=k-1;i>=0;i--){ h[i].y=h[i+1].y-(h[i].m>=h[i+1].m?1:0); } return h; };
+  const hA=anos(hdr(1, cP>0?cP-1:rg.e.c)), hP=cP>0?hdr(cP+1, rg.e.c):[];
+  // passivo: mesmos meses na mesma ordem (o cabeçalho às vezes vem sem ano)
+  hP.forEach((x,i)=>{ if(hA[i]){ x.y=hA[i].y; x.m=hA[i].m; } });
+  // linhas por rótulo
+  const secA=[], secP=[]; for(let r=0;r<=rg.e.r;r++){ const a=txt(r,0); if(a) secA.push([r,norm(a)]); if(cP>0){ const p=txt(r,cP); if(p) secP.push([r,norm(p)]); } }
+  const meses=hA.map((h,i)=>{
+    const rec=_bgNovo(), v=rec.v; let sec='';
+    const val=(r,c)=>_bgR(_bgN(cel(r,c)));
+    secA.forEach(([r,l])=>{ const x=val(r,h.c);
+      if(/^\d+\s*-\s*CAIXA/.test(l)){ sec='caixa'; return; } if(/APLICA/.test(l)&&/^\d+\s*-/.test(l)){ sec='aplic'; return; }
+      if(/EMPRESTIMOS A TERCEIROS/.test(l)){ sec='emprTerc'; return; } if(/CONTAS A RECEBER/.test(l)){ sec='rec'; return; }
+      if(/^\d+\s*-\s*ESTOQUE/.test(l)){ sec='est'; return; } if(/^\d+\s*-\s*IMOBILIZADO/.test(l)){ sec='imob'; return; } if(/TOTAL ATIVO|ATIVO CIRCULANTE/.test(l)) return;
+      if(sec==='caixa'||sec==='aplic'||sec==='emprTerc'){ if(x) rec.listas[sec].push({n:txt(r,0).replace(/^[\d.]+\s*-\s*/,'').trim().toUpperCase(), v:x}); return; }
+      if(sec==='rec'){ if(/ULTIMOS 5/.test(l)) v.atr5=x; else if(/ULTIMOS? MES/.test(l)) v.atr1=x;
+        else { const d=(l.match(/VENCER\s+(\d+)/)||[])[1]; if(d){ const k=+d>=180?'f180':'f'+d; v[k]=_bgR(_bgN(v[k])+x); } } return; }
+      if(sec==='est'){ const k=/ACABAD/.test(l)?'acab':/PROCESSO/.test(l)?'proc':/ANTIGO/.test(l)?'mpTecAnt':/TECIDO/.test(l)?'mpTec':/AVIAMENT/.test(l)?'mpAvi':''; if(k) v[k]=_bgR(_bgN(v[k])+x); return; }
+      if(sec==='imob'){ const k=/LEASING|CDC/.test(l)?'imobLeasing':/INVEST/.test(l)?'imobDireto':''; if(k) v[k]=_bgR(_bgN(v[k])+x); return; }
+    });
+    const hp=hP[i]; sec='';
+    if(hp) secP.forEach(([r,l])=>{ const x=val(r,hp.c);
+      if(/CONTAS A PAGAR/.test(l)){ sec='pag'; return; } if(/EMPRESTIMOS BANCARIOS/.test(l)){ sec='banc'; return; } if(/EMPRESTIMO.*INVEST/.test(l)){ sec='inv'; return; }
+      if(/PATRIMONIO|SUBTOTAL|TOTAL|PASSIVO/.test(l)){ sec=''; return; }
+      if(sec==='pag'){ const d=(l.match(/VENCER\s+(\d+)/)||[])[1]; if(d){ const k=+d>=210?'p210':'p'+d; if(BG_PAG.some(([kk])=>kk===k)) v[k]=_bgR(_bgN(v[k])+x); } else if(/ATRAS/.test(l)) v.pAtras=x; return; }
+      if(sec==='banc'){ if(x) rec.listas.emprBanc.push({n:txt(r,cP).replace(/^[\d.]+\s*-\s*/,'').trim().toUpperCase(), v:x}); return; }
+      if(sec==='inv'){ const k=/LEASING|CDC/.test(l)?'invLeasing':/DIRETO/.test(l)?'invDireto':''; if(k) v[k]=_bgR(_bgN(v[k])+x); return; }
+    });
+    return {mes:h.y+'-'+String(h.m+1).padStart(2,'0'), rec};
+  }).filter(m=>m.mes && !/NaN/.test(m.mes));
+  return {meses};
 }
 // v2.14.315: incluir/tirar bancos da lista de saldos (vale para os relatórios de receber e pagar)
 function _bancoNovaLinha(nome){
@@ -5501,6 +5761,7 @@ function renderRecebiveis() {
       <button class="btn btn-secondary btn-sm" onclick="modalRecebidosDia()">💰 Recebidos por dia</button>
       <button class="btn btn-secondary btn-sm" onclick="modalPosReceber()">📊 Posição de Fechamento</button>
       <button class="btn btn-secondary btn-sm" onclick="modalEvolCarteira()" title="Carteira do mês anterior + faturamento − recebido + saldo bancário">📈 Evolução da carteira</button>
+      <button class="btn btn-secondary btn-sm" onclick="modalLiquidez()" title="Balanço gerencial (ativo × passivo) e índices de liquidez do mês">📊 Índices de liquidez</button>
           <button class="btn btn-secondary btn-sm" onclick="
             ['rec-busca','rec-rep','rec-fil','rec-sit','rec-mes','rec-ano'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
             mudaPagRec(1);renderRecebiveis();">✕ Limpar</button>
@@ -11659,7 +11920,9 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.334","2026-11-05 22:50","impressão: traço entre as linhas em preto"],
+const ALTERACOES=[["2.14.336","2026-11-05 23:50","Evolução da carteira: abatimentos do financeiro explicam a diferença com o vpdpcl2 já carregado (sem reimportar)"],
+  ["2.14.335","2026-11-05 23:40","novo: Balanço gerencial e índices de liquidez (RM/RK) — caixa, receber e pagar do sistema, estoques/empréstimos digitados, histórico importado da planilha, PDF"],
+  ["2.14.334","2026-11-05 22:50","impressão: traço entre as linhas em preto"],
   ["2.14.333","2026-11-05 22:20","impressão: o traço entre as linhas dos relatórios agora sai no papel (antes era claro demais)"],
   ["2.14.332","2026-11-05 22:00","Evolução da carteira: impressão cabe numa folha A4"],
   ["2.14.331","2026-11-05 21:40","Contas a Receber: travar o fechamento do mês (cópia espelho da Posição e da Evolução); impressão mantém as cores — linhas de TOTAL voltam a sair"],
