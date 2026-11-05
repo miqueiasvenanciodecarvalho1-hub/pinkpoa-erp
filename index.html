@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.336</span>
+      ">v2.14.337</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4861,10 +4861,16 @@ function _evolDados(emp, mes){
   const totBancos=r2(bancos.reduce((s,b)=>s+b.v,0));
   const C=_posCobrancaDados(mes, emp);
   const cob=r2(C.total||0);
-  const posicao=r2(fim.total + (_posSemPM()?0:fim.cartao) + cob + totBancos);
+  // v2.14.337: o TOTAL DO CONTAS A RECEBER da Posição de fechamento (duplicatas + cartão + cobrança, sem os duvidosos)
+  const fech=m=>{ const oM=window._posMes, oE=window._posEmp; window._posMes=m; window._posEmp=emp;
+    try{ const A=_posAgregar(_posItens()); return {atras:r2(A.subAtras), aven:r2(A.subAven), duv:r2(A.subDuv), total:r2(A.subAtras+A.subAven)}; }
+    finally{ window._posMes=oM; window._posEmp=oE; } };
+  const fechI=fech(mesA), fechF=fech(mes), cobI=r2((_posCobrancaDados(mesA, emp)||{}).total||0);
+  const trav=(DB.fech_receber||{})[emp+'|'+mesA];
+  const posicao=r2(fechF.total + totBancos);
   const base=ini.total+N.emitLiq;
   return { emp, mes, mesA, ini, fim, N, titV:r2(titV), titN, outros, outV:r2(outV), outN, temOutros, esperado, dif, semTitulo, resid,
-    bancos, totBancos, cob, posicao, semPM:_posSemPM(),
+    bancos, totBancos, cob, cobI, fechI, fechF, travI:trav&&trav.totais?trav.totais.total:null, posicao, semPM:_posSemPM(),
     ind:{ pctReceb: base>0 ? +(100*N.recebTotal/base).toFixed(1) : 0,
           pmr: N.emitLiq>0 ? Math.round(fim.total/N.emitLiq*30) : 0,
           variacao: r2(fim.total-ini.total), pctVar: ini.total>0 ? +(100*(fim.total-ini.total)/ini.total).toFixed(1) : 0,
@@ -4880,7 +4886,8 @@ function _evolLinhas(E){
   L.push(['','À vencer',i.aVencer,`${i.nAven} título(s)`]);
   L.push(['','Atrasados (até 6 meses)',i.atras,`${i.nAtras} título(s)`]);
   L.push(['','Devedores duvidosos (+ de 6 meses)',i.duv,`${i.nDuv} título(s)`]);
-  L.push(['sub',`CARTEIRA EM ${dI}`,i.total,`${i.n} título(s)`]);
+  L.push(['sub',`CARTEIRA DE DUPLICATAS EM ${dI}`,i.total,`${i.n} título(s)`]);
+  L.push(['','Total do contas a receber na Posição de fechamento',E.fechI.total,`com cartão${E.cobI?' e cobrança':''}, sem duvidosos${E.travI!=null?' · travado: '+_rcFmt(E.travI):''}`]);
   L.push(['sec',`2 - (+) FATURAMENTO DE ${mN}`]);
   L.push(['',`NFS emitidas — bruto (${N.nNF} notas)`,N.bruto+(N.ecom||0),N.ecom?'inclui e-commerce':'']);
   L.push(['','(−) Troca / reposição',-N.troca,'']);
@@ -4897,20 +4904,26 @@ function _evolLinhas(E){
   L.push(['','À vencer',f.aVencer,`${f.nAven} título(s)`]);
   L.push(['','Atrasados (até 6 meses)',f.atras,`${f.nAtras} título(s)`]);
   L.push(['','Devedores duvidosos (+ de 6 meses)',f.duv,`${f.nDuv} título(s)`]);
-  L.push(['sub',`CARTEIRA REAL EM ${dF}`,f.total,`${f.n} título(s)`]);
-  L.push(['dif','DIFERENÇA (real − esperada)',E.dif,'explicada abaixo']);
+  L.push(['sub',`CARTEIRA DE DUPLICATAS EM ${dF}`,f.total,`${f.n} título(s)`]);
+  L.push(['dif','DIFERENÇA (real − esperada)',E.dif,'explicada na seção 5']);
   L.push(['sec','5 - DE ONDE VEM A DIFERENÇA']);
   L.push(['',`Duplicatas lançadas no mês (${E.titN}) × faturamento líquido`,-E.semTitulo,E.semTitulo<0?'duplicata cheia; a troca sai depois como abatimento':'faturado sem duplicata (cartão, à vista…)']);
   if(E.temOutros) Object.keys(E.outros).sort().forEach(k=>L.push(['',`(−) ${k.replace(/^\d+ · /,'')} baixado no financeiro`,-E.outros[k].v,`${E.outros[k].n} lançamento(s) · mov. ${k.split(' · ')[0]}`]));
   else L.push(['','(−) Abatimentos/devoluções no financeiro','','reimporte o vpdpcl2 para detalhar']);
   L.push(['sub','NÃO EXPLICADO (ajustes, títulos alterados/cancelados)',E.temOutros?E.resid:'',E.temOutros&&Math.abs(E.resid)>0.005?`${(100*Math.abs(E.resid)/Math.max(1,f.total)).toFixed(2).replace('.',',')}% da carteira`:'']);
-  L.push(['sec',`6 - POSIÇÃO FINANCEIRA EM ${dF}`]);
-  L.push(['','Carteira de duplicatas (real)',f.total,'']);
-  if(!E.semPM) L.push(['','Cartão (Pagar.me) a receber',f.cartao,`${f.nCart} parcela(s)`]);
-  if(E.cob) L.push(['','Carteira de cobrança (cheques/dinheiro)',E.cob,'']);
+  L.push(['sec',`6 - DA CARTEIRA DE DUPLICATAS AO TOTAL DO FECHAMENTO EM ${dF}`]);
+  L.push(['','Carteira de duplicatas',f.total,'seção 4']);
+  L.push(['','(−) Devedores duvidosos (+ de 6 meses) — fora do total do fechamento',-f.duv,`${f.nDuv} título(s)`]);
+  if(!E.semPM) L.push(['','(+) Cartão (Pagar.me) a receber',f.cartao,`${f.nCart} parcela(s)`]);
+  if(E.cob) L.push(['','(+) Carteira de cobrança (cheques/dinheiro)',E.cob,'']);
+  const _ponte=+(f.total-f.duv+(E.semPM?0:f.cartao)+E.cob).toFixed(2), _aj=+(E.fechF.total-_ponte).toFixed(2);
+  if(Math.abs(_aj)>=0.01) L.push(['','Ajuste (recorte de tipo de recebimento da Posição)',_aj,'']);
+  L.push(['tot',`TOTAL DO CONTAS A RECEBER EM ${dF} (= Posição de fechamento)`,E.fechF.total,'']);
+  L.push(['sec',`7 - POSIÇÃO FINANCEIRA EM ${dF}`]);
+  L.push(['','Total do contas a receber (Posição de fechamento)',E.fechF.total,'']);
   E.bancos.forEach(b=>L.push(['',`Saldo bancário — ${b.nome}`,b.v,b.fonte]));
   if(!E.bancos.length) L.push(['','Saldo bancário','','informe os saldos em Posição de Fechamento → Bancos']);
-  L.push(['tot','TOTAL — CARTEIRA + SALDO BANCÁRIO',E.posicao,'']);
+  L.push(['tot','TOTAL — CONTAS A RECEBER + SALDO BANCÁRIO',E.posicao,'']);
   return L;
 }
 function _evolIndHtml(E, pdf){
@@ -11920,7 +11933,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.336","2026-11-05 23:50","Evolução da carteira: abatimentos do financeiro explicam a diferença com o vpdpcl2 já carregado (sem reimportar)"],
+const ALTERACOES=[["2.14.337","2026-11-06 00:20","Evolução da carteira: ponte da carteira de duplicatas ao total da Posição de fechamento (− duvidosos + cartão + cobrança); posição financeira usa o total do fechamento"],
+  ["2.14.336","2026-11-05 23:50","Evolução da carteira: abatimentos do financeiro explicam a diferença com o vpdpcl2 já carregado (sem reimportar)"],
   ["2.14.335","2026-11-05 23:40","novo: Balanço gerencial e índices de liquidez (RM/RK) — caixa, receber e pagar do sistema, estoques/empréstimos digitados, histórico importado da planilha, PDF"],
   ["2.14.334","2026-11-05 22:50","impressão: traço entre as linhas em preto"],
   ["2.14.333","2026-11-05 22:20","impressão: o traço entre as linhas dos relatórios agora sai no papel (antes era claro demais)"],
