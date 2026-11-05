@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.338</span>
+      ">v2.14.339</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5056,6 +5056,11 @@ const BG_PAG=[['pAtras','Atrasadas'],['p30','À vencer 30 dias'],['p60','À venc
 const BG_INV=[['invLeasing','Leasing/CDC'],['invDireto','Direto']];
 const BG_LISTAS=[['caixa','1 - CAIXA (bancos)'],['aplic','2 - APLICAÇÕES FINANCEIRAS'],['emprTerc','3 - EMPRÉSTIMOS A TERCEIROS'],['emprBanc','2 - EMPRÉSTIMOS BANCÁRIOS']];
 const _bgN=v=>Number(v)||0, _bgR=v=>+(+v).toFixed(2);
+const _bgFmtBR=v=>(v===undefined||v===null||v==='')?'':(Number(v)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+function _bgParseBR(t){ t=String(t==null?'':t).trim().replace(/R\$|\s/g,''); if(!t) return '';
+  if(t.indexOf(',')>=0) t=t.replace(/\./g,'').replace(',','.');           // 1.101.687,16
+  else if((t.match(/\./g)||[]).length>1 || /\.\d{3}$/.test(t)) t=t.replace(/\./g,'');   // 1.101.687 (só milhar)
+  const n=parseFloat(t); return isNaN(n)?'':+n.toFixed(2); }
 function _bgNovo(){ return {listas:{caixa:[],aplic:[],emprTerc:[],emprBanc:[]}, v:{}}; }
 function _bgCalc(r){
   r=r||_bgNovo(); const v=r.v||{}, L=r.listas||{}, sl=k=>(L[k]||[]).reduce((s,x)=>s+_bgN(x.v),0), sv=a=>a.reduce((s,[k])=>s+_bgN(v[k]),0);
@@ -5105,7 +5110,8 @@ function modalLiquidez(){
   }
   const W=window._bgWork, ant=_bgGet(emp,_bgMesAnt(mes));
   const meses=[]; for(let k=0;k<18;k++){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-k); meses.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
-  const inp=(path,val)=>`<input class="form-control" style="width:130px;text-align:right;padding:2px 6px;height:26px" type="number" step="0.01" value="${val===undefined||val===null||val===''?'':_bgR(val)}" onchange="_bgSet('${path}',this.value)">`;
+  // v2.14.339: valores com ponto de milhar e vírgula (1.101.687,16); aceita digitar com ou sem pontos
+  const inp=(path,val)=>`<input class="form-control" style="width:140px;text-align:right;padding:2px 6px;height:26px" type="text" inputmode="decimal" value="${_bgFmtBR(val)}" onfocus="this.select()" onchange="const _x=_bgParseBR(this.value);this.value=_bgFmtBR(_x);_bgSet('${path}',_x)">`;
   const linV=([k,l])=>`<tr><td style="padding:2px 6px">${l}</td><td style="padding:2px 6px;text-align:right">${inp('v.'+k,W.v[k])}</td></tr>`;
   const linL=(lk)=>(W.listas[lk]||[]).map((x,i)=>`<tr><td style="padding:2px 6px"><input class="form-control" style="height:26px;padding:2px 6px;text-transform:uppercase" value="${_nvEsc(x.n||'')}" onchange="_bgSet('listas.${lk}.${i}.n',this.value)"></td>
       <td style="padding:2px 6px;text-align:right;white-space:nowrap">${inp('listas.'+lk+'.'+i+'.v',x.v)} <button class="btn btn-secondary btn-sm" style="padding:0 6px" onclick="_bgDelLinha('${lk}',${i})">✕</button></td></tr>`).join('')
@@ -11967,7 +11973,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.338","2026-11-06 00:50","índices de liquidez: a planilha do balanço gerencial entra pela Importação (RM e RK sozinhos) e estoques/imobilizado/empréstimos do mês vêm do último mês da planilha"],
+const ALTERACOES=[["2.14.339","2026-11-06 01:10","índices de liquidez: campos com ponto de milhar (1.101.687,16)"],
+  ["2.14.338","2026-11-06 00:50","índices de liquidez: a planilha do balanço gerencial entra pela Importação (RM e RK sozinhos) e estoques/imobilizado/empréstimos do mês vêm do último mês da planilha"],
   ["2.14.337","2026-11-06 00:20","Evolução da carteira: ponte da carteira de duplicatas ao total da Posição de fechamento (− duvidosos + cartão + cobrança); posição financeira usa o total do fechamento"],
   ["2.14.336","2026-11-05 23:50","Evolução da carteira: abatimentos do financeiro explicam a diferença com o vpdpcl2 já carregado (sem reimportar)"],
   ["2.14.335","2026-11-05 23:40","novo: Balanço gerencial e índices de liquidez (RM/RK) — caixa, receber e pagar do sistema, estoques/empréstimos digitados, histórico importado da planilha, PDF"],
