@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.320</span>
+      ">v2.14.321</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3934,6 +3934,15 @@ function _empresaFiliais(emp){
 }
 
 // Monta a posição a partir de DB.recebiveis (saldo real: sal/salV/salA), na data-base informada (default: hoje)
+// v2.14.321: vencimento no SÁBADO/DOMINGO do fim do mês (ex.: 31/10/2026, sábado) só é pago no 1º dia útil — que cai
+// no mês seguinte. Para a posição, esse título pertence ao mês seguinte (não é atrasado do mês que fechou).
+function _vencEfetivo(iso){
+  const s=String(iso||'').slice(0,10); if(!/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  const d=new Date(s+'T12:00'), w=d.getDay(); if(w!==6 && w!==0) return s;
+  d.setDate(d.getDate()+(w===6?2:1));
+  const n=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  return n.slice(0,7)!==s.slice(0,7) ? n : s;     // só muda quando o 1º dia útil é no mês seguinte
+}
 function _posReceberDados(filiaisArr, mesFech){
   // mesFech = 'YYYY-MM' (mês do fechamento). Ex.: 2026-08 -> vencidos = Mar..Ago/26; a vencer = Set/26+
   const _mesLbl=m=>{const M=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];const p=String(m).split('-');return (M[+p[1]-1]||'')+' '+p[0];};
@@ -3967,19 +3976,20 @@ function _posReceberDados(filiaisArr, mesFech){
     // Saldo NA DATA DE CORTE = saldo de hoje + o que foi baixado depois do corte
     // v2.14.307: parcela de CARTÃO (Pagar.me) com data de pagamento até o corte já foi depositada pelo Pagar.me —
     // nunca vira "atrasado", mesmo que o extrato carregado seja antigo
-    if(r.origem==='pagarme' && String(r.e).slice(0,10)<=corte){ pmRecebido++; vPmRecebido+=_n(r.sal); return; }
+    const vEf=_vencEfetivo(r.e);
+    if(r.origem==='pagarme' && vEf<=corte){ pmRecebido++; vPmRecebido+=_n(r.sal); return; }
     let saldo;
     const volta = temParc ? (bxPos[_z(r.f)+'|'+_z(r.t)+'|'+(r.d||'')]||0) : 0;
     if(volta>0){ saldo=Math.min(_n(r.v)||Infinity, _n(r.sal)+volta); bxDepois++; vBxDepois+=Math.min(volta, saldo); }
     else if(!temParc && r.dtbx && String(r.dtbx)>corte){ saldo=_n(r.vlbx!=null?r.vlbx:r.v); bxDepois++; vBxDepois+=saldo; }
     else saldo=_n(r.sal);   // SOMENTE o saldo em aberto (dca-vlorsald); nunca o valor cheio do título
     if(saldo<=0) return;
-    const vMes=String(r.e).slice(0,7);
+    const vMes=vEf.slice(0,7);
     const _tipo = r.origem==='pagarme' ? 'Cartão' : (r.metodo||'Duplicata');
     const _it = b=>itens.push({b, cli:r.c, nf:r.t, ser:r.s, parc:r.d, venc:r.e, v:+saldo.toFixed(2), tipo:_tipo, fil:r.f});
     if(vMes > mesFech){                               // A VENCER (mês posterior ao fechamento)
       totAven+=saldo;
-      const fk=_posFaixaDe(r.e, mesFech, base);
+      const fk=_posFaixaDe(vEf, mesFech, base);
       faixas[fk]+=saldo; _it('f:'+fk);
     } else if(vMes >= floorAtras){                    // ATRASADO (fechamento e 5 meses anteriores)
       totVenc+=saldo; atrasados[vMes]=(atrasados[vMes]||0)+saldo; _it('a:'+vMes);
@@ -4200,12 +4210,12 @@ function _posCobrancaDados(mesFech, emp){
     if(dc){ concDepois++; vConcDepois+=v; }
     nAberto++;
     const tl=m.tipo_label||m.tipo||'—'; porTipo[tl]=(porTipo[tl]||0)+v;
-    const vMes=e.slice(0,7);
+    const vEf=_vencEfetivo(e), vMes=vEf.slice(0,7);
     const _it=b=>itens.push({b, cli:m.cod_cli, nome:m.portador||'', nf:m.nota||'', ser:m.serie||'',
       parc:m.lancamento||'', venc:e, v:+v.toFixed(2), tipo:tl, fil:''});
     if(vMes > mesFech){
       totAven+=v;
-      const fk=_posFaixaDe(e, mesFech, base);
+      const fk=_posFaixaDe(vEf, mesFech, base);
       faixas[fk]+=v; _it('f:'+fk);
     } else if(vMes >= floorAtras){
       totVenc+=v; atrasados[vMes]=(atrasados[vMes]||0)+v; _it('a:'+vMes);
@@ -4232,7 +4242,7 @@ function _posCobrancaDados(mesFech, emp){
 // linhas da seção da carteira de cobrança — mesmas no modal e no PDF
 // linhas do bloco ATRASADOS da cobrança (6 meses, sempre)
 function _cobAtrasLinhas(C){
-  return _posAtrasLinhas(C.mesFech, C.atrArr).map(([l,v])=>[l, v, '']);
+  return _posAtrasLinhas(C.mesFech, C.atrArr).map(([l,v])=>[l, v, '']);   // (só meses com valor)
 }
 // linhas do bloco À RECEBER da cobrança (faixas 30/60/90…)
 function _cobFaixaLinhas(C){
@@ -4344,7 +4354,8 @@ function _posRelHtml(){
   if(fy&&fm) for(let k=5;k>=0;k--){ const d=new Date(fy,fm-1-k,1); chavesAtr.push('a:'+d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
   let h='<table style="width:100%;border-collapse:collapse"><tbody>';
   h+='<tr class="sec"><td colspan="2">ATRASADOS</td></tr>';
-  atr.forEach(([l],i)=>{ h+=_lin(chavesAtr[i]||('a:?'+i), l); });
+  atr.forEach(([l,,m])=>{ h+=_lin('a:'+m, l); });
+  if(!atr.length) h+='<tr><td colspan="2" style="color:var(--gray-3)">Sem atrasados</td></tr>';
   h+='<tr class="sec"><td colspan="2">CONTAS À RECEBER</td></tr>';
   [['f:f30','À Vencer 30 dias'],['f:f60','À Vencer 60 dias'],['f:f90','À Vencer 90 dias'],
    ['f:f120','À Vencer 120 dias'],['f:f150','À Vencer 150 dias'],['f:f180','À Vencer 180 dias'],
@@ -4435,10 +4446,10 @@ function _posAtrasLinhas(mesFech, ...arrs){
   if(!fy||!fm) return Object.keys(mapa).sort().map(m=>[_lbl(m), mapa[m]]);
   const janela=[];
   for(let k=5;k>=0;k--){ const d=new Date(fy, fm-1-k, 1); janela.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
-  const out=janela.map(m=>[_lbl(m), mapa[m]||0]);
+  const out=janela.map(m=>[_lbl(m), mapa[m]||0, m]);
   // vencidos fora da janela dos 6 meses que por algum motivo tenham caído aqui
-  Object.keys(mapa).sort().forEach(m=>{ if(!janela.includes(m)) out.push([_lbl(m), mapa[m]]); });
-  return out;
+  Object.keys(mapa).sort().forEach(m=>{ if(!janela.includes(m)) out.push([_lbl(m), mapa[m], m]); });
+  return out.filter(x=>Math.abs(x[1])>=0.005);     // v2.14.321: mês zerado não sai
 }
 // Soma de faixas / duvidosos das duas origens (duplicatas + cobrança)
 function _posMergeFaixas(...fs){
@@ -4763,7 +4774,7 @@ function gerarPosReceberPDF(){
       +`</table></td></tr>`; };
   const _chAtr=(()=>{ const [fy,fm]=String(window._posMes||'').split('-').map(Number); const ks=[]; if(fy&&fm) for(let k=5;k>=0;k--){ const d=new Date(fy,fm-1-k,1); ks.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
     A.atrArr.forEach(x=>{ if(!ks.includes(x.m)) ks.push(x.m); }); return ks; })();
-  const linhaAtras=_posAtrasLinhas(window._posMes, A.atrArr).map(([l,v],i)=>_linP('a:'+(_chAtr[i]||''),l,v)).join('');
+  const linhaAtras=_posAtrasLinhas(window._posMes, A.atrArr).map(([l,v,m])=>_linP('a:'+m,l,v)).join('')||'<tr><td colspan="2" style="color:#999">Sem atrasados</td></tr>';
   const _subAtras=A.subAtras, _subAven=A.subAven, _subDuv=A.subDuv, _duvArr=A.duvArr;
   const fx=A.faixas;
   const linhaFaixa=[['Duplicatas à Vencer 30 dias',fx.f30],['Duplicatas à Vencer 60 dias',fx.f60],['Duplicatas à Vencer 90 dias',fx.f90],['Duplicatas à Vencer 120 dias',fx.f120],['Duplicatas à Vencer 150 dias',fx.f150],['Duplicatas à Vencer 180 dias',fx.f180],...(fx.f180p>0?[['Duplicatas à Vencer +180 dias',fx.f180p]]:[])].map(([l,v])=>_linP('f:'+({'Duplicatas à Vencer 30 dias':'f30','Duplicatas à Vencer 60 dias':'f60','Duplicatas à Vencer 90 dias':'f90','Duplicatas à Vencer 120 dias':'f120','Duplicatas à Vencer 150 dias':'f150','Duplicatas à Vencer 180 dias':'f180','Duplicatas à Vencer +180 dias':'f180p'}[l]||''),l,v)).join('');
