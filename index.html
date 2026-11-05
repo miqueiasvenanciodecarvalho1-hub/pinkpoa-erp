@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.331</span>
+      ">v2.14.332</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4956,6 +4956,12 @@ function gerarEvolCarteiraPDF(soHtml){
     +'h1{text-align:center;font-size:17px;margin:6px 0}h2{text-align:center;font-size:13px;margin:0 0 6px;font-weight:600}.exp{text-align:center;font-size:10.5px;color:#888;margin:0 0 14px}'
     +'.ind{border:1px solid #ddd;border-radius:6px;padding:6px 8px}'+_EVOL_CSS
     +'.rod{margin-top:18px;padding-top:8px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}'
+    // v2.14.332: cabe numa folha A4 só na impressão
+    +'@page{size:A4;margin:8mm 9mm}'
+    +'@media print{body{padding:0;max-width:none}h1{font-size:15px;margin:0 0 2px}h2{font-size:12px;margin:0 0 2px}.exp{margin:0 0 6px;font-size:9.5px}'
+    +'.ind{padding:3px 6px}.ind div{line-height:1.15}.ind div:nth-child(2){font-size:14px!important}'
+    +'.evol{font-size:11.5px!important}.evol td{padding:3px 6px}.evol .sec td{font-size:11px}.evol .nota{font-size:9.5px}'
+    +'.rod{margin-top:6px;padding-top:4px}tr{break-inside:avoid}}'
     +'</style></head><body>'
     +`<h1>${_EMP_NOME[E.emp]||''}</h1><h2>EVOLUÇÃO DA CARTEIRA · ${_evMesNome(E.mes).toUpperCase()}${E.semPM?' · SEM CARTÃO PAGAR.ME':''}</h2>`
     +`<div class="exp">carteira de ${_ultDiaBR(E.mesA)} + faturamento do mês − recebido no mês = carteira esperada em ${_ultDiaBR(E.mes)} · conferida com a carteira real · + saldo bancário</div>`
@@ -11651,7 +11657,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.331","2026-11-05 21:40","Contas a Receber: travar o fechamento do mês (cópia espelho da Posição e da Evolução); impressão mantém as cores — linhas de TOTAL voltam a sair"],
+const ALTERACOES=[["2.14.332","2026-11-05 22:00","Evolução da carteira: impressão cabe numa folha A4"],
+  ["2.14.331","2026-11-05 21:40","Contas a Receber: travar o fechamento do mês (cópia espelho da Posição e da Evolução); impressão mantém as cores — linhas de TOTAL voltam a sair"],
   ["2.14.330","2026-11-05 21:00","novo demonstrativo: Evolução da carteira — carteira do mês anterior + faturamento − recebido = esperada × real, de onde vem a diferença e + saldo bancário (tela e PDF)"],
   ["2.14.329","2026-11-05 20:10","importação: o vpdpcl2 (baixas financeiras) é lido sozinho pelo Contas a Receber mesmo já lido pelas Comissões — 'já importado' agora vale por tipo"],
   ["2.14.328","2026-11-05 19:45","NFS emitidas e recebidas: mostra qual arquivo de baixas está carregado e botão para importar o vpdpcl2 direto na prévia"],
