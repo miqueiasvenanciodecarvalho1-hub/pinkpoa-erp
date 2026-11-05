@@ -563,7 +563,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.317</span>
+      ">v2.14.318</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4557,7 +4557,38 @@ function _pmCarteiraSuspeita(pm){
   // Agora só corrige carteira com carimbo antigo ou com os totais sabidamente quebrados.
   return '';
 }
+// v2.14.318: a carteira de cartão importada fica guardada NESTE aparelho (com a hora da importação). Toda vez que uma
+// cópia do servidor/aparelho é aplicada por cima, se ela tiver cartão mais antigo que o importado aqui, o importado volta
+// e o salvamento automático manda para o servidor. Antes a cópia antiga (1509 parcelas / R$ 338 mil) desfazia a importação.
+const PM_SNAP='pinkpoa_pagarme_carteira';
+let _pmSnapMemo=null, _pmSnapTxt=null;
+function _pmSnapLer(){ let t=null; try{ t=localStorage.getItem(PM_SNAP); }catch(e){}
+  if(!t) return null; if(t===_pmSnapTxt) return _pmSnapMemo;
+  try{ _pmSnapMemo=JSON.parse(t); _pmSnapTxt=t; }catch(e){ return null; } return _pmSnapMemo; }
+function _pmSnapGravar(){
+  try{ const pm=(DB.recebiveis||[]).filter(r=>r.origem==='pagarme');
+    localStorage.setItem(PM_SNAP, JSON.stringify({ info:DB.pagarme_info||null, rows:pm.map(r=>[r.t,r.e,r.v,r.sal,r.n]) })); }catch(e){ console.warn('cartão: não guardou no aparelho', e); }
+}
+function _pmRestaurarLocal(){
+  if(!DB || !Array.isArray(DB.recebiveis)) return 0;
+  const snap=_pmSnapLer(); if(!snap || !snap.info || !Array.isArray(snap.rows) || !snap.rows.length) return 0;
+  const loc=String(snap.info.importado_em||''), cop=String((DB.pagarme_info&&DB.pagarme_info.importado_em)||'');
+  if(!loc || (cop && cop>loc)) return 0;           // a cópia tem uma importação mais nova (feita em outro aparelho)
+  if(cop===loc){                                    // mesma importação: só troca se as parcelas não forem as dela
+    const pm=DB.recebiveis.filter(r=>r.origem==='pagarme'), tp=pm.reduce((t,r)=>t+(Number(r.sal)||0),0), ts=snap.rows.reduce((t,r)=>t+(Number(r[3])||0),0);
+    if(pm.length===snap.rows.length && Math.abs(tp-ts)<0.05) return 0; }
+  DB.recebiveis=DB.recebiveis.filter(r=>r.origem!=='pagarme');
+  let idmax=DB.recebiveis.reduce((m,r)=>Math.max(m, Number(r.i)||0), 0);
+  snap.rows.forEach(([t,e,v,sal,n])=>{ DB.recebiveis.push({ i:++idmax, t, s:'CC', d:'', n:n||1, x:n||1,
+      f:'1', c:'PAGARME', r:'', v, e, sit:'aberto', sal, salV:0, salA:sal, origem:'pagarme', metodo:'Cartão', pmv:PM_VER }); });
+  DB.pagarme_info=snap.info;
+  try{ localStorage.setItem('pinkpoa_pagarme_info', JSON.stringify(snap.info)); }catch(e){}
+  window._pmForcarSalvar=true;
+  console.info(`Cartão: cópia antiga substituída pela importação deste aparelho (${snap.rows.length} parcelas, extrato ${snap.info.extrato||'?'})`);
+  return snap.rows.length;
+}
 function _pmAutoCorrigir(){
+  const _rest=_pmRestaurarLocal(); if(_rest) return _rest+' parcelas da última importação';
   if(!DB || !Array.isArray(DB.recebiveis) || !PM_CARTEIRA.length) return 0;
   const pm=DB.recebiveis.filter(r=>r.origem==='pagarme');
   if(!pm.length) return 0;
@@ -4617,7 +4648,7 @@ function modalPosReceber(){
   const _pmT=_pmN.reduce((a,r)=>a+(Number(r.sal)||0),0);
   openModal(`Posição de Contas a Receber — fechamento`
     + `  ·  v${APP_VER}`
-    + (_pmN.length?`  ·  cartão ${_pmN.length} parcelas ${_rcFmt(_pmT)}${(()=>{ let i=DB.pagarme_info; if(!i){ try{ i=JSON.parse(localStorage.getItem('pinkpoa_pagarme_info')||'null'); }catch(e){} } return i&&i.extrato?` · extrato até ${fmtDate(i.extrato)}`:' · extrato sem data (reimporte)'; })()}`:''), `
+    + (_pmN.length?`  ·  cartão ${_pmN.length} parcelas ${_rcFmt(_pmT)}${(()=>{ let i=DB.pagarme_info; return i&&i.extrato?` · extrato até ${fmtDate(i.extrato)}`:' · extrato sem data (reimporte)'; })()}`:''), `
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-bottom:12px">
       <div><label style="font-size:11px;color:var(--gray-5)">Empresa</label>
         <select class="form-control" style="width:220px" onchange="window._posEmp=this.value;window._posDrillB=null;modalPosReceber()">
@@ -11181,7 +11212,7 @@ function imprimirRelatorio(){
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
 function _versaoApp(){ return ((document.getElementById('app-versao')||{}).textContent||'').trim().replace(/^v/,''); }
 // v212: login/sessão e o login antigo do app (com CPF) NUNCA entram nem saem da cópia
-const _LOCAL_FORA = k => k.indexOf('pinkpoa_nuvem_')===0 || ['pinkpoa_token','pinkpoa_user','pinkpoa_users_v1','pinkpoa_api_url','pinkpoa_email_lembrado','pinkpoa_fat_filtros','pinkpoa_fat_cols','pinkpoa_imp_auto'].includes(k);
+const _LOCAL_FORA = k => k.indexOf('pinkpoa_nuvem_')===0 || ['pinkpoa_token','pinkpoa_user','pinkpoa_users_v1','pinkpoa_api_url','pinkpoa_email_lembrado','pinkpoa_fat_filtros','pinkpoa_fat_cols','pinkpoa_imp_auto','pinkpoa_pagarme_carteira','pinkpoa_pagarme_info'].includes(k);
 function _montarBackup(){
   const backup = { _tipo:'PINKPOA_BACKUP', _versao:_versaoApp(), _data:new Date().toISOString(), db:{}, local:{} };
   Object.keys(DB).forEach(k=>{ try{ backup.db[k]=DB[k]; }catch(e){} });
@@ -11217,6 +11248,8 @@ function _aplicarBackup(obj){
   // v212: listas que o app lê das configurações locais (Compras) recarregam a partir da cópia
   ['compras','compras_map','compras_grupos','compras_forn_grupos','compras_forn_excluidos'].forEach(k=>{ if(!(obj.db&&k in obj.db)) delete DB[k]; });
   if(obj.db && typeof obj.db==='object') Object.keys(obj.db).forEach(k=>{ DB[k]=obj.db[k]; });
+  // v2.14.318: a info do cartão acompanha as parcelas da cópia — cópia sem ela = cartão sem data (não herda a da memória)
+  if(obj.db && typeof obj.db==='object' && ('recebiveis' in obj.db) && !('pagarme_info' in obj.db)) DB.pagarme_info=null;
   if(obj.local && typeof obj.local==='object') Object.keys(obj.local).forEach(k=>{
     if(_LOCAL_FORA(k)) return;
     try{ localStorage.setItem(k, obj.local[k]); }catch(e){} });
@@ -11516,7 +11549,9 @@ function _asHashDe(b){
   let h=0x811c9dc5; for(let i=0;i<t.length;i++){ h^=t.charCodeAt(i); h=Math.imul(h,16777619); }
   return (h>>>0).toString(36)+':'+t.length;
 }
-function _asMarcarBase(ref){ if(ref!==undefined) _asRef=ref; setTimeout(()=>{ try{ _asBase=_asHashDe(_montarBackup()); _asPausa=''; _asIndicador('em dia'); }catch(e){} }, 1500); }
+function _asMarcarBase(ref){ if(ref!==undefined) _asRef=ref; setTimeout(()=>{ try{ _asBase=_asHashDe(_montarBackup()); _asPausa=''; _asIndicador('em dia');
+  if(window._pmForcarSalvar){ window._pmForcarSalvar=false; _asBase='cartao-restaurado'; _asIndicador('cartão importado aqui — enviando'); _asAgendar(); }   // v2.14.318
+  }catch(e){} }, 1500); }
 function _asIndicador(t){ const el=document.getElementById('api-status'); if(el){ el.dataset.auto=t; el.title='Salvamento automático: '+t; } }
 function _asAgendar(){ clearTimeout(_asTimer); _asTimer=setTimeout(_asConferir, 15000); }
 async function _asConferir(){
@@ -11902,6 +11937,7 @@ function processarPagarme(rows, base){
   let _ultCri=''; (rows||[]).forEach(row=>{ const d=_pmDate(_pmCol(row,'data de criação','data de criacao')); if(d && d>_ultCri) _ultCri=d; });
   try{ DB.pagarme_info={ extrato:_ultCri, importado_em:new Date().toISOString(), n, total:+(base==='bruto'?totB:totL).toFixed(2), base };
        localStorage.setItem('pinkpoa_pagarme_info', JSON.stringify(DB.pagarme_info)); }catch(e){}
+  _pmSnapGravar(); window._pmForcarSalvar=true; try{ _asAgendar(); }catch(e){}
   return {n, totB:+totB.toFixed(2), totL:+totL.toFixed(2), base,
           nEst, vEstB:+vEstB.toFixed(2), vEstL:+vEstL.toFixed(2), semData, zerados, colFalha};
 }
