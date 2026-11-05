@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.337</span>
+      ">v2.14.338</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -5101,6 +5101,7 @@ function modalLiquidez(){
     const _ant=_bgGet(emp,_bgMesAnt(mes)), _base=_ant?JSON.parse(JSON.stringify({listas:_ant.listas||{}, v:_ant.v||{}})):_bgNovo();
     window._bgWork=salvo?JSON.parse(JSON.stringify(salvo)):_bgPuxar(_base, emp, mes);
     window._bgWork._k=_bgKey(emp,mes); window._bgWork._salvo=!!salvo;
+    _bgPreencherManuais(window._bgWork, emp, mes);
   }
   const W=window._bgWork, ant=_bgGet(emp,_bgMesAnt(mes));
   const meses=[]; for(let k=0;k<18;k++){ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-k); meses.push(d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')); }
@@ -5126,6 +5127,7 @@ function modalLiquidez(){
       <button class="btn btn-secondary btn-sm" onclick="importarBalancoPlanilha()">📥 Importar histórico da planilha</button>
     </div>
     <div style="font-size:12px;margin-bottom:8px;color:${W._salvo?'var(--green)':'var(--amber)'}">${W._salvo?'✓ Mês gravado'+(W.em?' em '+new Date(W.em).toLocaleString('pt-BR'):''):'⚠ Ainda não gravado — confira e clique em 💾 Salvar mês'} · caixa = saldos da lista "Bancos" (Posição de fechamento) · receber = posição do mês (com cobrança${_posSemPM()?'':' e cartão'}) · pagar = posição do Contas a Pagar</div>
+    ${!Object.values(DB.balanco_ger||{}).some(r=>r.emp===emp && r.mes<mes)?`<div style="background:#fff6e5;border:1px solid #f0d190;color:#8a6100;border-radius:8px;padding:8px 10px;margin-bottom:8px;font-size:12px">⚠ Estoques, imobilizado, aplicações e empréstimos vêm da sua planilha "Índices de liquidez": suba ela em <b>Importação</b> (Selecionar arquivos) ou clique em <b>📥 Importar histórico da planilha</b> — os meses entram sozinhos e este mês é preenchido.</div>`:(W._base?`<div style="font-size:11px;color:var(--gray-5);margin-bottom:6px">Estoques, imobilizado, aplicações e empréstimos partiram de ${_evMesNome(W._base)} — ajuste se mudou.</div>`:'')}
     <div id="bg-resumo">${_bgResumoHtml(W, ant)}</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
       <div><table style="width:100%;border-collapse:collapse;font-size:12px"><tbody>
@@ -5237,24 +5239,41 @@ function importarBalancoPlanilha(){
     try{
       if(typeof XLSX==='undefined'){ toast('Biblioteca de planilha indisponível (sem internet?)','error'); return; }
       const wb=XLSX.read(await f.arrayBuffer(), {type:'array'});
-      const abas=wb.SheetNames.filter(n=>/balan/i.test(n));
-      const emp=window._bgEmp||'RM';
-      const cands=abas.filter(n=>new RegExp('\\b'+emp+'\\b','i').test(n.replace(/[-_]/g,' ')));
-      const lista=(cands.length?cands:abas);
-      const pad=lista[lista.length-1]||'';
-      const esc=prompt(`Qual aba importar para ${emp}?\n\n${lista.map((n,i)=>(i+1)+' - '+n).join('\n')}\n\nDigite o número:`, String(lista.indexOf(pad)+1));
-      if(!esc) return; const nome=lista[(+esc||0)-1]; if(!nome){ toast('Aba inválida','error'); return; }
-      const r=_bgLerAba(wb.Sheets[nome]);
-      if(!r.meses.length){ toast('Não achei os meses nessa aba','error'); return; }
-      const jaTem=r.meses.filter(m=>_bgGet(emp,m.mes)).length;
-      if(!confirm(`Aba "${nome}": ${r.meses.length} mês(es), de ${_evMesNome(r.meses[0].mes)} a ${_evMesNome(r.meses[r.meses.length-1].mes)}.\n${jaTem?jaTem+' mês(es) já gravado(s) serão substituídos.\n':''}\nImportar para ${emp}?`)) return;
-      DB.balanco_ger=DB.balanco_ger||{};
-      r.meses.forEach(m=>{ DB.balanco_ger[_bgKey(emp,m.mes)]=Object.assign(m.rec,{emp, mes:m.mes, em:new Date().toISOString(), por:(USER&&(USER.nome||USER.email))||'', fonte:'planilha: '+nome}); });
-      try{ _asAgendar(); }catch(e){}
-      window._bgWork=null; toast(`${r.meses.length} mês(es) importado(s) da planilha`); modalLiquidez();
+      const r=_bgImportarWorkbook(wb, f.name);
+      if(!r.total){ toast('Não achei abas de Balanço Gerencial RM/RK com meses nessa planilha','error'); return; }
+      toast(r.resumo); window._bgWork=null; modalLiquidez();
     }catch(e){ console.error(e); toast('Não importou: '+e.message,'error'); }
   };
   inp.click();
+}
+// v2.14.338: escolhe sozinho, para RM e RK, a aba de Balanço Gerencial com o mês mais recente e importa todos os meses dela
+function _ehPlanilhaBalanco(wb){ return !!(wb && (wb.SheetNames||[]).some(n=>/balan[cç]o\s+gerencial\s+(rm|rk)\b/i.test(n))); }
+function _bgImportarWorkbook(wb, origem){
+  const out={total:0, resumo:'', porEmp:{}};
+  ['RM','RK'].forEach(emp=>{
+    const abas=(wb.SheetNames||[]).filter(n=>new RegExp('balan[cç]o\\s+gerencial\\s+'+emp+'\\b','i').test(n) && !/guardar/i.test(n));
+    let best=null;
+    abas.forEach(n=>{ try{ const r=_bgLerAba(wb.Sheets[n]); if(!r.meses.length) return; const ult=r.meses[r.meses.length-1].mes;
+      if(!best || ult>best.ult || (ult===best.ult && r.meses.length>best.r.meses.length)) best={n, r, ult}; }catch(e){ console.warn('aba', n, e); } });
+    if(!best) return;
+    DB.balanco_ger=DB.balanco_ger||{};
+    const em=new Date().toISOString(), por=(USER&&(USER.nome||USER.email))||'';
+    best.r.meses.forEach(m=>{ DB.balanco_ger[_bgKey(emp,m.mes)]=Object.assign(m.rec,{emp, mes:m.mes, em, por, fonte:'planilha: '+best.n}); });
+    out.porEmp[emp]={aba:best.n, n:best.r.meses.length, de:best.r.meses[0].mes, ate:best.ult}; out.total+=best.r.meses.length;
+  });
+  if(out.total){ try{ _asAgendar(); }catch(e){}
+    out.resumo='Balanço gerencial importado'+(origem?' de '+origem:'')+': '+Object.keys(out.porEmp).map(e=>`${e} ${out.porEmp[e].n} mês(es) até ${_evMesNome(out.porEmp[e].ate)} (aba "${out.porEmp[e].aba}")`).join(' · '); }
+  return out;
+}
+// campos digitados (estoque, imobilizado, empréstimos, aplicações) vazios no mês → vêm do último mês gravado antes dele
+function _bgPreencherManuais(W, emp, mes){
+  if(!W) return 0; let ant=null;
+  Object.values(DB.balanco_ger||{}).forEach(r=>{ if(r.emp===emp && r.mes<mes && (!ant || r.mes>ant.mes)) ant=r; });
+  if(!ant) return 0; let n=0; W.v=W.v||{}; W.listas=W.listas||{};
+  [...BG_EST, ...BG_IMOB, ...BG_INV].forEach(([k])=>{ if((W.v[k]===undefined||W.v[k]===''||W.v[k]===null) && ant.v && ant.v[k]!=null){ W.v[k]=ant.v[k]; n++; } });
+  ['aplic','emprTerc','emprBanc'].forEach(lk=>{ const a=(ant.listas||{})[lk]||[]; const cur=W.listas[lk]||[];
+    a.forEach(x=>{ if(!cur.some(y=>y.n===x.n)){ cur.push({n:x.n, v:x.v}); n++; } }); W.listas[lk]=cur; });
+  W._base=ant.mes; return n;
 }
 function _bgLerAba(ws){
   const rg=XLSX.utils.decode_range(ws['!ref']||'A1:A1');
@@ -5295,7 +5314,7 @@ function _bgLerAba(ws){
       if(sec==='inv'){ const k=/LEASING|CDC/.test(l)?'invLeasing':/DIRETO/.test(l)?'invDireto':''; if(k) v[k]=_bgR(_bgN(v[k])+x); return; }
     });
     return {mes:h.y+'-'+String(h.m+1).padStart(2,'0'), rec};
-  }).filter(m=>m.mes && !/NaN/.test(m.mes));
+  }).filter(m=>/^(19|20)\d{2}-(0[1-9]|1[0-2])$/.test(m.mes||''));
   return {meses};
 }
 // v2.14.315: incluir/tirar bancos da lista de saldos (vale para os relatórios de receber e pagar)
@@ -6528,6 +6547,21 @@ async function _varrerEntradas(brutos, nomePasta) {
     _scan = { pasta: nomePasta, quando: new Date().toLocaleString('pt-BR'),
               total: brutos.length, analisados: candidatos.length,
               zips: zips.length, porSlot, lidos };
+    // v2.14.338: PLANILHA DE ÍNDICES DE LIQUIDEZ (Balanço Gerencial RM/RK) na pasta → histórico do balanço vai sozinho
+    try {
+      const sobraX = lidos.filter(l => !(l.slots || []).length && /\.xlsx?$/i.test(l.nome || ''));
+      for (const l of sobraX) {
+        try {
+          if (typeof XLSX === 'undefined') break;
+          const f = await l.getFile(); const wb = XLSX.read(await f.arrayBuffer(), { type: 'array' });
+          if (!_ehPlanilhaBalanco(wb)) continue;
+          const hash = l.hash || await _hashArquivo(f);
+          if (!_impForcar && _jaImportado(hash, 'balanco_ger')) { l.balanco = 'já importada'; continue; }
+          const r = _bgImportarWorkbook(wb, l.nome);
+          if (r.total) { _registrarImportados([{ hash, nome: l.nome, slot: 'balanco' }], 'balanco_ger'); l.balanco = r.resumo; toast('📊 ' + r.resumo); }
+        } catch (e) { /* não é a planilha */ }
+      }
+    } catch (e) { console.warn('balanço na pasta:', e); }
     // v2.14.314: EXTRATO DO BANCO (Bradesco Net Empresa) na pasta → vai sozinho para a Conciliação bancária.
     // Não tem cabeçalho na 1ª linha, por isso não casa com nenhum tipo: confere o conteúdo das planilhas que sobraram.
     try {
@@ -11933,7 +11967,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.337","2026-11-06 00:20","Evolução da carteira: ponte da carteira de duplicatas ao total da Posição de fechamento (− duvidosos + cartão + cobrança); posição financeira usa o total do fechamento"],
+const ALTERACOES=[["2.14.338","2026-11-06 00:50","índices de liquidez: a planilha do balanço gerencial entra pela Importação (RM e RK sozinhos) e estoques/imobilizado/empréstimos do mês vêm do último mês da planilha"],
+  ["2.14.337","2026-11-06 00:20","Evolução da carteira: ponte da carteira de duplicatas ao total da Posição de fechamento (− duvidosos + cartão + cobrança); posição financeira usa o total do fechamento"],
   ["2.14.336","2026-11-05 23:50","Evolução da carteira: abatimentos do financeiro explicam a diferença com o vpdpcl2 já carregado (sem reimportar)"],
   ["2.14.335","2026-11-05 23:40","novo: Balanço gerencial e índices de liquidez (RM/RK) — caixa, receber e pagar do sistema, estoques/empréstimos digitados, histórico importado da planilha, PDF"],
   ["2.14.334","2026-11-05 22:50","impressão: traço entre as linhas em preto"],
