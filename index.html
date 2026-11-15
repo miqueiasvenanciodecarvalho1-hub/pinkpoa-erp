@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.349</span>
+      ">v2.14.350</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -6980,6 +6980,76 @@ async function importarTipoAuto(tipoKey, silencioso) {
   return true;
 }
 
+// ═══════════ v2.14.350: SITUAÇÃO DAS BASES — o que foi lido, o que faltou e ATÉ QUE DATA cada base está atualizada ═══════════
+function _sitMax(arr, fn){ let m=''; (arr||[]).forEach(x=>{ const v=String(fn(x)||''); if(v && v>m) m=v; }); return m; }
+function _sitUltImport(tipos){
+  const recs=Object.values(DB.arquivos_importados||{}); let em='', nomes=[];
+  recs.forEach(r=>{ const ts=r.tipos?Object.entries(r.tipos):[[r.tipo, r.em]];
+    ts.forEach(([t,e])=>{ if(!tipos.includes(t) || !e) return; if(e>em) em=e; }); });
+  if(em){ const lim=new Date(new Date(em).getTime()-10*60000).toISOString();
+    recs.forEach(r=>{ const ts=r.tipos?Object.entries(r.tipos):[[r.tipo, r.em]]; if(ts.some(([t,e])=>tipos.includes(t) && e && e>=lim)) nomes.push(r.nome); }); }
+  return {em, nomes:[...new Set(nomes)]};
+}
+function _situacaoBases(){
+  const hoje=new Date().toISOString().slice(0,10);
+  const dias=d=>d?Math.floor((new Date(hoje+'T12:00')-new Date(String(d).slice(0,10)+'T12:00'))/86400000):null;
+  const nPM=(DB.recebiveis||[]).filter(r=>r.origem==='pagarme'), nTit=(DB.recebiveis||[]).filter(r=>r.origem!=='pagarme');
+  const ext={}; (DB.extrato_banco||[]).forEach(m=>{ const k=typeof _extContaDe==='function'?_extContaDe(m):(m.banco||''); if(!ext[k] || m.data>ext[k]) ext[k]=m.data; });
+  const bg={}; Object.values(DB.balanco_ger||{}).forEach(r=>{ if(!bg[r.emp] || r.mes>bg[r.emp]) bg[r.emp]=r.mes; });
+  const L=[
+    {b:'🧾 Faturamento (vpfatu)', t:['faturamento'], n:(DB.faturamento||[]).filter(f=>!f.manual).length, ate:_sitMax((DB.faturamento||[]).filter(f=>!f.manual), f=>f.dt), campo:'emissão', diario:true},
+    {b:'💰 Comissões (vp42541)', t:['comissoes'], n:(DB.comissoes||[]).length, ate:_sitMax(DB.comissoes, c=>c.competencia_raw), campo:'competência', mes:true},
+    {b:'📋 Contas a receber — títulos (vpdpcl1)', t:['recebiveis'], n:nTit.length, ate:_sitMax(nTit, r=>r.em), campo:'emissão', diario:true},
+    {b:'✅ Baixas financeiras (vpdpcl2)', t:['recebiveis','recebidos'], n:(DB.recebidos||[]).length, ate:(DB.recebidos_info&&DB.recebidos_info.ate)||_sitMax(DB.recebidos, x=>x.dt), campo:'movimento', diario:true, arq:(DB.recebidos_info||{}).arquivo},
+    {b:'💳 Cartão Pagar.me', t:['pagarme'], n:nPM.length, ate:(DB.pagarme_info||{}).extrato||'', campo:'lançamento', diario:true},
+    {b:'🧾 Contas a pagar (ERP_PGTO)', t:['pagar_base'], n:(DB.pagar||[]).length, ate:_sitMax(DB.pagar, p=>p.emissao), campo:'emissão', diario:true},
+    {b:'🏦 Movimentos do banco (vpbanc3)', t:['conciliacao'], n:(DB.movimentos_banc||[]).length, ate:_sitMax(DB.movimentos_banc, m=>m.data), campo:'lançamento', diario:true},
+    {b:'🏦 Extrato bancário', t:['extrato_banco'], n:(DB.extrato_banco||[]).length, ate:_sitMax(DB.extrato_banco, m=>m.data), campo:'lançamento', diario:true,
+      det:Object.keys(ext).sort().map(k=>k+' até '+fmtDate(ext[k])).join(' · ')},
+    {b:'📊 Vendas', t:['vendas'], n:(DB.vendas_linhas||[]).length, ate:_sitMax(DB.vendas_linhas, l=>l.de), campo:'pedido', diario:true},
+    {b:'👥 Clientes', t:['clientes'], n:(DB.clientes||[]).length},
+    {b:'🤝 Representantes', t:['representantes'], n:(DB.representantes||[]).length},
+    {b:'📋 Naturezas', t:['naturezas'], n:(DB.naturezas||[]).length},
+    {b:'📊 Balanço gerencial', t:['balanco_ger'], n:Object.keys(DB.balanco_ger||{}).length, ate:'', campo:'mês', det:Object.keys(bg).sort().map(e=>e+' até '+_evMesNome(bg[e])).join(' · ')},
+  ];
+  L.forEach(x=>{ const u=_sitUltImport(x.t); x.em=u.em; x.nomes=u.nomes;
+    if(x.ate && !x.mes){ x.dias=dias(x.ate); } x.atrasado = x.diario && x.dias!=null && x.dias>4; x.vazio=!x.n; });
+  return L;
+}
+function _situacaoBasesHtml(compacto){
+  const L=_situacaoBases(), esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const fmtAte=x=>!x.ate?'—':(x.mes?_evMesNome(x.ate):fmtDate(String(x.ate).slice(0,10)));
+  // nesta leitura: lidos / faltaram / não reconhecidos
+  let leitura='';
+  if(_scan){
+    const lidos=(_scan.lidos||[]).filter(l=>(l.slots||[]).length).map(l=>l.caminho||l.nome);
+    const extr=(_scan.extratos||[]).map(x=>x.nome);
+    const falt=IMPORT_TIPOS.filter(t=>t.slots.some(s=>s.required)).map(t=>{ const f=t.slots.filter(s=>s.required && !_scan.porSlot[t.key+'|'+s.key]).map(s=>s.label); return f.length?`${t.title} (${f.join(', ')})`:''; }).filter(Boolean);
+    const nao=(_scan.lidos||[]).filter(l=>!(l.slots||[]).length && !extr.includes(l.nome) && !l.balanco).map(l=>l.caminho||l.nome);
+    leitura=`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px;font-size:12px">
+      <div style="background:#eaf7ee;border-radius:8px;padding:8px 10px"><b style="color:var(--green)">✅ Lidos nesta leitura (${lidos.length+extr.length})</b><div style="margin-top:4px;color:#2d6a3e;max-height:110px;overflow:auto">${[...lidos,...extr].map(esc).join(' · ')||'—'}</div></div>
+      <div style="background:${falt.length?'#fdeef0':'#f4f4f4'};border-radius:8px;padding:8px 10px"><b style="color:${falt.length?'#c0392b':'var(--gray-5)'}">⚠ Faltaram (${falt.length})</b><div style="margin-top:4px;color:#8a2a2a;max-height:110px;overflow:auto">${falt.map(esc).join(' · ')||'nada — todos os tipos obrigatórios vieram'}</div></div>
+      <div style="background:#f4f4f4;border-radius:8px;padding:8px 10px"><b style="color:var(--gray-5)">❔ Não reconhecidos (${nao.length})</b><div style="margin-top:4px;color:var(--gray-5);max-height:110px;overflow:auto">${nao.map(esc).join(' · ')||'—'}</div></div>
+    </div>`;
+  }
+  const linhas=L.map(x=>`<tr style="${x.atrasado?'background:#fff6e5':''}">
+      <td style="padding:4px 6px;font-weight:600;white-space:nowrap">${x.b}</td>
+      <td style="padding:4px 6px;text-align:right;color:var(--gray-5)">${x.n?x.n.toLocaleString('pt-BR'):'<span style="color:#c0392b">vazio</span>'}</td>
+      <td style="padding:4px 6px;white-space:nowrap;font-weight:700;color:${x.atrasado?'#b9770e':'inherit'}">${x.campo?`${fmtAte(x)} <span style="font-weight:400;color:var(--gray-5);font-size:11px">(${x.campo})</span>`:'—'}${x.atrasado?` <span style="font-size:11px">· ${x.dias} dias atrás</span>`:''}</td>
+      <td style="padding:4px 6px;white-space:nowrap;font-size:11.5px">${x.em?new Date(x.em).toLocaleString('pt-BR'):'—'}</td>
+      <td style="padding:4px 6px;font-size:11px;color:var(--gray-5)">${esc(x.det||x.arq||(x.nomes||[]).slice(0,4).join(', '))}${!x.det&&!x.arq&&(x.nomes||[]).length>4?' …':''}</td></tr>`).join('');
+  return `<div class="card" style="margin-bottom:20px"><div class="card-header"><h2>📋 Situação das bases</h2>
+      <span style="font-size:12px;color:var(--gray-5)">até que data cada base está atualizada · em amarelo: mais de 4 dias sem dado novo</span></div>
+    <div class="card-body">${leitura}
+      <div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="background:var(--gray-1)"><th style="text-align:left;padding:5px 6px">Base</th><th style="text-align:right;padding:5px 6px">Registros</th>
+          <th style="text-align:left;padding:5px 6px">Atualizada até</th><th style="text-align:left;padding:5px 6px">Última importação</th><th style="text-align:left;padding:5px 6px">Arquivo(s)</th></tr></thead>
+        <tbody>${linhas}</tbody></table></div></div></div>`;
+}
+function _mostrarResumoLeitura(){
+  if(window._impAutoRodando) return;
+  openModal('📋 Leitura concluída — situação das bases', _situacaoBasesHtml(), '<button class="btn btn-primary" onclick="closeModal()">OK</button>', 'lg');
+}
 async function importarTudoAuto() {
   if (!_scan) return;
   const completos = IMPORT_TIPOS.filter(t => _tipoPronto(t.key));
@@ -7046,6 +7116,7 @@ async function importarTudoAuto() {
   }catch(e){ console.warn('fallback banco:', e); }
   _progresso('');
   toast(`${ok} de ${prontos.length} importações concluídas ✅`);
+  try{ if(CURRENT_PAGE==='importacao') renderImportacao(); _mostrarResumoLeitura(); }catch(e){ console.warn('resumo', e); }
 }
 
 // ── Card da varredura, no topo da tela de Importação ─────────────
@@ -7260,6 +7331,7 @@ function renderImportacao() {
   if(window._impAutoRodando && CURRENT_PAGE!=='importacao') return;   // v262: rodando em segundo plano não troca a tela atual
   document.getElementById('content').innerHTML = `
     ${_scanCardHtml()}
+    ${(()=>{ try{ return _situacaoBasesHtml(); }catch(e){ console.warn('situação', e); return ''; } })()}
     <div style="background:var(--white);border:2px solid var(--pink);border-radius:var(--radius);padding:16px;margin-bottom:20px">
       <div style="font-weight:800;font-size:15px;margin-bottom:4px">💾 Backup completo do sistema</div>
       <div style="font-size:12px;color:var(--gray-5);margin-bottom:12px">Exporta <b>tudo</b> num único arquivo .json — faturamento, comissões, recebíveis, cadastros (clientes/representantes/produtos/naturezas), compras, grupos, supervisões, rateios, comissão sobre faturamento e configurações. Restaura tudo depois, sem precisar reimportar.</div>
@@ -12172,7 +12244,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.349","2026-11-15 10:00","comissões: ao abrir, já seleciona o último mês completo (o mês anterior ao de hoje)"],
+const ALTERACOES=[["2.14.350","2026-11-15 10:30","importação: situação das bases — arquivos lidos, os que faltaram, não reconhecidos, última importação e até que data cada base vai (ex.: faturamento pela emissão)"],
+  ["2.14.349","2026-11-15 10:00","comissões: ao abrir, já seleciona o último mês completo (o mês anterior ao de hoje)"],
   ["2.14.348","2026-11-06 04:30","índices de liquidez: contas a pagar abre os títulos e escolhe quais planos de contas entram no balanço"],
   ["2.14.347","2026-11-06 04:05","balanço gerencial (PDF 3 meses): faixas ATIVO/PASSIVO no rosa do sistema e logo sem cortar"],
   ["2.14.346","2026-11-06 03:50","fechamento travado: alterar ou destravar só com a senha de login"],
