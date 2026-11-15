@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.351</span>
+      ">v2.14.352</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2695,7 +2695,12 @@ function _fatConsolDrill(k){
         +`<tr id="fdr-${ix}" style="display:none"><td colspan="7" style="padding:4px 0 10px 14px;background:#fff"><table style="font-size:11.5px;width:100%"><thead>${cab(true)}</thead><tbody>${g.notas.map(f=>linhaNota(f,true)).join('')}</tbody></table></td></tr>`).join('')
       + `</tbody><tfoot style="background:var(--gray-1);font-weight:700"><tr style="border-top:2px solid var(--gray-2)"><td>TOTAL (${arr.length} representante(s))</td><td style="text-align:right">${notas.length}</td><td style="text-align:right">${fmt(tot.vnB)}</td><td style="text-align:right;color:#b45309">−${fmt(tot.ab)}</td><td style="text-align:right">${fmt(tot.vn)}</td><td style="text-align:right">100%</td><td style="text-align:right;color:var(--pink)" class="so-master">${fmt(tot.comi)}</td></tr></tfoot></table></div>`;
   } else {
-    corpo=`<div class="card-table" style="max-height:60vh;overflow:auto"><table style="font-size:12px"><thead>${cab(false)}</thead><tbody>${notas.map(f=>linhaNota(f,false)).join('')||`<tr><td colspan=${ncol}>Sem notas</td></tr>`}</tbody>${totLinha}</table></div>`;
+    // v2.14.352: SUBTOTAL POR DIA (data de emissão)
+    const _dias=[]; notas.forEach(f=>{ const d=String(f.dt||''); let g=_dias[_dias.length-1]; if(!g || g.d!==d){ g={d,notas:[],vnB:0,ab:0,vn:0,comi:0}; _dias.push(g); }
+      g.notas.push(f); g.vnB+=sg(f)*_n(f.vnBruto!=null?f.vnBruto:f.vn); g.ab+=_n(f.abatRepo); g.vn+=sg(f)*_n(f.vn); g.comi+=_n(_comiNota(f)); });
+    const subDia=g=>`<tr style="background:#f6f6f6;font-weight:700;border-top:1px dashed #999;border-bottom:2px solid var(--gray-2)"><td colspan=${ncol-4}>SUBTOTAL ${_fd(g.d)} <span style="font-weight:400;color:var(--gray-5)">(${g.notas.length} nota${g.notas.length===1?'':'s'})</span></td>
+      <td style="text-align:right">${fmt(g.vnB)}</td><td style="text-align:right;color:#b45309">${g.ab?'−'+fmt(g.ab):'—'}</td><td style="text-align:right">${fmt(g.vn)}</td><td style="text-align:right;color:var(--pink)" class="so-master">${fmt(g.comi)}</td></tr>`;
+    corpo=`<div class="card-table" style="max-height:60vh;overflow:auto"><table style="font-size:12px"><thead>${cab(false)}</thead><tbody>${_dias.map(g=>g.notas.map(f=>linhaNota(f,false)).join('')+subDia(g)).join('')||`<tr><td colspan=${ncol}>Sem notas</td></tr>`}</tbody>${totLinha}</table></div>`;
   }
   const botoes = dim==='rep' ? '' : `<div style="display:flex;gap:6px;margin-bottom:8px"><button class="btn btn-sm ${modo==='rep'?'btn-primary':'btn-secondary'}" onclick="window._fatDrillModo='rep';_fatConsolDrill(window._fatDrillK)">👤 Por representante</button><button class="btn btn-sm ${modo==='lista'?'btn-primary':'btn-secondary'}" onclick="window._fatDrillModo='lista';_fatConsolDrill(window._fatDrillK)">🧾 Todas as notas</button></div>`;
   const html=`<div style="font-size:12px;color:var(--gray-5);margin-bottom:8px">${dimLbl}: <strong>${grpLbl}</strong> · ${notas.length} nota(s) · ${modo==='rep'?'clique num representante para abrir as notas; numa nota, para o detalhe':'clique numa nota para ver o detalhe'}</div>` + botoes + corpo;
@@ -12388,7 +12393,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.351","2026-11-15 11:30","integração bancária: extratos e saldos pela API Gestão Financeira (chave só no computador, contas da Pink escolhidas, busca automática após a importação)"],
+const ALTERACOES=[["2.14.352","2026-11-15 12:00","faturamento — lista de notas: subtotal por dia (data de emissão)"],
+  ["2.14.351","2026-11-15 11:30","integração bancária: extratos e saldos pela API Gestão Financeira (chave só no computador, contas da Pink escolhidas, busca automática após a importação)"],
   ["2.14.350","2026-11-15 10:30","importação: situação das bases — arquivos lidos, os que faltaram, não reconhecidos, última importação e até que data cada base vai (ex.: faturamento pela emissão)"],
   ["2.14.349","2026-11-15 10:00","comissões: ao abrir, já seleciona o último mês completo (o mês anterior ao de hoje)"],
   ["2.14.348","2026-11-06 04:30","índices de liquidez: contas a pagar abre os títulos e escolhe quais planos de contas entram no balanço"],
