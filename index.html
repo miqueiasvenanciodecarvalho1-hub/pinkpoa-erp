@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.358</span>
+      ">v2.14.359</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -9722,6 +9722,8 @@ async function _bapiAcao(q){
 const BAPI_COB_ROTAS=['/bancos/cobrancas','/bancos/cobranca','/cobrancas','/cobranca','/bancos/boletos','/bancos/boletos-emitidos','/bancos/titulos'];
 async function _bapiRotaCobranca(){
   if(window._bapiCobRota) return window._bapiCobRota;
+  // a API Gestão Financeira documenta /bancos/cobrancas (OpenAPI conferida em 15/11/2026)
+  if(/finprogestaoia/.test(_bapiUrl())){ window._bapiCobRota='/bancos/cobrancas'; return window._bapiCobRota; }
   // 1) OpenAPI
   for(const u of ['/openapi.json','/openapi','/../openapi.json']){
     try{ const j=await _bapiGet(u,{}); const ps=Object.keys((j&&j.paths)||{});
@@ -9742,11 +9744,11 @@ function _bapiBoleto(b){
     pago:String(_bp(b,'dataPagamento','dataLiquidacao','pagamento','liquidadoEm')).slice(0,10), vPago:n(_bp(b,'valorPago','valorLiquidado','valorRecebido')),
     conta:String(_bp(b,'contaId','conta')) };
 }
-async function bapiConsultarCobranca(de, ate, situacao){
+async function bapiConsultarCobranca(de, ate, situacao, por){
   const rota=await _bapiRotaCobranca();
   if(!rota) throw new Error('A API ainda não tem a rota de COBRANÇA (boletos emitidos). No outro sistema, crie por ex. GET /api/v1/bancos/cobrancas?de=&ate=&situacao= com o acesso "bancos.cobranca" — campos: nossoNumero, seuNumero (NF/parcela), pagadorNome, pagadorDocumento, vencimento, valor, situacao, dataPagamento, valorPago.');
   const out=[]; for(let pg=1; pg<=200; pg++){
-    const j=await _bapiGet(rota,{de, ate, situacao:situacao||'', limite:500, pagina:pg}); const a=_bapiArr(j); out.push(...a.map(_bapiBoleto));
+    const j=await _bapiGet(rota,{de, ate, por:por||'', situacao:situacao||'', limite:500, pagina:pg}); const a=_bapiArr(j); out.push(...a.map(_bapiBoleto));
     const tp=+(j&&(j.totalPaginas||j.paginas))||0; if(!a.length || a.length<500 || (tp && pg>=tp)) break; }
   return {rota, boletos:out};
 }
@@ -9788,9 +9790,10 @@ function modalCobrancaApi(){
       <div style="font-size:11px;color:var(--gray-5);margin-top:6px">${L.length} boleto(s) · rota ${esc(window._bapiCobRota||'')} · cruzado pelo número da NF (seu número) + CNPJ do pagador com o Contas a Receber</div>`; }
   openModal('🔌 Consulta de cobrança — API do banco', `
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:end">
-      <div><label style="font-size:11px;color:var(--gray-5)">Vencimento de</label><input id="cob-de" type="date" class="form-control" value="${window._cobDe}"></div>
+      <div><label style="font-size:11px;color:var(--gray-5)">De</label><input id="cob-de" type="date" class="form-control" value="${window._cobDe}"></div>
       <div><label style="font-size:11px;color:var(--gray-5)">até</label><input id="cob-ate" type="date" class="form-control" value="${window._cobAte}"></div>
-      <div><label style="font-size:11px;color:var(--gray-5)">Situação</label><select id="cob-sit" class="form-control"><option value="">Todas</option><option value="aberto">Em aberto</option><option value="liquidado">Liquidados</option><option value="baixado">Baixados</option></select></div>
+      <div><label style="font-size:11px;color:var(--gray-5)">Período por</label><select id="cob-por" class="form-control">${[['vencimento','Vencimento'],['pagamento','Pagamento'],['emissao','Emissão']].map(([v,l])=>`<option value="${v}" ${(window._cobPor||'vencimento')===v?'selected':''}>${l}</option>`).join('')}</select></div>
+      <div><label style="font-size:11px;color:var(--gray-5)">Situação</label><select id="cob-sit" class="form-control">${[['','Todas'],['EM ABERTO','Em aberto'],['LIQUIDADO','Liquidados'],['BAIXADO','Baixados']].map(([v,l])=>`<option value="${v}" ${(window._cobSit||'')===v?'selected':''}>${l}</option>`).join('')}</select></div>
       <button class="btn btn-primary btn-sm" onclick="_cobConsultar()">🔎 Consultar</button>
       <span id="cob-msg" style="font-size:12px;color:var(--gray-5)">${_bapiChave()?'':'Configure a chave em 🔌 API bancária'}</span>
     </div>${corpo}`,
@@ -9798,10 +9801,11 @@ function modalCobrancaApi(){
 }
 async function _cobConsultar(){
   window._cobDe=document.getElementById('cob-de').value; window._cobAte=document.getElementById('cob-ate').value;
-  const sit=document.getElementById('cob-sit').value, el=document.getElementById('cob-msg');
+  const sit=document.getElementById('cob-sit').value, por=document.getElementById('cob-por').value, el=document.getElementById('cob-msg');
+  window._cobSit=sit; window._cobPor=por;
   if(!_bapiChave()){ modalBancoApi('Configure a chave para consultar a cobrança.'); return; }
   if(el){ el.style.color='var(--gray-5)'; el.textContent='Consultando a cobrança no banco…'; }
-  try{ const r=await bapiConsultarCobranca(window._cobDe, window._cobAte, sit); window._cobLista=_cobCruzar(r.boletos); window._cobFiltro=''; modalCobrancaApi(); }
+  try{ const r=await bapiConsultarCobranca(window._cobDe, window._cobAte, sit, por); window._cobLista=_cobCruzar(r.boletos); window._cobFiltro=''; modalCobrancaApi(); }
   catch(e){ if(el){ el.style.color='var(--red)'; el.textContent='❌ '+e.message; } }
 }
 function processarExtratoBanco(aoa, arquivo){
@@ -12546,7 +12550,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.358","2026-11-15 16:10","consulta de cobrança pela API do banco: boletos emitidos aos clientes cruzados com o Contas a Receber (pago no banco e aberto no sistema, vencidos, sem título)"],
+const ALTERACOES=[["2.14.359","2026-11-15 16:40","cobrança pela API: usa a rota /bancos/cobrancas da API, filtro por vencimento/pagamento/emissão e situação no formato da API"],
+  ["2.14.358","2026-11-15 16:10","consulta de cobrança pela API do banco: boletos emitidos aos clientes cruzados com o Contas a Receber (pago no banco e aberto no sistema, vencidos, sem título)"],
   ["2.14.357","2026-11-15 15:20","extrato do banco: buscar extrato e saldo pela API direto na aba (período/conta do filtro), saldo do banco ao lado do saldo do extrato e busca automática ao abrir"],
   ["2.14.356","2026-11-15 14:30","comissões: alerta quando o faturamento do representante no mês (todas as filiais) não bate com a base da comissão — clique concilia nota a nota"],
   ["2.14.355","2026-11-15 13:50","troca: volta a contar o abatimento na nota de venda com obs de NF de devolução (confere dia a dia com o relatório Faturamento Pink Poá); fica de fora só o lançado no documento da devolução (*D)"],
