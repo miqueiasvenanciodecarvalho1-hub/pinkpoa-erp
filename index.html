@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.356</span>
+      ">v2.14.357</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -9598,6 +9598,40 @@ async function bapiBuscarExtratos(de, ate, silencioso){
   if(!silencioso || total) toast('🔌 Extratos pela API ('+fmtDate(de)+' a '+fmtDate(ate)+'): '+res.join(' · '));
   return total;
 }
+// v2.14.357: saldo por conta (último até a data) — usado na aba Extrato do banco e na lista de Bancos
+function _bapiChaveConta(c){ return (_bapiNomeBanco(c.banco,c.cod)+' '+(c.ag||'')+(c.ct?' / '+c.ct:'')).trim().toUpperCase(); }
+async function _bapiSaldosPorConta(ate){
+  const sel=_bapiContas().filter(c=>c.usar); const d0=new Date(ate+'T12:00'); d0.setDate(d0.getDate()-10);
+  const arr=_bapiArr(await _bapiGet('/bancos/saldos',{de:d0.toISOString().slice(0,10), ate})); const out={};
+  sel.forEach(c=>{ let saldo=null, dt='';
+    arr.filter(s=>String(_bp(s,'contaId','id','conta_id'))===c.id || (String(_bp(s,'conta'))===c.ct && String(_bp(s,'agencia'))===c.ag)).forEach(s=>{
+      _bapiArr({dados:s.diario||s.diarios||s.saldosDiarios||[]}).forEach(x=>{ const d=String(_bp(x,'data','date')).slice(0,10); if(d && d<=ate && d>=dt){ dt=d; saldo=Number(_bp(x,'saldo','valor'))||0; } });
+      if(saldo==null){ const v=_bp(s,'saldo','ultimoSaldo','valor'); if(v!==''){ saldo=Number(v)||0; dt=String(_bp(s,'data','dataSaldo','atualizadoEm')).slice(0,10); } } });
+    if(saldo!=null) out[_bapiChaveConta(c)]={saldo:+saldo.toFixed(2), data:dt, conta:c}; });
+  DB.bapi_saldos=Object.assign(DB.bapi_saldos||{}, Object.fromEntries(Object.entries(out).map(([k,v])=>[k,{saldo:v.saldo,data:v.data,em:new Date().toISOString()}])));
+  return out;
+}
+// botão da aba Extrato do banco: extrato + saldo do período/conta do filtro
+async function bapiBuscarNaTela(){
+  if(!_bapiChave() || !_bapiContas().some(c=>c.usar)){ modalBancoApi('Configure a chave e marque as contas da Pink Poá para buscar pela API.'); return; }
+  const fMes=document.getElementById('ext-mes')?.value||'', fDe=document.getElementById('ext-de')?.value||'', fAte=document.getElementById('ext-ate')?.value||'';
+  const hoje=new Date().toISOString().slice(0,10);
+  let de=fDe, ate=fAte;
+  if(!de && fMes) de=fMes+'-01';
+  if(!ate && fMes){ const [y,m]=fMes.split('-').map(Number); ate=fMes+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0'); }
+  if(!de){ const d=new Date(); d.setDate(1); de=d.toISOString().slice(0,10); }
+  if(!ate || ate>hoje) ate=hoje;
+  const st=document.getElementById('ext-api-st'); if(st) st.textContent='buscando na API…';
+  try{ const n=await bapiBuscarExtratos(de, ate); await _bapiSaldosPorConta(ate); try{ _asAgendar(); }catch(e){}
+    window._bapiUltTela=`✅ ${n} lançamento(s) de ${fmtDate(de)} a ${fmtDate(ate)} · saldo até ${fmtDate(ate)}`; renderConciliacao(); }
+  catch(e){ window._bapiUltTela='❌ '+e.message; renderConciliacao(); }
+}
+// ao abrir a aba: busca o que falta desde o último lançamento e o saldo de hoje (uma vez por sessão)
+function _bapiAutoTela(){
+  if(window._bapiAutoFeito || !_bapiChave() || !_bapiContas().some(c=>c.usar)) return; window._bapiAutoFeito=true;
+  setTimeout(async()=>{ try{ await bapiSincronizar(); await _bapiSaldosPorConta(new Date().toISOString().slice(0,10)); window._bapiUltTela='✅ atualizado pela API em '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    if(CURRENT_PAGE==='conciliacao' && window._concTab==='extrato') renderConciliacao(); }catch(e){ window._bapiUltTela='❌ '+e.message; } }, 400);
+}
 // saldos (último até a data) → lista "Bancos" da Posição de fechamento
 async function bapiAtualizarSaldos(ate){
   const sel=_bapiContas().filter(c=>c.usar); if(!sel.length){ toast('Marque as contas em 🔌 Integração bancária','error'); return; }
@@ -11284,6 +11318,7 @@ function _extGrupoCSV(){
 }
 function _extratoHtml(){
   try{ _extLimparContas(); }catch(e){}
+  try{ _bapiAutoTela(); }catch(e){}
   const MOV=DB.extrato_banco||[], META=DB.extrato_meta||{};
   if(!MOV.length) return `<div class="empty-state" style="padding:34px">
     <div class="es-icon">🧾</div>
@@ -11368,6 +11403,8 @@ function _extratoHtml(){
       </select>
       <input id="ext-bus" class="form-control" style="width:170px" placeholder="Histórico ou doc. (Enter)" value="${fBus}"
         onkeydown="if(event.key==='Enter'){event.preventDefault();_extFiltro();}">
+      <button class="btn btn-primary btn-sm" onclick="bapiBuscarNaTela()" title="Busca extrato e saldo deste período/conta direto na API do banco">🔌 Buscar pela API</button>
+      <span id="ext-api-st" style="font-size:11px;color:var(--gray-5)">${window._bapiUltTela||(_bapiChave()?'API conectada':'API não configurada')}</span>
       <button class="btn btn-secondary btn-sm" onclick="['ext-mes','ext-de','ext-ate','ext-conta','ext-tipo','ext-cat','ext-st','ext-bus'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});_extFiltro()">✕ Limpar</button>
       ${_podeLote?`<button class="btn btn-secondary btn-sm" title="Marca como conciliados os lançamentos SEM PAR deste filtro (categoria ou busca)" onclick="_extConcLote()">✔ Conciliar ${_semPar.length} sem par do filtro</button>`:''}
         </div>
@@ -11380,7 +11417,10 @@ function _extratoHtml(){
         <div class="kpi-value" style="font-size:16px;color:${R.resultado>=0?'var(--green)':'var(--red)'}">${R.resultado>=0?'+':'−'} ${_s(R.resultado)}</div>
         <div class="kpi-sub">créditos − débitos</div></div>
       <div class="kpi-card amber" style="padding:12px"><div class="kpi-label" style="font-size:10px">Saldo no fim</div>
-        <div class="kpi-value" style="font-size:16px">${fmt(R.saldoFim)}</div><div class="kpi-sub">${R.nContas>1?'soma do último saldo de '+R.nContas+' contas':'último saldo do período'}</div></div>
+        <div class="kpi-value" style="font-size:16px">${fmt(R.saldoFim)}</div><div class="kpi-sub">${R.nContas>1?'soma do último saldo de '+R.nContas+' contas':'último saldo do período'}</div>
+        ${(()=>{ const S=DB.bapi_saldos||{}; const ks=Object.keys(S).filter(k=>!fConta || k===fConta); if(!ks.length) return '';
+          const tot=ks.reduce((t,k)=>t+(Number(S[k].saldo)||0),0), dt=ks.map(k=>S[k].data).sort().pop()||'', dif=+(tot-R.saldoFim).toFixed(2);
+          return `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed #e5c9a8;font-size:11px">🔌 <b>Banco (API) em ${fmtDate(dt)}: ${fmt(tot)}</b>${Math.abs(dif)>=0.01?` <span style="color:${Math.abs(dif)>0.5?'#c0392b':'var(--gray-5)'}">· dif. ${dif>0?'+':'−'}${fmt(Math.abs(dif))}</span>`:' <span style="color:var(--green)">· bate ✓</span>'}</div>`; })()}</div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">
@@ -12417,7 +12457,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.356","2026-11-15 14:30","comissões: alerta quando o faturamento do representante no mês (todas as filiais) não bate com a base da comissão — clique concilia nota a nota"],
+const ALTERACOES=[["2.14.357","2026-11-15 15:20","extrato do banco: buscar extrato e saldo pela API direto na aba (período/conta do filtro), saldo do banco ao lado do saldo do extrato e busca automática ao abrir"],
+  ["2.14.356","2026-11-15 14:30","comissões: alerta quando o faturamento do representante no mês (todas as filiais) não bate com a base da comissão — clique concilia nota a nota"],
   ["2.14.355","2026-11-15 13:50","troca: volta a contar o abatimento na nota de venda com obs de NF de devolução (confere dia a dia com o relatório Faturamento Pink Poá); fica de fora só o lançado no documento da devolução (*D)"],
   ["2.14.354","2026-11-15 13:10","faturamento — notas de um grupo: resumo por data de emissão (abre as notas do dia)"],
   ["2.14.353","2026-11-15 12:40","troca: abatimento do financeiro que é devolução (obs NF de devolução / série *D) sai da troca — já conta em Devoluções (era duplicidade)"],
