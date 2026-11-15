@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.350</span>
+      ">v2.14.351</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -4849,6 +4849,7 @@ function modalPosReceber(){
         </div>`).join('')}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-secondary btn-sm" onclick="_bancoNovaLinha()">➕ Incluir banco</button>
+        <button class="btn btn-secondary btn-sm" onclick="modalBancoApi()" title="Saldos pela API bancária">🔌 Saldos pela API</button>
         <button class="btn btn-secondary btn-sm" title="Valor já liberado no Pagar.me que pode ser sacado (entra na seção BANCOS)" onclick="_bancoNovaLinha('PAGAR.ME — SALDO DISPONÍVEL PARA SAQUE')">💳 Saldo cartão disponível p/ saque</button>
         <button class="btn btn-primary btn-sm" onclick="_bancoSalvar()">💾 Salvar bancos</button>
       </div>
@@ -7116,6 +7117,7 @@ async function importarTudoAuto() {
   }catch(e){ console.warn('fallback banco:', e); }
   _progresso('');
   toast(`${ok} de ${prontos.length} importações concluídas ✅`);
+  try{ await bapiSincronizar(); }catch(e){}
   try{ if(CURRENT_PAGE==='importacao') renderImportacao(); _mostrarResumoLeitura(); }catch(e){ console.warn('resumo', e); }
 }
 
@@ -9510,6 +9512,147 @@ function _extNome(hist){
   if(m) return m[1].trim();
   return '';
 }
+// ═══════════ v2.14.351: INTEGRAÇÃO BANCÁRIA — API "Gestão Financeira" (somente leitura) ═══════════
+// A chave fica SÓ neste computador (localStorage pinkpoa_nuvem_bancoapi_* — fora do backup e do servidor).
+// Contas escolhidas (Pink Poá, RM/RK) em pinkpoa_bancoapi_contas. Extratos entram na Conciliação pelo mesmo
+// caminho dos arquivos (processarExtratoBanco: junta por banco/agência/conta e período, sem duplicar).
+const BAPI_URL_KEY='pinkpoa_nuvem_bancoapi_url', BAPI_KEY_KEY='pinkpoa_nuvem_bancoapi_chave', BAPI_CONTAS_KEY='pinkpoa_bancoapi_contas', BAPI_ULT_KEY='pinkpoa_bancoapi_ult';
+const BAPI_URL_PADRAO='https://www.finprogestaoia.com.br/api/v1';
+const _bapiUrl=()=>{ try{ return (localStorage.getItem(BAPI_URL_KEY)||BAPI_URL_PADRAO).replace(/\/+$/,''); }catch(e){ return BAPI_URL_PADRAO; } };
+const _bapiChave=()=>{ try{ return localStorage.getItem(BAPI_KEY_KEY)||''; }catch(e){ return ''; } };
+const _bapiContas=()=>{ try{ return JSON.parse(localStorage.getItem(BAPI_CONTAS_KEY)||'[]')||[]; }catch(e){ return []; } };
+const _bapiContasSet=a=>{ try{ localStorage.setItem(BAPI_CONTAS_KEY, JSON.stringify(a||[])); }catch(e){} };
+const _bp=(o,...ks)=>{ for(const k of ks){ if(o && o[k]!=null && o[k]!=='') return o[k]; } return ''; };
+const _bapiArr=j=>Array.isArray(j)?j:(j&&(j.dados||j.data||j.itens||j.lancamentos||j.contas||j.saldos||j.empresas||j.resultados||j.results||j.items))||[];
+async function _bapiGet(rota, params){
+  const ch=_bapiChave(); if(!ch) throw new Error('Informe a chave da API (🔌 Integração bancária)');
+  const u=new URL(_bapiUrl()+rota); Object.entries(params||{}).forEach(([k,v])=>{ if(v!==''&&v!=null) u.searchParams.set(k,v); });
+  let r; try{ r=await fetch(u.toString(), {headers:{'Authorization':'Bearer '+ch, 'Accept':'application/json'}}); }
+  catch(e){ throw new Error('Não conectou na API. Se o endereço estiver certo, o outro sistema precisa liberar o acesso pelo navegador (CORS) para https://www.pinkpoafinanceiro.com.br'); }
+  let j=null; try{ j=await r.json(); }catch(e){}
+  if(!r.ok){ const m=(j&&(j.erro||j.error||j.mensagem||j.message))||'';
+    if(r.status===401) throw new Error('Chave ausente, inválida ou vencida (401)');
+    if(r.status===403) throw new Error(/aguardando/i.test(JSON.stringify(j||''))?'Este computador está aguardando autorização no outro sistema — peça a aprovação e tente de novo (403)':('Sem acesso a esse recurso, empresa ou IP (403) '+m));
+    if(r.status===429) throw new Error('Limite de pedidos por minuto atingido — tente em 1 minuto (429)');
+    throw new Error('Erro '+r.status+' '+m); }
+  return j;
+}
+function _bapiContaInfo(c){ return { id:String(_bp(c,'id','contaId','conta_id')), banco:String(_bp(c,'banco','bancoNome','nomeBanco','instituicao')), cod:String(_bp(c,'codigoBanco','bancoCodigo','codBanco')),
+  ag:String(_bp(c,'agencia','agência','ag')), ct:String(_bp(c,'conta','numero','numeroConta','contaCorrente')), emp:String(_bp(c,'empresaSigla','sigla','empresa','empresaNome')), origem:String(_bp(c,'origem')) }; }
+function _bapiNomeBanco(b, cod){ const t=(String(b)+' '+String(cod)).toUpperCase();
+  return /BRADESCO|\b237\b/.test(t)?'Bradesco':/SANTANDER|\b033\b|\b33\b/.test(t)?'Santander':/ITA[UÚ]|\b341\b/.test(t)?'Itaú':/BTG|\b208\b/.test(t)?'BTG':/SICOOB|\b756\b/.test(t)?'Sicoob':/INTER\b|\b077\b/.test(t)?'Inter':/CAIXA|\b104\b/.test(t)?'Caixa':/BRASIL|\b001\b/.test(t)?'Banco do Brasil':(b||'Banco'); }
+// lançamentos da API → planilha no formato que o leitor de extrato já entende
+function _bapiParaAoa(conta, lancs){
+  const fBR=n=>(Number(n)||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const aoa=[[`Agência: ${conta.ag} Conta: ${conta.ct}`],['Data','Histórico','Documento','Valor','Saldo','Razão Social']];
+  lancs.forEach(l=>{ let v=Number(_bp(l,'valor','value','montante'))||0; const dc=String(_bp(l,'tipo','dc','debitoCredito','natureza')).toUpperCase();
+    if(v>0 && /^D/.test(dc)) v=-v; if(v<0 && /^C/.test(dc)) v=-v;
+    const d=String(_bp(l,'data','dataLancamento','date')).slice(0,10); const [y,m,dd]=d.split('-');
+    aoa.push([`${dd}/${m}/${y}`, String(_bp(l,'historico','histórico','descricao','descrição','memo')), String(_bp(l,'documento','doc','numeroDocumento')), fBR(v),
+      _bp(l,'saldo')===''?'':fBR(_bp(l,'saldo')), String(_bp(l,'contraparte','favorecido','nome','pagador'))]); });
+  return aoa;
+}
+async function bapiBuscarExtratos(de, ate, silencioso){
+  const sel=_bapiContas().filter(c=>c.usar); if(!sel.length){ if(!silencioso) toast('Marque as contas da Pink Poá em 🔌 Integração bancária','error'); return 0; }
+  let total=0; const res=[];
+  for(const c of sel){
+    const lancs=[]; for(let pg=1; pg<=200; pg++){
+      const j=await _bapiGet('/bancos/extratos',{de, ate, contaId:c.id, limite:500, pagina:pg}); const a=_bapiArr(j);
+      lancs.push(...a); const tp=+(j&&(j.totalPaginas||j.paginas||j.total_paginas))||0; if(!a.length || a.length<500 || (tp && pg>=tp)) break; }
+    if(!lancs.length){ res.push(`${c.nome||c.banco}: nenhum lançamento`); continue; }
+    const r=processarExtratoBanco(_bapiParaAoa(c, lancs), 'API '+_bapiNomeBanco(c.banco,c.cod)+' '+c.ag+'-'+c.ct);
+    if(r.erro){ res.push(`${c.nome||c.banco}: ${r.erro}`); continue; }
+    total+=r.lancamentos; res.push(`${c.nome||c.banco}: ${r.lancamentos} lanç.`);
+  }
+  try{ localStorage.setItem(BAPI_ULT_KEY, new Date().toISOString()); }catch(e){}
+  try{ _asAgendar(); }catch(e){}
+  if(!silencioso || total) toast('🔌 Extratos pela API ('+fmtDate(de)+' a '+fmtDate(ate)+'): '+res.join(' · '));
+  return total;
+}
+// saldos (último até a data) → lista "Bancos" da Posição de fechamento
+async function bapiAtualizarSaldos(ate){
+  const sel=_bapiContas().filter(c=>c.usar); if(!sel.length){ toast('Marque as contas em 🔌 Integração bancária','error'); return; }
+  const d0=new Date(ate+'T12:00'); d0.setDate(d0.getDate()-10); const de=d0.toISOString().slice(0,10);
+  const j=await _bapiGet('/bancos/saldos',{de, ate}); const arr=_bapiArr(j);
+  const lista=_lerBancos(); let n=0;
+  sel.forEach(c=>{
+    const doC=arr.filter(s=>String(_bp(s,'contaId','id','conta_id'))===c.id || (String(_bp(s,'conta'))===c.ct && String(_bp(s,'agencia'))===c.ag));
+    let saldo=null, dt='';
+    doC.forEach(s=>{ const dias=_bapiArr({dados:s.diario||s.diarios||s.saldosDiarios||[]});
+      dias.forEach(x=>{ const d=String(_bp(x,'data','date')).slice(0,10); if(d && d<=ate && d>=dt){ dt=d; saldo=Number(_bp(x,'saldo','valor'))||0; } });
+      if(saldo==null){ const d=String(_bp(s,'data','dataSaldo','atualizadoEm')).slice(0,10); const v=_bp(s,'saldo','ultimoSaldo','valor'); if(v!==''){ saldo=Number(v)||0; dt=d; } } });
+    if(saldo==null) return;
+    const nome=(c.nome||(_bapiNomeBanco(c.banco,c.cod)+' '+c.ag+'/'+c.ct)).toUpperCase();
+    const i=lista.findIndex(b=>String(b.nome||'').toUpperCase()===nome);
+    if(i>=0) lista[i].valor=+saldo.toFixed(2); else lista.push({nome, valor:+saldo.toFixed(2)}); n++;
+  });
+  lista.sort((a,b)=>String(a.nome).localeCompare(String(b.nome),'pt-BR')); _salvarBancos(lista);
+  try{ _asAgendar(); }catch(e){}
+  toast(n?`🔌 ${n} saldo(s) atualizado(s) até ${fmtDate(ate)} na lista de Bancos`:'A API não devolveu saldo para as contas marcadas', n?'success':'error');
+}
+// depois da importação: busca o que falta desde o último lançamento (silencioso)
+async function bapiSincronizar(){
+  if(!_bapiChave() || !_bapiContas().some(c=>c.usar)) return;
+  const ult=(DB.extrato_banco||[]).reduce((m,x)=>x.data>m?x.data:m,'');
+  const d=new Date((ult||new Date(Date.now()-35*86400000).toISOString().slice(0,10))+'T12:00'); d.setDate(d.getDate()-3);
+  try{ await bapiBuscarExtratos(d.toISOString().slice(0,10), new Date().toISOString().slice(0,10), true); }catch(e){ console.warn('API bancos:', e.message); toast('🔌 API bancária: '+e.message,'error'); }
+}
+function modalBancoApi(msg){
+  const ch=_bapiChave(), cs=_bapiContas(), esc=t=>String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const hoje=new Date().toISOString().slice(0,10), d1=new Date(); d1.setDate(1); d1.setMonth(d1.getMonth()-1);
+  const deP=d1.toISOString().slice(0,10), ult=(()=>{ try{ return localStorage.getItem(BAPI_ULT_KEY)||''; }catch(e){ return ''; } })();
+  openModal('🔌 Integração bancária — API Gestão Financeira', `
+    <div style="font-size:12px;color:var(--gray-5);margin-bottom:10px">Somente leitura. A chave fica <b>só neste computador</b> (não vai para o servidor nem para o backup). Use uma chave liberada apenas para as contas da Pink Poá.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:11px;color:var(--gray-5)">Endereço da API</label><input id="bapi-url" class="form-control" value="${esc(_bapiUrl())}"></div>
+      <div><label style="font-size:11px;color:var(--gray-5)">Chave (gf_live_…)</label><input id="bapi-chave" type="password" class="form-control" placeholder="${ch?'•••••• (gravada — deixe em branco para manter)':'cole a chave aqui'}" autocomplete="off"></div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn btn-primary btn-sm" onclick="_bapiGravar();_bapiTestar()">💾 Gravar e testar</button>
+      <button class="btn btn-secondary btn-sm" onclick="_bapiListarContas()">🏦 Listar contas</button>
+      ${ch?`<button class="btn btn-secondary btn-sm" style="color:var(--red)" onclick="if(confirm('Apagar a chave deste computador?')){try{localStorage.removeItem('${BAPI_KEY_KEY}')}catch(e){};modalBancoApi('Chave apagada')}">Apagar chave</button>`:''}
+    </div>
+    <div id="bapi-msg" style="font-size:12px;margin-bottom:8px;white-space:pre-wrap">${esc(msg||'')}</div>
+    <div style="font-weight:700;margin:6px 0">Contas da Pink Poá ${cs.length?`(${cs.filter(c=>c.usar).length} de ${cs.length} marcadas)`:''}</div>
+    ${cs.length?`<table style="width:100%;font-size:12px;border-collapse:collapse"><thead><tr style="background:var(--gray-1)"><th></th><th style="text-align:left;padding:3px">Banco · ag/conta</th><th style="text-align:left;padding:3px">Empresa na API</th><th style="text-align:left;padding:3px">Nome na lista de Bancos</th><th style="text-align:left;padding:3px">Pink</th></tr></thead><tbody>
+      ${cs.map((c,i)=>`<tr><td style="padding:3px"><input type="checkbox" ${c.usar?'checked':''} onchange="_bapiContaSet(${i},'usar',this.checked)"></td>
+        <td style="padding:3px">${esc(_bapiNomeBanco(c.banco,c.cod))} · ${esc(c.ag)}/${esc(c.ct)}</td><td style="padding:3px;color:var(--gray-5)">${esc(c.emp)}</td>
+        <td style="padding:3px"><input class="form-control" style="height:26px;padding:2px 6px;text-transform:uppercase" value="${esc(c.nome||'')}" placeholder="ex.: BRADESCO RM FASHION" onchange="_bapiContaSet(${i},'nome',this.value.toUpperCase())"></td>
+        <td style="padding:3px"><select class="form-control" style="height:26px;padding:0 4px" onchange="_bapiContaSet(${i},'pink',this.value)">${['RM','RK'].map(e=>`<option ${c.pink===e?'selected':''}>${e}</option>`).join('')}</select></td></tr>`).join('')}</tbody></table>`
+      :'<div style="font-size:12px;color:var(--gray-5)">Grave a chave e clique em <b>🏦 Listar contas</b>.</div>'}
+    <div style="border-top:1px solid var(--gray-2);margin-top:12px;padding-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:end">
+      <div><label style="font-size:11px;color:var(--gray-5)">De</label><input id="bapi-de" type="date" class="form-control" value="${deP}"></div>
+      <div><label style="font-size:11px;color:var(--gray-5)">Até</label><input id="bapi-ate" type="date" class="form-control" value="${hoje}"></div>
+      <button class="btn btn-primary btn-sm" onclick="_bapiAcao('ext')">⬇ Buscar extratos</button>
+      <button class="btn btn-secondary btn-sm" onclick="_bapiAcao('saldo')">💰 Atualizar saldos (até a data "Até")</button>
+    </div>
+    <div style="font-size:11px;color:var(--gray-5);margin-top:6px">Extratos entram em Conciliação → Extrato do banco (junta com os arquivos, sem duplicar). Depois do "Importar tudo" da Importação, a busca roda sozinha desde o último lançamento.${ult?' Última busca: '+new Date(ult).toLocaleString('pt-BR')+'.':''}</div>`,
+    '<button class="btn btn-secondary" onclick="closeModal()">Fechar</button>','lg');
+}
+function _bapiGravar(){ try{ const u=(document.getElementById('bapi-url')||{}).value||''; if(u) localStorage.setItem(BAPI_URL_KEY,u.trim());
+  const k=((document.getElementById('bapi-chave')||{}).value||'').trim(); if(k) localStorage.setItem(BAPI_KEY_KEY,k); }catch(e){} }
+async function _bapiTestar(){
+  const el=document.getElementById('bapi-msg'); if(el){ el.style.color='var(--gray-5)'; el.textContent='Conferindo a chave…'; }
+  try{ const j=await _bapiGet('/',{});
+    const t=`✅ Chave válida: ${_bp(j,'nome','name')||'(sem nome)'}\nAcessos: ${JSON.stringify(_bp(j,'acessos','permissoes','scopes')||'')}\nEmpresas: ${JSON.stringify(_bp(j,'empresas')||'')}${_bp(j,'validade','expiraEm')?'\nValidade: '+_bp(j,'validade','expiraEm'):''}`;
+    if(el){ el.style.color='var(--green)'; el.textContent=t; } }
+  catch(e){ if(el){ el.style.color='var(--red)'; el.textContent='❌ '+e.message; } }
+}
+async function _bapiListarContas(){
+  _bapiGravar(); const el=document.getElementById('bapi-msg'); if(el){ el.style.color='var(--gray-5)'; el.textContent='Buscando as contas…'; }
+  try{ const a=_bapiArr(await _bapiGet('/bancos/contas',{})).map(_bapiContaInfo).filter(c=>c.id);
+    const ant=_bapiContas(); const novo=a.map(c=>{ const o=ant.find(x=>x.id===c.id)||{}; return Object.assign(c,{usar:!!o.usar, nome:o.nome||'', pink:o.pink||(/RK/i.test(c.emp)?'RK':'RM')}); });
+    _bapiContasSet(novo); modalBancoApi(`${novo.length} conta(s) liberada(s) para esta chave — marque as que são da Pink Poá.`); }
+  catch(e){ if(el){ el.style.color='var(--red)'; el.textContent='❌ '+e.message; } }
+}
+function _bapiContaSet(i,k,v){ const a=_bapiContas(); if(!a[i]) return; a[i][k]=v; _bapiContasSet(a); }
+async function _bapiAcao(q){
+  const de=(document.getElementById('bapi-de')||{}).value, ate=(document.getElementById('bapi-ate')||{}).value;
+  const el=document.getElementById('bapi-msg'); if(el){ el.style.color='var(--gray-5)'; el.textContent=q==='ext'?'Buscando extratos…':'Buscando saldos…'; }
+  try{ if(q==='ext'){ const n=await bapiBuscarExtratos(de, ate); if(el){ el.style.color='var(--green)'; el.textContent=`✅ ${n} lançamento(s) trazido(s). Veja em Conciliação → Extrato do banco.`; } }
+       else { await bapiAtualizarSaldos(ate); if(el){ el.style.color='var(--green)'; el.textContent='✅ Saldos gravados na lista de Bancos (Posição de fechamento).'; } } }
+  catch(e){ if(el){ el.style.color='var(--red)'; el.textContent='❌ '+e.message; } }
+}
 function processarExtratoBanco(aoa, arquivo){
   const linhas=(aoa||[]).map(r=>(r||[]).map(c=>_extTxt(c)));
   let iCab=-1, agencia='', conta='';
@@ -10959,6 +11102,7 @@ function renderConciliacao() {
           <h2>Conciliação Bancária</h2>
           <div style="display:flex;gap:8px">
             <button class="btn btn-secondary btn-sm" onclick="importarExtratoBanco()">🧾 Importar extrato</button>
+            <button class="btn btn-secondary btn-sm" onclick="modalBancoApi()" title="Buscar extratos e saldos pela API do banco (somente leitura)">🔌 API bancária</button>
             <button class="btn btn-secondary btn-sm" onclick="gerarConciliacaoPDF()">🖨 PDF</button>
             <button class="btn btn-secondary btn-sm" onclick="exportarConciliacaoXLSX()">⬇ Excel</button>
           </div>
@@ -12244,7 +12388,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.350","2026-11-15 10:30","importação: situação das bases — arquivos lidos, os que faltaram, não reconhecidos, última importação e até que data cada base vai (ex.: faturamento pela emissão)"],
+const ALTERACOES=[["2.14.351","2026-11-15 11:30","integração bancária: extratos e saldos pela API Gestão Financeira (chave só no computador, contas da Pink escolhidas, busca automática após a importação)"],
+  ["2.14.350","2026-11-15 10:30","importação: situação das bases — arquivos lidos, os que faltaram, não reconhecidos, última importação e até que data cada base vai (ex.: faturamento pela emissão)"],
   ["2.14.349","2026-11-15 10:00","comissões: ao abrir, já seleciona o último mês completo (o mês anterior ao de hoje)"],
   ["2.14.348","2026-11-06 04:30","índices de liquidez: contas a pagar abre os títulos e escolhe quais planos de contas entram no balanço"],
   ["2.14.347","2026-11-06 04:05","balanço gerencial (PDF 3 meses): faixas ATIVO/PASSIVO no rosa do sistema e logo sem cortar"],
