@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.348</span>
+      ">v2.14.349</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3374,8 +3374,12 @@ function renderComissoes() {
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();   // garante a troca aplicada p/ a base da comissão
   const filtComp   = document.getElementById('filtro-comp')?.value||'';
   const filtReps   = (window._comiReps||[]).map(String); const filtRep = filtReps.length===1?filtReps[0]:'';
-  const filtMes    = document.getElementById('filtro-mes-com')?.value||'';
-  const filtAno    = document.getElementById('filtro-ano-com')?.value||'';
+  // v2.14.349: ao ABRIR a tela, já vem no último mês COMPLETO (o mês anterior ao de hoje — ex.: em 15/11, Outubro);
+  // depois vale o que o usuário escolher (inclusive limpar o filtro)
+  const _abrindoCom = !document.getElementById('filtro-mes-com');
+  const _ultCompleto = (()=>{ const d=new Date(); d.setDate(1); d.setMonth(d.getMonth()-1); return {m:String(d.getMonth()+1).padStart(2,'0'), a:String(d.getFullYear())}; })();
+  const filtMes    = _abrindoCom ? _ultCompleto.m : (document.getElementById('filtro-mes-com')?.value||'');
+  const filtAno    = _abrindoCom ? _ultCompleto.a : (document.getElementById('filtro-ano-com')?.value||'');
   const filComi    = document.getElementById('comi-filial')?.value||'';
   const inclDevol  = document.getElementById('com-incl-devol')?.checked !== false;
   const inclAbat   = document.getElementById('com-incl-abat')?.checked !== false;
@@ -3422,7 +3426,7 @@ function renderComissoes() {
   const comps = [...new Set(DB.comissoes.map(c=>c.competencia_raw))].filter(Boolean).sort(ordNome).reverse()
                   .map(raw=>DB.comissoes.find(c=>c.competencia_raw===raw).competencia);
   const reps  = [...new Set(DB.comissoes.map(c=>String(c.codigo_rep)).filter(Boolean))].sort(ordRepCod);
-  const anos  = [...new Set(DB.comissoes.map(c=>c.competencia_raw?.slice(0,4)).filter(Boolean))].sort(ordAnoDesc);
+  const anos  = [...new Set([...DB.comissoes.map(c=>c.competencia_raw?.slice(0,4)), filtAno].filter(Boolean))].sort(ordAnoDesc);
   const filiaisComi = [...new Set([...(DB.comissoes||[]).flatMap(c=>(c.titulos||[]).map(t=>t.fil)), ...(DB.faturamento||[]).map(f=>f.fil)].filter(Boolean))].sort();
   const MESES = {'01':'Jan','02':'Fev','03':'Mar','04':'Abr','05':'Mai','06':'Jun','07':'Jul','08':'Ago','09':'Set','10':'Out','11':'Nov','12':'Dez'};
   const temFiltro = !!(filtComp||filtReps.length||filtMes||filtAno);
@@ -12168,7 +12172,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.348","2026-11-06 04:30","índices de liquidez: contas a pagar abre os títulos e escolhe quais planos de contas entram no balanço"],
+const ALTERACOES=[["2.14.349","2026-11-15 10:00","comissões: ao abrir, já seleciona o último mês completo (o mês anterior ao de hoje)"],
+  ["2.14.348","2026-11-06 04:30","índices de liquidez: contas a pagar abre os títulos e escolhe quais planos de contas entram no balanço"],
   ["2.14.347","2026-11-06 04:05","balanço gerencial (PDF 3 meses): faixas ATIVO/PASSIVO no rosa do sistema e logo sem cortar"],
   ["2.14.346","2026-11-06 03:50","fechamento travado: alterar ou destravar só com a senha de login"],
   ["2.14.345","2026-11-06 03:30","índices de liquidez: PDF no modelo da planilha Balanço Gerencial (3 meses lado a lado, RM e RK)"],
