@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.360</span>
+      ">v2.14.361</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -12555,7 +12555,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.360","2026-11-15 17:20","comissões: conferência com o faturamento compara líquido com líquido (troca e devoluções dos dois lados) e mostra se a diferença está nas vendas ou nas devoluções"],
+const ALTERACOES=[["2.14.361","2026-11-15 18:10","compras: ler só as notas (XML, DANFE, planilha) da empresa escolhida pelo CNPJ do destinatário; tirar as de outras empresas já carregadas"],
+  ["2.14.360","2026-11-15 17:20","comissões: conferência com o faturamento compara líquido com líquido (troca e devoluções dos dois lados) e mostra se a diferença está nas vendas ou nas devoluções"],
   ["2.14.359","2026-11-15 16:40","cobrança pela API: usa a rota /bancos/cobrancas da API, filtro por vencimento/pagamento/emissão e situação no formato da API"],
   ["2.14.358","2026-11-15 16:10","consulta de cobrança pela API do banco: boletos emitidos aos clientes cruzados com o Contas a Receber (pago no banco e aberto no sistema, vencidos, sem título)"],
   ["2.14.357","2026-11-15 15:20","extrato do banco: buscar extrato e saldo pela API direto na aba (período/conta do filtro), saldo do banco ao lado do saldo do extrato e busca automática ao abrir"],
@@ -15080,18 +15081,19 @@ function importarComprasXML(fileList){
   window._comprasErros=window._comprasErros||[];
   const okFile=nm=>{ window._comprasErros=window._comprasErros.filter(e=>e.arquivo!==nm); };
   const errFile=(nm,motivo)=>{ window._comprasErros=window._comprasErros.filter(e=>e.arquivo!==nm); window._comprasErros.push({arquivo:nm,motivo,tipo:'XML'}); };
-  let lidos=0, novos=0, atualizados=0, erros=0, pend=files.length;
+  let lidos=0, novos=0, atualizados=0, erros=0, outraCia=0, pend=files.length;
   files.forEach(file=>{
     const rd=new FileReader();
     rd.onload=()=>{
       const nota=parseNFeXML(rd.result);
       if(!nota||!nota.chave){ erros++; errFile(file.name, (window._nfeErr||((nota&&!nota.chave)?'NF-e sem chave (Id ausente)':'XML inválido ou não é NF-e'))); }
+      else if(!_cmpCiaOk(nota)){ outraCia++; okFile(file.name); }
       else{
         lidos++; okFile(file.name);
         const idx=DB.compras.findIndex(n=>n.chave===nota.chave);
         if(idx>=0){ DB.compras[idx]=nota; atualizados++; } else { DB.compras.push(nota); novos++; }
       }
-      if(--pend===0){ _comprasSave(); toast(`${lidos} nota(s): ${novos} nova(s), ${atualizados} atualizada(s)`+(erros?` · ${erros} com erro`:'')); renderCompras(); }
+      if(--pend===0){ _comprasSave(); toast(`${lidos} nota(s): ${novos} nova(s), ${atualizados} atualizada(s)`+(outraCia?` · ${outraCia} de outra empresa ignorada(s)`:'')+(erros?` · ${erros} com erro`:'')); renderCompras(); }
     };
     rd.onerror=()=>{ erros++; errFile(file.name,'erro de leitura do arquivo'); if(--pend===0){ _comprasSave(); renderCompras(); } };
     rd.readAsText(file,'UTF-8');
@@ -15129,6 +15131,42 @@ function _pbrN(v){ // número pt-BR: remove milhar (.) e vírgula->ponto; tolera
   const n=parseFloat(v); return isFinite(n)?n:0;
 }
 const _NOSSOS_CNPJ=['60705616000190','05362103000115']; const _DEST_CNPJ=_NOSSOS_CNPJ[0]; /* R.M. FASHION (atual) + R.K. antigo = mesma empresa */
+// v2.14.361: LER SÓ AS NOTAS DE UMA EMPRESA (CIA) — a nota entra se a empresa escolhida for a destinatária (ou a emitente, na devolução)
+const CMP_CIAS_PADRAO=[{sigla:'RM FASHION', cnpj:'60705616000190'},{sigla:'RK', cnpj:'05362103000115'}];
+function _cmpCias(){ try{ const a=JSON.parse(localStorage.getItem('pinkpoa_cmp_cias')||'null'); return Array.isArray(a)&&a.length?a:CMP_CIAS_PADRAO; }catch(e){ return CMP_CIAS_PADRAO; } }
+function _cmpCiaSel(){ try{ return localStorage.getItem('pinkpoa_cmp_cia')||''; }catch(e){ return ''; } }
+function _cmpCiaSet(v){
+  if(v==='__novo'){ const c=String(prompt('CNPJ da empresa (só números ou com pontuação):','')||'').replace(/\D/g,''); if(c.length!==14){ if(c) toast('CNPJ precisa ter 14 dígitos','error'); renderCompras(); return; }
+    const n=String(prompt('Nome curto da empresa (ex.: RM FASHION):','')||'').trim().toUpperCase()||c;
+    const a=_cmpCias().filter(x=>x.cnpj!==c); a.push({sigla:n, cnpj:c}); try{ localStorage.setItem('pinkpoa_cmp_cias', JSON.stringify(a)); }catch(e){} v=c; }
+  try{ localStorage.setItem('pinkpoa_cmp_cia', v||''); }catch(e){} renderCompras();
+}
+function _cmpCiaOk(nota){
+  const sel=_cmpCiaSel(); if(!sel || !nota) return true;
+  const d=x=>String(x||'').replace(/\D/g,'');
+  const cs=[d(nota.dest&&nota.dest.cnpj), ...(nota.tipo==='devolucao'?[d(nota.forn&&nota.forn.cnpj)]:[]), ...((nota._cnpjs||[]).map(d))];
+  if(nota.origem==='planilha' && !d(nota.dest&&nota.dest.cnpj) && !(nota._cnpjs||[]).length) return true;   // planilha sem destinatário: não dá para saber
+  return cs.includes(sel);
+}
+function _cmpCiaHtml(){
+  const sel=_cmpCiaSel(), L=_cmpCias();
+  const fora=sel?(DB.compras||[]).filter(n=>!_cmpCiaOk(n)).length:0;
+  return `<div style="margin-top:10px;display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;font-size:12.5px">
+    <b>Ler só as notas de:</b>
+    <select class="form-control" style="width:auto;min-width:260px;${sel?'border-color:var(--pink);font-weight:700':''}" onchange="_cmpCiaSet(this.value)">
+      <option value="">Todas as empresas</option>
+      ${L.map(c=>`<option value="${c.cnpj}" ${sel===c.cnpj?'selected':''}>${c.sigla} — ${_cnpjFmt(c.cnpj)}</option>`).join('')}
+      <option value="__novo">➕ Outro CNPJ…</option></select>
+    ${sel?`<span style="color:var(--gray-5)">notas de outra empresa são ignoradas na leitura</span>`:''}
+    ${fora?`<button class="btn btn-secondary btn-sm" style="color:var(--red)" onclick="_cmpTirarOutrasCias()">🧹 Tirar ${fora} nota(s) de outras empresas já carregadas</button>`:''}
+  </div>`;
+}
+function _cmpTirarOutrasCias(){
+  const sel=_cmpCiaSel(); if(!sel) return; const fora=(DB.compras||[]).filter(n=>!_cmpCiaOk(n));
+  const nm=(_cmpCias().find(c=>c.cnpj===sel)||{}).sigla||_cnpjFmt(sel);
+  if(!fora.length || !confirm(`Tirar das Compras ${fora.length} nota(s) que não são de ${nm}?\n\nIsso apaga essas notas do módulo (pode ler de novo depois).`)) return;
+  DB.compras=(DB.compras||[]).filter(n=>_cmpCiaOk(n)); _comprasSave(); toast(`${fora.length} nota(s) de outras empresas retiradas`); renderCompras();
+}
 
 function parseDANFEText(txt){
   if(!txt || !/DANFE|NOTA FISCAL/i.test(txt)) return null;
@@ -15157,6 +15195,7 @@ function parseDANFEText(txt){
   // CNPJ emit = primeiro CNPJ != destinatário
   const cnpjs=(t.match(/\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2}/g)||[]).map(x=>x.replace(/\D/g,''));
   const fornCnpj=(cnpjs.find(c=>_NOSSOS_CNPJ.indexOf(c)<0)||cnpjs[0]||'');
+  const destCnpj=(cnpjs.find(c=>_NOSSOS_CNPJ.indexOf(c)>=0) || cnpjs.find(c=>c!==fornCnpj) || _DEST_CNPJ);   // v2.14.361: destinatário lido do DANFE
   const fornUF=grab(/-\s*([A-Z]{2})\s+Fone/)||'';
 
   // totais (grade) — extras default 0
@@ -15208,7 +15247,7 @@ function parseDANFEText(txt){
     chave, tipo, finNFe:(tipo==='devolucao'?'4':'1'), tpNF:'', nNF, serie,
     dhEmi:'', dataBR, natOp,
     forn:{ cnpj:fornCnpj, nome:fornNome, uf:fornUF, ie:'' },
-    dest:{ cnpj:_DEST_CNPJ, nome:'R.M. FASHION E CONFECCAO LTDA' },
+    dest:{ cnpj:destCnpj, nome:destCnpj===_DEST_CNPJ?'R.M. FASHION E CONFECCAO LTDA':'' }, _cnpjs:cnpjs,
     totais:{ vProd, vFrete, vDesc, vIPI, vST, vNF }, imp:{icms:vICMS,ipi:vIPI,st:vST,pis:vPIS,cofins:vCOFINS}, itens, vencimentos:[],
     origem:'pdf'
   };
@@ -15252,8 +15291,8 @@ function importarComprasPDF(fileList){
   const okFile=nm=>{ window._comprasErros=window._comprasErros.filter(e=>e.arquivo!==nm); };
   const errFile=(nm,motivo)=>{ window._comprasErros=window._comprasErros.filter(e=>e.arquivo!==nm); window._comprasErros.push({arquivo:nm,motivo,tipo:'PDF'}); };
   toast('Lendo PDF(s)…');
-  let novos=0,atualizados=0,erros=0,lidos=0,pend=files.length;
-  const fim=()=>{ if(--pend===0){ _comprasSave(); toast(`${lidos} PDF(s): ${novos} nova(s), ${atualizados} atualizada(s)`+(erros?` · ${erros} não lido(s) — tente o XML`:'')); renderCompras(); } };
+  let novos=0,atualizados=0,erros=0,lidos=0,outraCia=0,pend=files.length;
+  const fim=()=>{ if(--pend===0){ _comprasSave(); toast(`${lidos} PDF(s): ${novos} nova(s), ${atualizados} atualizada(s)`+(outraCia?` · ${outraCia} de outra empresa ignorada(s)`:'')+(erros?` · ${erros} não lido(s) — tente o XML`:'')); renderCompras(); } };
   files.forEach(file=>{
     const rd=new FileReader();
     rd.onload=async ()=>{
@@ -15261,6 +15300,7 @@ function importarComprasPDF(fileList){
         const txt=await _pdfToText(rd.result);
         const nota=parseDANFEText(txt);
         if(!nota||!nota.chave){ erros++; errFile(file.name,'DANFE não reconhecido (tente o XML)'); }
+        else if(!_cmpCiaOk(nota)){ outraCia++; okFile(file.name); }
         else{ lidos++; okFile(file.name); const idx=DB.compras.findIndex(n=>n.chave===nota.chave); if(idx>=0){DB.compras[idx]=nota;atualizados++;}else{DB.compras.push(nota);novos++;} }
       }catch(e){ erros++; const msg=String(e&&e.message); errFile(file.name, msg.includes('internet')?'leitor de PDF indisponível (offline)':'falha ao ler o PDF'); if(msg.includes('internet')) toast(e.message,'error'); }
       fim();
@@ -15392,6 +15432,7 @@ function importarComprasPlanilha(fileList){
         window._comprasErros=window._comprasErros.filter(e=>e.arquivo!==file.name);
         ignoradas+=ign||0;
         notas.forEach(nota=>{
+          if(!_cmpCiaOk(nota)){ ignoradas++; return; }   // v2.14.361: nota de outra empresa
           const idx=DB.compras.findIndex(n=>n.chave===nota.chave);
           if(idx<0){ DB.compras.push(nota); novos++; }
           else if((DB.compras[idx].itens||[]).length>0){
@@ -16473,6 +16514,7 @@ function renderCompras(){
         <button class="btn btn-secondary btn-sm" onclick="importarComprasPasta()">📁 Pasta inteira</button>
         ${notasAll.length?`<button class="btn btn-secondary btn-sm" onclick="gerarRelatorioCompras()">📈 Relatório PDF/Excel</button><button class="btn btn-secondary btn-sm" style="color:var(--red)" onclick="zerarCompras()">🗑 Zerar</button>`:''}
       </div>
+      ${_cmpCiaHtml()}
     </div>
 
     ${_comprasErroPanel()}
