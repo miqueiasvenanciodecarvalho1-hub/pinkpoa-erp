@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.359</span>
+      ">v2.14.360</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3591,8 +3591,8 @@ function renderComissoes() {
             const _cc=(window._concCache=window._concCache||{}), _ck=c.competencia_raw;
             if(!_cc[_ck]){ try{ _cc[_ck]=_concPorRep(_ck); }catch(e){ _cc[_ck]=[]; } setTimeout(()=>{ window._concCache={}; },0); }
             const _cf=(c.manual||c.origem==='gestor')?null:(_cc[_ck]||[]).find(x=>String(x.rep)===String(c.codigo_rep));
-            const _avFat=_cf && _cf.fat>0 && Math.abs(_cf.dif)>Math.max(100, _cf.fat*0.01)
-              ? `<div style="font-size:10px;line-height:1.3;color:#c0392b;cursor:pointer;text-decoration:underline dotted;white-space:nowrap" title="O faturamento líquido do representante no mês (todas as filiais) não bate com a base desta comissão — clique para conciliar nota a nota" onclick="event.stopPropagation();modalConciliarFatComi(['${c.codigo_rep}'],'${c.competencia_raw}',true)">⚠ fat. do mês ${fmt(_cf.fat)}</div>` : '';
+            const _avFat=_cf && _cf.fat>0 && Math.abs(_cf.dif)>=1
+              ? `<div style="font-size:10px;line-height:1.3;color:#c0392b;cursor:pointer;text-decoration:underline dotted;white-space:nowrap" title="Faturamento líquido (notas − troca − devoluções, todas as filiais) ${fmt(_cf.fat)} × comissão (títulos − abatimentos − devoluções) ${fmt(_cf.base)}. Vendas: ${fmt(_cf.liqFat)} × ${fmt(_cf.liqCom)} · Devoluções: ${fmt(_cf.devFat)} × ${fmt(_cf.devCom)} — clique para conciliar nota a nota" onclick="event.stopPropagation();modalConciliarFatComi(['${c.codigo_rep}'],'${c.competencia_raw}',true)">⚠ ${Math.abs(_cf.difLiq)>Math.max(1,_cf.liqFat*0.001)?`vendas dif. ${fmt(_cf.difLiq)}`:''}${Math.abs(_cf.difLiq)>Math.max(1,_cf.liqFat*0.001)&&Math.abs(_cf.difDev)>=1?' · ':''}${Math.abs(_cf.difDev)>=1?`devol. dif. ${fmt(_cf.difDev)}`:''}</div>` : '';
             return `<tr>
               <td>
                 <div style="font-weight:600">${ri.fantasia||ri.nome.split(' ').slice(0,2).join(' ')}</div>
@@ -8187,20 +8187,25 @@ function _comiNota(f){
 // Fora: gestores (base = empresa toda) e a Pronta Entrega automática (PENT, calculada do próprio faturamento).
 function _concPorRep(comp){
   const natsD=(typeof _natsDevolucao==='function')?_natsDevolucao():new Set(['ENT','RV1']);
-  const R={}, g=c=>R[c]||(R[c]={rep:c,fat:0,base:0,temComi:false});
+  // v2.14.360: compara LÍQUIDO com LÍQUIDO — faturamento (notas − troca − devoluções) × comissão (títulos − abatimentos − devoluções)
+  const R={}, g=c=>R[c]||(R[c]={rep:c,fat:0,base:0,temComi:false,devFat:0,devCom:0,liqFat:0,liqCom:0});
   (DB.comissoes||[]).forEach(c=>{
     if(c.competencia_raw!==comp || c.origem==='gestor' || c.origem==='pronta_auto' || String(c.codigo_rep)==='PENT') return;
     const r=g(String(c.codigo_rep)); r.temComi=true;
     (c.titulos||[]).forEach(t=>{ r.base+=Number(t.vlorvenc)||0; });
     (c.abatimentos||[]).forEach(a=>{ r.base-=Math.abs(Number(a.vlorliqu)||0); });
+    r.devCom+=Math.abs(Number(c.val_devolucoes)||0);
   });
+  Object.values(R).forEach(r=>{ r.liqCom=r.base; r.base-=r.devCom; });
   (DB.faturamento||[]).forEach(f=>{
     if(f.sit || String(f.mes||'').slice(0,7)!==comp) return;
     const k=String(f.rep||''); if(!R[k]) return;           // só quem tem comissão no mês
-    if(f.tp==='devolucao'){ if(natsD.has(String(f.nat||'').toUpperCase())) R[k].fat-=Math.abs(Number(f.vn)||0); }
-    else if(f.tp==='venda') R[k].fat+=Number(f.vn)||0;
+    if(f.tp==='devolucao'){ if(natsD.has(String(f.nat||'').toUpperCase())){ const d=Math.abs(Number(f.vn)||0); R[k].fat-=d; R[k].devFat+=d; } }
+    else if(f.tp==='venda'){ R[k].fat+=Number(f.vn)||0; R[k].liqFat+=Number(f.vn)||0; }
   });
-  return Object.values(R).map(r=>({...r, fat:+r.fat.toFixed(2), base:+r.base.toFixed(2), dif:+(r.fat-r.base).toFixed(2)}));
+  const r2=v=>+(+v).toFixed(2);
+  return Object.values(R).map(r=>({...r, fat:r2(r.fat), base:r2(r.base), dif:r2(r.fat-r.base), devFat:r2(r.devFat), devCom:r2(r.devCom), liqFat:r2(r.liqFat), liqCom:r2(r.liqCom),
+    difLiq:r2(r.liqFat-r.liqCom), difDev:r2(r.devFat-r.devCom)}));
 }
 function modalConciliarFatComi(reps, comp, soDif){
   reps=(reps||[]).map(String); const RS=new Set(reps), z=v=>String(v==null?'':v).trim().replace(/^0+/,'');
@@ -12550,7 +12555,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.359","2026-11-15 16:40","cobrança pela API: usa a rota /bancos/cobrancas da API, filtro por vencimento/pagamento/emissão e situação no formato da API"],
+const ALTERACOES=[["2.14.360","2026-11-15 17:20","comissões: conferência com o faturamento compara líquido com líquido (troca e devoluções dos dois lados) e mostra se a diferença está nas vendas ou nas devoluções"],
+  ["2.14.359","2026-11-15 16:40","cobrança pela API: usa a rota /bancos/cobrancas da API, filtro por vencimento/pagamento/emissão e situação no formato da API"],
   ["2.14.358","2026-11-15 16:10","consulta de cobrança pela API do banco: boletos emitidos aos clientes cruzados com o Contas a Receber (pago no banco e aberto no sistema, vencidos, sem título)"],
   ["2.14.357","2026-11-15 15:20","extrato do banco: buscar extrato e saldo pela API direto na aba (período/conta do filtro), saldo do banco ao lado do saldo do extrato e busca automática ao abrir"],
   ["2.14.356","2026-11-15 14:30","comissões: alerta quando o faturamento do representante no mês (todas as filiais) não bate com a base da comissão — clique concilia nota a nota"],
