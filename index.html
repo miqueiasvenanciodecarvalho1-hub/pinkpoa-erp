@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.352</span>
+      ">v2.14.353</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -7073,7 +7073,7 @@ async function importarTudoAuto() {
       const cands=(_scan.lidos||[]).filter(c=>(c.cols||[]).includes('vup-codimovi') && (c.cols||[]).includes('dc2-vlorliqu') && c.dados!==false && c.getFile);
       cands.sort((a,b)=>_ordemArq(b,a));
       const c=cands[0];
-      if(c && (_impForcar || !(_jaImportado(c.hash,'recebiveis') || _jaImportado(c.hash,'recebidos')) || ((DB.recebidos_info||{}).hash && DB.recebidos_info.hash!==c.hash))){
+      if(c && (_impForcar || DB.abat_repo_v!==2 || !(_jaImportado(c.hash,'recebiveis') || _jaImportado(c.hash,'recebidos')) || ((DB.recebidos_info||{}).hash && DB.recebidos_info.hash!==c.hash))){
         const r=await lerArqImport(await c.getFile()); const rows=(r&&r.rows)||[];
         if(rows.length && ('vup-codimovi' in rows[0])){
           const _rp=processarPagamentos(rows, c.nome);
@@ -7955,6 +7955,8 @@ function processarPagamentos(rows, arquivo, opts) {
     } }
   let sucesso=0,erros=0,semTitulo=0;
   DB.abat_repo = {};   // reconstruído a cada import de vpdpcl2
+  DB.abat_devol = [];  // v2.14.353: abatimentos que são devolução (fora da troca)
+  DB.abat_repo_v = 2;
   let _nAbat=0;
   rows.forEach(row=>{
     if(String(col(row,'vup-codimovi')).trim()!=='90') return;
@@ -7963,7 +7965,12 @@ function processarPagamentos(rows, arquivo, opts) {
     const val=Math.abs(pFloat(col(row,'dc2-vlorliqu','dc2-vlorprin','vup-vlorprin')));
     const mes=(pDate(col(row,'vup-datacont'))||'').slice(0,7);
     const k=fil+'|'+num+'|'+cliid;   // série varia (RO/**) — casa por filial+número+cliente
-    (DB.abat_repo[k]=DB.abat_repo[k]||[]).push({mes, valor:val, dt:pDate(col(row,'vup-datacont'))}); _nAbat++;
+    // v2.14.353: abatimento que é DEVOLUÇÃO (obs "NF DE DEVOLU…", "NFD…", ou documento da devolução série *D) NÃO é troca —
+    // a devolução já entra pela nota de devolução (ENT/RV1); contar aqui era duplicidade
+    const _obs=col(row,'dc2-observac'), _ser=col(row,'vup-seridpcl');
+    if(/DEVOL|\bNFD\b|NF\s*DEV|NFS\s*DE\s*DEV/i.test(_obs) || /^\*D$/i.test(_ser)){
+      (DB.abat_devol=DB.abat_devol||[]).push({k, ser:_ser, mes, valor:val, dt:pDate(col(row,'vup-datacont')), obs:_obs}); return; }
+    (DB.abat_repo[k]=DB.abat_repo[k]||[]).push({mes, valor:val, dt:pDate(col(row,'vup-datacont')), obs:_obs}); _nAbat++;
   });
   // v2.14.325: até que dia vai o arquivo (qualquer movimento) — para saber se as baixas do mês estão completas
   let _ateArq=''; rows.forEach(row=>{ const d=pDate(col(row,'vup-datacont')); if(d && d>_ateArq) _ateArq=d; });
@@ -12393,7 +12400,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.352","2026-11-15 12:00","faturamento — lista de notas: subtotal por dia (data de emissão)"],
+const ALTERACOES=[["2.14.353","2026-11-15 12:40","troca: abatimento do financeiro que é devolução (obs NF de devolução / série *D) sai da troca — já conta em Devoluções (era duplicidade)"],
+  ["2.14.352","2026-11-15 12:00","faturamento — lista de notas: subtotal por dia (data de emissão)"],
   ["2.14.351","2026-11-15 11:30","integração bancária: extratos e saldos pela API Gestão Financeira (chave só no computador, contas da Pink escolhidas, busca automática após a importação)"],
   ["2.14.350","2026-11-15 10:30","importação: situação das bases — arquivos lidos, os que faltaram, não reconhecidos, última importação e até que data cada base vai (ex.: faturamento pela emissão)"],
   ["2.14.349","2026-11-15 10:00","comissões: ao abrir, já seleciona o último mês completo (o mês anterior ao de hoje)"],
