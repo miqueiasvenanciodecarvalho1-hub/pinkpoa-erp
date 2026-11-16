@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.363</span>
+      ">v2.14.364</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3612,7 +3612,7 @@ function renderComissoes() {
               <td style="text-align:right;color:var(--red)">${(c.comi_liquida||0)<0?`(${fmt(Math.abs(c.comi_liquida||0))})`:'-'}</td>
               <td style="text-align:right;font-weight:600;color:${(c.total_comissao+(c.comi_liquida||0)-(c.val_devolucoes||0)*(Number(c.taxa)||7)/100)>=0?'var(--green)':'var(--red)'}">${fmt(c.total_comissao+(c.comi_liquida||0)-(c.val_devolucoes||0)*(Number(c.taxa)||7)/100)}</td>
               <td style="text-align:right;font-weight:700;color:var(--blue)">${fmt(comAdj)}</td>
-              <td><span class="badge ${c.status==='fechado'?'badge-green':c.status==='pago'?'badge-blue':'badge-amber'}">${c.status}</span>${(DB.pagar||[]).length?_cpvBadge(_cpvDeComissao(c)):''}</td>
+              <td><span class="badge ${c.status==='fechado'?'badge-green':c.status==='pago'?'badge-blue':'badge-amber'}">${c.status}</span>${c.status==='pendente'&&c.origem!=='gestor'?`<span title="Fechar só esta comissão" style="cursor:pointer;margin-left:4px" onclick="event.stopPropagation();_fecharComissaoUma(${c.id})">🔒</span>`:c.status==='fechado'&&_ehAdmin()&&c.origem!=='gestor'?`<span title="Reabrir só esta comissão" style="cursor:pointer;margin-left:4px;opacity:.6" onclick="event.stopPropagation();_reabrirComissaoUma(${c.id})">🔓</span>`:''}${(DB.pagar||[]).length?_cpvBadge(_cpvDeComissao(c)):''}</td>
               <td><div style="display:flex;gap:4px;justify-content:flex-end;white-space:nowrap">
                 <button class="btn btn-secondary btn-sm" onclick="modalDetalheComissao(${c.id})">${(c.abatimentos||[]).length?`<span class='badge badge-amber' style='font-size:10px;margin-right:4px'>${c.abatimentos.length} abat.</span>`:''} Ver</button>
                 ${c.manual?'':`<button class="btn btn-secondary btn-sm" title="Conciliar com o Faturamento — ${c.competencia}" onclick="event.stopPropagation();modalConciliarFatComi(['${c.codigo_rep}'],'${c.competencia_raw}')">⚖</button>`}
@@ -3692,10 +3692,12 @@ function modalFecharComissoes() {
     ${jaFechado?`<div style="border:1px solid #b7e1c4;background:#eafaf0;color:#1e7b45;border-radius:var(--radius);padding:10px 12px;font-size:13px;margin:6px 0 12px">
         🔒 <b>${rot(sel)} já está fechada</b>${quando?` desde ${new Date(quando).toLocaleString('pt-BR')}`:''}. Não é possível fechar de novo.
         ${_ehAdmin()?`<div style="font-size:11px;color:var(--gray-5);margin-top:4px">Se precisar corrigir algo, use <b>Reabrir período</b>: as comissões voltam para pendente e a comissão dos gestores é retirada${temPago?' (as já <b>pagas</b> não são mexidas)':''}. Depois feche de novo.</div>`:''}</div>`
-      :`<div style="font-size:13px;margin:6px 0 12px">Serão <b>fechadas ${pend.length}</b> comissão(ões) pendente(s) de ${rot(sel)}.${fech.length?` <span style="color:var(--gray-5)">(${fech.length} já fechada(s) antes)</span>`:''}</div>`}
+      :`<div style="font-size:13px;margin:6px 0 6px"><b>${pend.length}</b> comissão(ões) pendente(s) de ${rot(sel)} — marque quais fechar agora${fech.length?` <span style="color:var(--gray-5)">(${fech.length} já fechada(s) antes)</span>`:''}:</div>
+      ${pend.length?`<div style="font-size:11px;margin-bottom:4px"><span style="cursor:pointer;color:var(--pink);margin-right:10px" onclick="document.querySelectorAll('.fc-rep').forEach(c=>c.checked=true);_fcContar()">Todos</span><span style="cursor:pointer;color:var(--pink)" onclick="document.querySelectorAll('.fc-rep').forEach(c=>c.checked=false);_fcContar()">Nenhum</span> · <span id="fc-cont"></span></div>
+      <div style="max-height:200px;overflow:auto;border:1px solid var(--gray-2);border-radius:var(--radius);padding:4px 8px;margin-bottom:12px">${pend.slice().sort((a,b)=>String(a.representante||'').localeCompare(String(b.representante||''))).map(c=>`<label style="display:flex;gap:8px;align-items:center;font-size:12px;padding:2px 0;cursor:pointer"><input type="checkbox" class="fc-rep" value="${c.id}" data-rep="${c.codigo_rep}" checked onchange="_fcContar()"> <span style="flex:1">${String(c.representante||c.codigo_rep).toUpperCase()}</span><b>${fmt(c.total_comissao)}</b></label>`).join('')}</div>`:''}`}
     ${(()=>{ if(jaFechado) return ''; const C=_concPorRep(sel); if(!C.length) return '';
         const nr=c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(c)); return r?String(r.fantasia||r.nome).toUpperCase():'REP '+c; };
-        const dif=C.filter(x=>Math.abs(x.dif)>=1).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif)); window._fcDif=dif.length;
+        const dif=C.filter(x=>Math.abs(x.dif)>=1).sort((a,b)=>Math.abs(b.dif)-Math.abs(a.dif)); window._fcDif=dif.length; window._fcDifReps=new Set(dif.map(x=>String(x.rep)));
         const tf=C.reduce((a,x)=>a+x.fat,0), tb=C.reduce((a,x)=>a+x.base,0);
         return `<div style="border:1px solid ${dif.length?'#f5c2c7':'#b7e1c4'};background:${dif.length?'#fff5f5':'#eafaf0'};border-radius:var(--radius);padding:10px 12px;margin-bottom:12px">
           <div style="font-weight:700;font-size:13px">${dif.length?'⚠':'✅'} Conferência com o faturamento de ${rot(sel)}: ${C.length-dif.length} de ${C.length} representante(s) batem</div>
@@ -3703,7 +3705,7 @@ function modalFecharComissoes() {
           ${dif.length?`<div style="max-height:180px;overflow:auto"><table style="font-size:12px;width:100%"><thead><tr><th>Representante</th><th style="text-align:right">Faturamento</th><th style="text-align:right">Base comissão</th><th style="text-align:right">Diferença</th><th></th></tr></thead><tbody>
             ${dif.map(x=>`<tr><td>${nr(x.rep)}</td><td style="text-align:right">${fmt(x.fat)}</td><td style="text-align:right">${fmt(x.base)}</td><td style="text-align:right;font-weight:700;color:var(--red)">${fmt(x.dif)}</td><td style="text-align:right"><button class="btn btn-secondary btn-sm" title="Ver nota a nota" onclick="closeModal();modalConciliarFatComi(['${x.rep}'],'${sel}',true)">⚖</button></td></tr>`).join('')}
           </tbody></table></div>
-          <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:8px;cursor:pointer"><input type="checkbox" id="fc-ok-dif" onchange="const b=document.getElementById('fc-btn-ok');if(b)b.disabled=!this.checked"> Conferi as diferenças e quero fechar assim mesmo</label>`:''}
+          <label style="display:flex;gap:6px;align-items:center;font-size:12px;margin-top:8px;cursor:pointer"><input type="checkbox" id="fc-ok-dif"> Conferi as diferenças e quero fechar assim mesmo</label>`:''}
         </div>`; })()}
     ${gest.length?`<div style="border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 12px;background:var(--gray-1)">
       ${gNovos.length?`<label style="display:flex;gap:8px;align-items:center;font-weight:700;font-size:13px;cursor:pointer"><input type="checkbox" id="fc-gest" checked> Lançar a comissão dos gestores (sobre o faturamento)</label>
@@ -3714,17 +3716,35 @@ function modalFecharComissoes() {
     :`<div style="font-size:12px;color:var(--gray-5)">Nenhum gestor com comissão sobre faturamento cadastrado.</div>`}`,
     `<button class="btn btn-secondary" onclick="closeModal()">${jaFechado?'Fechar':'Cancelar'}</button>
      ${jaFechado ? (_ehAdmin()?`<button class="btn btn-secondary" style="color:var(--red);border-color:var(--red)" onclick="_reabrirPeriodo()">Reabrir período</button>`:'')
-       : `<button class="btn btn-primary" id="fc-btn-ok" ${window._fcDif?'disabled':''} onclick="_fecharPeriodoConfirmar()">Confirmar Fechamento</button>`}`);
+       : `<button class="btn btn-primary" id="fc-btn-ok" onclick="_fecharPeriodoConfirmar()">Confirmar Fechamento</button>`}`);
+  _fcContar();
 }
+function _fcContar(){ const el=document.getElementById('fc-cont'); if(!el) return; const t=document.querySelectorAll('.fc-rep').length, m=document.querySelectorAll('.fc-rep:checked').length; el.textContent=`${m} de ${t} marcada(s)`; }
 function _fecharPeriodoConfirmar(){
   const comp=(document.getElementById('fc-comp')||{}).value||''; if(!comp) return toast('Escolha a competência','error');
-  if(window._fcDif && !(document.getElementById('fc-ok-dif')||{}).checked) return toast('Há diferenças com o faturamento — confira e marque a confirmação','error');
+  // v2.14.364: fechamento individual — só as marcadas
+  const cks=[...document.querySelectorAll('.fc-rep')], sel=cks.length?new Set(cks.filter(c=>c.checked).map(c=>String(c.value))):null;
+  const selReps=new Set(cks.filter(c=>c.checked).map(c=>String(c.dataset.rep)));
+  if(window._fcDif && (!sel || [...(window._fcDifReps||[])].some(r=>selReps.has(r))) && !(document.getElementById('fc-ok-dif')||{}).checked) return toast('Há diferenças com o faturamento em representante marcado — confira e marque a confirmação','error');
   if(window._fcOcupado) return; window._fcOcupado=true; setTimeout(()=>window._fcOcupado=false,1500);   // evita duplo clique
   const agora=new Date().toISOString();
-  let n=0; (DB.comissoes||[]).forEach(c=>{ if(c.status==='pendente' && c.competencia_raw===comp){ c.status='fechado'; c.fechado_em=agora; n++; } });
+  let n=0; (DB.comissoes||[]).forEach(c=>{ if(c.status==='pendente' && c.competencia_raw===comp && (!sel || sel.has(String(c.id)))){ c.status='fechado'; c.fechado_em=agora; n++; } });
   const g=(document.getElementById('fc-gest')||{}).checked ? _gestorLancar(comp) : 0;
   if(!n && !g){ closeModal(); return toast('Este período já estava fechado — nada foi alterado','error'); }
   closeModal(); renderComissoes(); toast(`Período fechado ✅ — ${n} comissão(ões)${g?` + ${g} gestor(es) lançado(s)`:''}`);
+}
+function _fecharComissaoUma(id){   // v2.14.364: fechamento individual
+  const c=(DB.comissoes||[]).find(x=>x.id===id); if(!c || c.status!=='pendente') return;
+  const C=(typeof _concPorRep==='function'?_concPorRep(c.competencia_raw):[]).find(x=>String(x.rep)===String(c.codigo_rep));
+  const aviso=C && Math.abs(C.dif)>=1 ? `\n\n⚠ Diferença com o faturamento: ${fmt(C.dif)}` : '';
+  if(!confirm(`Fechar a comissão de ${String(c.representante||c.codigo_rep).toUpperCase()} — ${c.competencia}?\nValor: ${fmt(c.total_comissao)}${aviso}`)) return;
+  c.status='fechado'; c.fechado_em=new Date().toISOString(); renderComissoes(); toast('Comissão fechada ✅');
+}
+function _reabrirComissaoUma(id){
+  if(!_ehAdmin()) return toast('Só o administrador pode reabrir','error');
+  const c=(DB.comissoes||[]).find(x=>x.id===id); if(!c || c.status!=='fechado') return;
+  if(!confirm(`Reabrir a comissão de ${String(c.representante||c.codigo_rep).toUpperCase()} — ${c.competencia}? Volta para PENDENTE.`)) return;
+  c.status='pendente'; delete c.fechado_em; renderComissoes(); toast('Comissão reaberta');
 }
 function _reabrirPeriodo(){
   if(!_ehAdmin()) return toast('Só o administrador pode reabrir','error');
@@ -12559,7 +12579,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.363","2026-11-16 10:00","usuários: opção \"Ver o valor da comissão no Faturamento\" — o usuário vê a comissão só dos representantes dele (card Comissão Estimada e coluna da nota)"],
+const ALTERACOES=[["2.14.364","2026-11-16 10:40","comissões: fechamento individual — no Fechar Período marque quais representantes fechar; na lista, 🔒 fecha só aquela comissão e 🔓 (admin) reabre só ela"],
+  ["2.14.363","2026-11-16 10:00","usuários: opção \"Ver o valor da comissão no Faturamento\" — o usuário vê a comissão só dos representantes dele (card Comissão Estimada e coluna da nota)"],
   ["2.14.362","2026-11-16 09:00","faturamento do usuário restrito: as devoluções lançadas por XML não somem mais da tela (o usuário não recebe os XMLs; agora usa as que vêm prontas do servidor)"],
   ["2.14.361","2026-11-15 18:10","compras: ler só as notas (XML, DANFE, planilha) da empresa escolhida pelo CNPJ do destinatário; tirar as de outras empresas já carregadas"],
   ["2.14.360","2026-11-15 17:20","comissões: conferência com o faturamento compara líquido com líquido (troca e devoluções dos dois lados) e mostra se a diferença está nas vendas ou nas devoluções"],
