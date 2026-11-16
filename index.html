@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.365</span>
+      ">v2.14.366</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1923,7 +1923,7 @@ function navigate(page) {
   fecharSidebar();
   // v252: a TROCA (vpdpcl2) é recalculada nota a nota em qualquer tela — antes só o Faturamento recalculava, e Comissões /
   // relatórios usavam o valor guardado (ex.: set/26 troca 32.547,40 × 39.491,95 no Faturamento). Idempotente.
-  try{ if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat(); }catch(e){}
+  try{ if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat(); }catch(e){} try{ _aplicarEstornosFat(); }catch(e){}
   // v212: só abre o que o usuário tem liberado
   if (_PAGINAS_ADMIN.includes(page) ? !_ehAdmin() : !_perm(page)) {
     const p = _primeiraPagina();
@@ -2794,6 +2794,7 @@ function _fatNatsPadrao(){
 function renderFaturamento() {
   try{ _fatNormDevolucoes(); }catch(e){}
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();   // reaplica a troca (vpdpcl2) sempre — idempotente
+  try{ _aplicarEstornosFat(); }catch(e){}
   if(typeof _sincronizarFaturamentoManual==='function') _sincronizarFaturamentoManual();
   try{ _sincronizarDevolXML(); }catch(e){ console.warn('devolXML',e); }
   // v250: a seleção fica MARCADA (tipo, mês, ano, representante, filial e naturezas) — ao sair e voltar, ou ao recarregar,
@@ -3179,6 +3180,50 @@ function gerarNotaPDF(id){
 }
 // v2.14.365: a linha abre pela chave (código entre aspas + filial/nota/série) — código com letras (XML) ou repetido não trava mais o clique
 function _nvArg(f){ return `'${String(f.id).replace(/[^\w.-]/g,'')}','${String(f.fil||'').replace(/[^\w.-]/g,'')}|${String(f.nf||'').replace(/[^\w.-]/g,'')}|${String(f.sr||'').replace(/[^\w.-]/g,'')}|${String(f.tp||'')}'`; }
+// v2.14.366: ESTORNO DA DEVOLUÇÃO — nota com situação "d" (devolvida) volta a contar como venda no faturamento e, se marcado,
+// entra como título na comissão pendente do representante. Guardado em DB.fat_estornos e reaplicado após cada importação.
+function _estKey(f){ return [f.fil,f.nf,f.sr].map(v=>String(v==null?'':v).replace(/[^\w.-]/g,'')).join('|'); }
+function _estComissaoDe(f){ return (DB.comissoes||[]).find(c=>String(c.codigo_rep)===String(f.rep) && c.competencia_raw===f.mes && !c.manual); }
+function _estTaxa(f,c){ return Number(f.taxa)>0?Number(f.taxa):((typeof _taxaRepMes==='function'?_taxaRepMes(f.rep,f.mes):0)||Number(c&&c.taxa)||0); }
+function _aplicarEstornosFat(){
+  const E=DB.fat_estornos; if(!E || typeof E!=='object' || !Object.keys(E).length) return 0; let n=0;
+  (DB.faturamento||[]).forEach(f=>{ const k=_estKey(f), e=E[k]; if(!e) return;
+    if(f.sit==='D'){ f.sit=''; f.tp='venda'; f.estornoDev=true; n++; }
+    if(!f.estornoDev || !e.comi) return;
+    const c=_estComissaoDe(f); if(!c || c.status!=='pendente') return;
+    c.titulos=c.titulos||[]; if(c.titulos.some(t=>t._estorno===k)) return;
+    const tx=_estTaxa(f,c), v=Number(f.vn)||0;
+    const cli=(DB.clientes||[]).find(x=>String(x.codigo)===String(f.cli));
+    c.titulos.push({titulo:String(f.nf), serie:String(f.sr||''), fil:String(f.fil||''), cli_cod:String(f.cli||''), cli_nome:cli?(cli.razao_social||cli.nome_fantasia||''):'', data:f.dt, taxa:tx, vlorvenc:+v.toFixed(2), comivenc:+(v*tx/100).toFixed(2), parcelas:1, _estorno:k});
+    c.total_vendas=+((Number(c.total_vendas)||0)+v).toFixed(2); c.total_comissao=+((Number(c.total_comissao)||0)+v*tx/100).toFixed(2); c.qtd_notas=(Number(c.qtd_notas)||0)+1; n++; });
+  return n;
+}
+function _estornarDevolNota(k){
+  if(!_ehAdmin()) return toast('Só o administrador pode estornar','error');
+  const f=(DB.faturamento||[]).find(x=>_estKey(x)===k && x.sit==='D'); if(!f) return toast('Nota não encontrada','error');
+  const c=_estComissaoDe(f), nr=(typeof nomeRep==='function'?nomeRep(f.rep):'')||f.rep, ok=c&&c.status==='pendente';
+  openModal('Estornar devolução', `<div style="font-size:13px">A NF <b>${f.nf}/${f.sr}</b> (${fmt(f.vn)}) está marcada como <b>devolvida</b> no ERP. O estorno faz ela voltar a contar como <b>venda</b> no faturamento.</div>
+    <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:13px;cursor:pointer"><input type="checkbox" id="est-comi" ${ok?'checked':'disabled'} style="margin-top:2px">
+      <span>Incluir também na <b>comissão</b> de ${String(nr).toUpperCase()} — ${f.mes}${!c?' <span style="color:var(--red)">(não há comissão importada deste mês)</span>':!ok?` <span style="color:var(--red)">(comissão ${c.status} — reabra para incluir)</span>`:` <span style="color:var(--gray-5)">(+ ${fmt((Number(f.vn)||0)*_estTaxa(f,c)/100)} de comissão)</span>`}</span></label>
+    <div style="font-size:11px;color:var(--gray-5);margin-top:10px">Fica guardado: ao importar o faturamento ou a comissão de novo, o estorno é reaplicado. Para voltar atrás, abra a nota e clique em Desfazer estorno.</div>`,
+    `<button class="btn btn-secondary" onclick="closeModal()">Cancelar</button><button class="btn btn-primary" onclick="_estornarConfirmar('${k}')">Estornar</button>`);
+}
+function _estRedesenhar(){ try{ if(CURRENT_PAGE==='faturamento') renderFaturamento(); else if(CURRENT_PAGE==='comissoes') renderComissoes(); }catch(e){} }
+function _estornarConfirmar(k){
+  const comi=!!(document.getElementById('est-comi')||{}).checked;
+  DB.fat_estornos=DB.fat_estornos&&typeof DB.fat_estornos==='object'?DB.fat_estornos:{};
+  DB.fat_estornos[k]={em:new Date().toISOString(), por:(USER&&USER.nome)||'', comi};
+  _aplicarEstornosFat(); closeModal(); toast('Devolução estornada ✅'+(comi?' — incluída na comissão':'')); _estRedesenhar();
+}
+function _desfazerEstornoNota(k){
+  if(!_ehAdmin()) return;
+  if(!confirm('Desfazer o estorno? A nota volta a ser devolvida (fora das vendas) e sai da comissão pendente.')) return;
+  (DB.faturamento||[]).forEach(f=>{ if(_estKey(f)!==k || !f.estornoDev) return; f.sit='D'; f.tp='devolucao'; delete f.estornoDev;
+    const c=_estComissaoDe(f), t=c&&(c.titulos||[]).find(t=>t._estorno===k);
+    if(t && c.status==='pendente'){ c.titulos=c.titulos.filter(x=>x._estorno!==k); c.total_vendas=+((Number(c.total_vendas)||0)-(Number(t.vlorvenc)||0)).toFixed(2); c.total_comissao=+((Number(c.total_comissao)||0)-(Number(t.comivenc)||0)).toFixed(2); c.qtd_notas=Math.max(0,(Number(c.qtd_notas)||0)-1); } });
+  if(DB.fat_estornos) delete DB.fat_estornos[k];
+  closeModal(); toast('Estorno desfeito'); _estRedesenhar();
+}
 function modalVerNota(id, chave) {
   const L=DB.faturamento||[], z=v=>String(v==null?'':v).replace(/[^\w.-]/g,'');
   let f=null;
@@ -3208,7 +3253,7 @@ function modalVerNota(id, chave) {
         <div style="margin-left:auto">
           <span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:13px;padding:5px 14px">
             ${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devolução':'Entrada'}
-          </span>${f.sit?`<span style="font-size:12px;color:${f.sit==='C'?'var(--red)':'#b45309'};font-weight:600">${f.sit==='C'?'🚫 CANCELADA no ERP (situação *) — fora dos totais':'↩ DEVOLVIDA inteira pelo cliente (situação "d" no ERP) — fora das vendas e das devoluções'}</span>`:''}
+          </span>${f.sit?`<span style="font-size:12px;color:${f.sit==='C'?'var(--red)':'#b45309'};font-weight:600">${f.sit==='C'?'🚫 CANCELADA no ERP (situação *) — fora dos totais':'↩ DEVOLVIDA inteira pelo cliente (situação "d" no ERP) — fora das vendas e das devoluções'}</span>`:''}${f.sit==='D'&&_ehAdmin()?`<button class="btn btn-secondary btn-sm" style="color:#1e7b45;border-color:#1e7b45" onclick="_estornarDevolNota('${_estKey(f)}')">↺ Estornar devolução</button>`:''}${f.estornoDev?`<span style="font-size:12px;color:#1e7b45;font-weight:600">↺ Devolução ESTORNADA — conta como venda${((DB.fat_estornos||{})[_estKey(f)]||{}).comi?' e na comissão':''}</span>${_ehAdmin()?`<button class="btn btn-secondary btn-sm" style="color:var(--red);border-color:var(--red)" onclick="_desfazerEstornoNota('${_estKey(f)}')">Desfazer estorno</button>`:''}`:''}
         </div>
       </div>
 
@@ -3397,6 +3442,7 @@ function _cpvVincular(i, ignorar){
 function renderComissoes() {
   try{ _abatTaxaVenda(); }catch(e){ console.warn('abatTaxa',e); }
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();   // garante a troca aplicada p/ a base da comissão
+  try{ _aplicarEstornosFat(); }catch(e){}
   const filtComp   = document.getElementById('filtro-comp')?.value||'';
   const filtReps   = (window._comiReps||[]).map(String); const filtRep = filtReps.length===1?filtReps[0]:'';
   // v2.14.349: ao ABRIR a tela, já vem no último mês COMPLETO (o mês anterior ao de hoje — ex.: em 15/11, Outubro);
@@ -4264,7 +4310,7 @@ async function recuperarBaixasHistorico(silencioso){
       if(d.recebidos_outros) DB.recebidos_outros=d.recebidos_outros;
       if(d.abat_repo) DB.abat_repo=d.abat_repo;
       DB.recebidos_info=Object.assign({}, d.recebidos_info||{}, {ate, recuperado_de:v.criado_em});
-      try{ if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat(); }catch(e){}
+      try{ if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat(); }catch(e){} try{ _aplicarEstornosFat(); }catch(e){}
       try{ _asAgendar(); }catch(e){}
       toast(`Baixas recuperadas do histórico do servidor (versão de ${new Date(v.criado_em).toLocaleString('pt-BR')}): ${d.recebidos.length} baixa(s), movimentos até ${fmtDate(ate)} — salvando de novo no servidor`);
       return d.recebidos.length;
@@ -12584,7 +12630,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.365","2026-11-16 11:20","faturamento: nota que não abria ao clicar (código com letras ou repetido) agora abre — busca pela filial/nota/série"],
+const ALTERACOES=[["2.14.366","2026-11-16 12:00","faturamento: estornar a devolução de uma nota (situação \"d\" no ERP) — volta a contar como venda e, se marcado, entra na comissão pendente do representante; dá para desfazer"],
+  ["2.14.365","2026-11-16 11:20","faturamento: nota que não abria ao clicar (código com letras ou repetido) agora abre — busca pela filial/nota/série"],
   ["2.14.364","2026-11-16 10:40","comissões: fechamento individual — no Fechar Período marque quais representantes fechar; na lista, 🔒 fecha só aquela comissão e 🔓 (admin) reabre só ela"],
   ["2.14.363","2026-11-16 10:00","usuários: opção \"Ver o valor da comissão no Faturamento\" — o usuário vê a comissão só dos representantes dele (card Comissão Estimada e coluna da nota)"],
   ["2.14.362","2026-11-16 09:00","faturamento do usuário restrito: as devoluções lançadas por XML não somem mais da tela (o usuário não recebe os XMLs; agora usa as que vêm prontas do servidor)"],
