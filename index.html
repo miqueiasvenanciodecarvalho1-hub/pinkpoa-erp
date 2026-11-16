@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.364</span>
+      ">v2.14.365</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2681,12 +2681,12 @@ function _fatConsolDrill(k){
   const grpLbl=dim==='cli'?_nc(k):dim==='rep'?_nr(k):dim==='fil'?('Filial '+k):String(k);
   const _n=v=>Number(v)||0;
   const tot=notas.reduce((t,f)=>{const sg=f.tp==='devolucao'?-1:1;t.vnB+=sg*_n(f.vnBruto!=null?f.vnBruto:f.vn);t.ab+=_n(f.abatRepo);t.vn+=sg*_n(f.vn);t.comi+=_n(_comiNota(f));return t;},{vnB:0,ab:0,vn:0,comi:0});
-  const rows=notas.map(f=>`<tr onclick="closeModal();modalVerNota(${f.id})" style="cursor:pointer"><td style="font-family:monospace">${f.nf}/${f.sr}</td><td>${_fd(f.dt)}</td><td>${dim==='cli'?_nr(f.rep):_nc(f.cli)}</td><td><span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:10px">${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devol.':'Entr.'}</span></td><td style="text-align:right;color:${f.tp==='devolucao'?'var(--red)':'var(--gray-5)'}">${f.tp==='devolucao'?'−':''}${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td><td style="text-align:right;color:${(f.abatRepo||0)>0?'#b45309':'var(--gray-3)'}">${(f.abatRepo||0)>0?'−'+fmt(f.abatRepo):'—'}</td><td style="text-align:right;font-weight:700;color:${f.tp==='devolucao'?'var(--red)':'inherit'}">${f.tp==='devolucao'?'−':''}${fmt(f.vn)}</td><td style="text-align:right;color:var(--pink)">${f.tp==='devolucao'?'−':''}${fmt(_comiNota(f))}</td></tr>`).join('');
+  const rows=notas.map(f=>`<tr onclick="closeModal();modalVerNota(${_nvArg(f)})" style="cursor:pointer"><td style="font-family:monospace">${f.nf}/${f.sr}</td><td>${_fd(f.dt)}</td><td>${dim==='cli'?_nr(f.rep):_nc(f.cli)}</td><td><span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:10px">${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devol.':'Entr.'}</span></td><td style="text-align:right;color:${f.tp==='devolucao'?'var(--red)':'var(--gray-5)'}">${f.tp==='devolucao'?'−':''}${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td><td style="text-align:right;color:${(f.abatRepo||0)>0?'#b45309':'var(--gray-3)'}">${(f.abatRepo||0)>0?'−'+fmt(f.abatRepo):'—'}</td><td style="text-align:right;font-weight:700;color:${f.tp==='devolucao'?'var(--red)':'inherit'}">${f.tp==='devolucao'?'−':''}${fmt(f.vn)}</td><td style="text-align:right;color:var(--pink)">${f.tp==='devolucao'?'−':''}${fmt(_comiNota(f))}</td></tr>`).join('');
   // v2.14.311: resumo POR REPRESENTANTE (clique abre as notas dele) + lista completa com a coluna do representante
   window._fatDrillK=k;
   const modo=(dim==='rep')?(window._fatDrillModo==='dia'?'dia':'lista'):(window._fatDrillModo||'rep');
   const sg=f=>f.tp==='devolucao'?-1:1;
-  const linhaNota=(f,semRep)=>`<tr onclick="closeModal();modalVerNota(${f.id})" style="cursor:pointer"><td style="font-family:monospace">${f.nf}/${f.sr}</td><td>${_fd(f.dt)}</td><td>${_nc(f.cli)}</td>${(dim==='rep'||semRep)?'':`<td>${_nr(f.rep)}</td>`}<td><span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:10px">${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devol.':'Entr.'}</span></td><td style="text-align:right;color:${f.tp==='devolucao'?'var(--red)':'var(--gray-5)'}">${f.tp==='devolucao'?'−':''}${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td><td style="text-align:right;color:${(f.abatRepo||0)>0?'#b45309':'var(--gray-3)'}">${(f.abatRepo||0)>0?'−'+fmt(f.abatRepo):'—'}</td><td style="text-align:right;font-weight:700;color:${f.tp==='devolucao'?'var(--red)':'inherit'}">${f.tp==='devolucao'?'−':''}${fmt(f.vn)}</td><td style="text-align:right;color:var(--pink)" class="so-master">${f.tp==='devolucao'?'−':''}${fmt(_comiNota(f))}</td></tr>`;
+  const linhaNota=(f,semRep)=>`<tr onclick="closeModal();modalVerNota(${_nvArg(f)})" style="cursor:pointer"><td style="font-family:monospace">${f.nf}/${f.sr}</td><td>${_fd(f.dt)}</td><td>${_nc(f.cli)}</td>${(dim==='rep'||semRep)?'':`<td>${_nr(f.rep)}</td>`}<td><span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:10px">${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devol.':'Entr.'}</span></td><td style="text-align:right;color:${f.tp==='devolucao'?'var(--red)':'var(--gray-5)'}">${f.tp==='devolucao'?'−':''}${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td><td style="text-align:right;color:${(f.abatRepo||0)>0?'#b45309':'var(--gray-3)'}">${(f.abatRepo||0)>0?'−'+fmt(f.abatRepo):'—'}</td><td style="text-align:right;font-weight:700;color:${f.tp==='devolucao'?'var(--red)':'inherit'}">${f.tp==='devolucao'?'−':''}${fmt(f.vn)}</td><td style="text-align:right;color:var(--pink)" class="so-master">${f.tp==='devolucao'?'−':''}${fmt(_comiNota(f))}</td></tr>`;
   const cab=(semRep)=>`<tr><th>Nota/Sér.</th><th>Data</th><th>Cliente</th>${(dim==='rep'||semRep)?'':'<th>Representante</th>'}<th>Tipo</th><th style="text-align:right">NF Bruto</th><th style="text-align:right">Troca</th><th style="text-align:right">NF Líq.</th><th style="text-align:right" class="so-master">Comissão</th></tr>`;
   const ncol=dim==='rep'?8:9;
   const totLinha=`<tfoot style="background:var(--gray-1);font-weight:700"><tr style="border-top:2px solid var(--gray-2)"><td colspan=${ncol-4}>TOTAL (${notas.length})</td><td style="text-align:right">${fmt(tot.vnB)}</td><td style="text-align:right;color:#b45309">−${fmt(tot.ab)}</td><td style="text-align:right">${fmt(tot.vn)}</td><td style="text-align:right;color:var(--pink)" class="so-master">${fmt(tot.comi)}</td></tr></tfoot>`;
@@ -3031,7 +3031,7 @@ function renderFaturamento() {
             const head=`<thead><tr>${vis.map(c=>`<th style="${num(c)?'text-align:right;':''}${c.k==='cli'?'min-width:220px;':''}">${c.rot}</th>`).join('')}</tr></thead>`;
             const body=slice.length ? slice.map(f=>{
               const isDev=f.tp==='devolucao';
-              return `<tr style="cursor:pointer;opacity:${f.sit?'.6':'1'};background:${f.sit?'#fafafa':isDev?'rgba(185,28,28,.03)':''}" onclick="modalVerNota(${f.id})">${vis.map(c=>c.td(f,{nomeCli,nomeRep,isDev})).join('')}</tr>`; }).join('')
+              return `<tr style="cursor:pointer;opacity:${f.sit?'.6':'1'};background:${f.sit?'#fafafa':isDev?'rgba(185,28,28,.03)':''}" onclick="modalVerNota(${_nvArg(f)})">${vis.map(c=>c.td(f,{nomeCli,nomeRep,isDev})).join('')}</tr>`; }).join('')
               : `<tr><td colspan="${vis.length}"><div class="empty-state"><div class="es-icon">🧾</div><div class="es-text">Nenhuma nota encontrada</div></div></td></tr>`;
             const iTot=vis.findIndex(num), lead=iTot<0?vis.length:iTot;
             const foot=slice.length?`<tfoot style="background:var(--gray-1);font-weight:700;font-size:11px"><tr style="border-top:2px solid var(--gray-2)">
@@ -3177,9 +3177,14 @@ function gerarNotaPDF(id){
     + `</div>` + repoBloco + `</body></html>`;
   abrirPDFOverlay(html);
 }
-function modalVerNota(id) {
-  const f = DB.faturamento.find(x=>x.id===id);
-  if(!f) return;
+// v2.14.365: a linha abre pela chave (código entre aspas + filial/nota/série) — código com letras (XML) ou repetido não trava mais o clique
+function _nvArg(f){ return `'${String(f.id).replace(/[^\w.-]/g,'')}','${String(f.fil||'').replace(/[^\w.-]/g,'')}|${String(f.nf||'').replace(/[^\w.-]/g,'')}|${String(f.sr||'').replace(/[^\w.-]/g,'')}|${String(f.tp||'')}'`; }
+function modalVerNota(id, chave) {
+  const L=DB.faturamento||[], z=v=>String(v==null?'':v).replace(/[^\w.-]/g,'');
+  let f=null;
+  if(chave){ const [fl,nf,sr,tp]=String(chave).split('|'); const c=L.filter(x=>z(x.fil)===fl && z(x.nf)===nf && z(x.sr)===sr && (!tp || String(x.tp||'')===tp)); f=c.find(x=>z(x.id)===z(id))||c[0]||null; }
+  if(!f) f=L.find(x=>z(x.id)===z(id));
+  if(!f) return toast('Nota não encontrada','error');
   const cli = DB.clientes.find(c=>c.codigo===f.cli);
   const rep = DB.representantes.find(r=>r.codigo===f.rep);
   const _repoKey = String(f.fil||'')+'|'+String(f.nf||'')+'|'+String(f.cli||'');
@@ -3203,7 +3208,7 @@ function modalVerNota(id) {
         <div style="margin-left:auto">
           <span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:13px;padding:5px 14px">
             ${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devolução':'Entrada'}
-          </span>
+          </span>${f.sit?`<span style="font-size:12px;color:${f.sit==='C'?'var(--red)':'#b45309'};font-weight:600">${f.sit==='C'?'🚫 CANCELADA no ERP (situação *) — fora dos totais':'↩ DEVOLVIDA inteira pelo cliente (situação "d" no ERP) — fora das vendas e das devoluções'}</span>`:''}
         </div>
       </div>
 
@@ -12579,7 +12584,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.364","2026-11-16 10:40","comissões: fechamento individual — no Fechar Período marque quais representantes fechar; na lista, 🔒 fecha só aquela comissão e 🔓 (admin) reabre só ela"],
+const ALTERACOES=[["2.14.365","2026-11-16 11:20","faturamento: nota que não abria ao clicar (código com letras ou repetido) agora abre — busca pela filial/nota/série"],
+  ["2.14.364","2026-11-16 10:40","comissões: fechamento individual — no Fechar Período marque quais representantes fechar; na lista, 🔒 fecha só aquela comissão e 🔓 (admin) reabre só ela"],
   ["2.14.363","2026-11-16 10:00","usuários: opção \"Ver o valor da comissão no Faturamento\" — o usuário vê a comissão só dos representantes dele (card Comissão Estimada e coluna da nota)"],
   ["2.14.362","2026-11-16 09:00","faturamento do usuário restrito: as devoluções lançadas por XML não somem mais da tela (o usuário não recebe os XMLs; agora usa as que vêm prontas do servidor)"],
   ["2.14.361","2026-11-15 18:10","compras: ler só as notas (XML, DANFE, planilha) da empresa escolhida pelo CNPJ do destinatário; tirar as de outras empresas já carregadas"],
