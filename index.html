@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.369</span>
+      ">v2.14.370</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3354,7 +3354,7 @@ function _abatTaxaVenda(){
     if(x>0){ const k=c.codigo_rep+'|'+z(t.titulo); if(!tx.has(k+'|'+z(t.serie))) tx.set(k+'|'+z(t.serie),x); if(!tx.has(k)) tx.set(k,x); } }); });
   (DB.faturamento||[]).forEach(f=>{ if(f.tp==='venda' && Number(f.taxa)>0){ const k=f.rep+'|'+z(f.nf); if(!tx.has(k)) tx.set(k,Number(f.taxa)); } });
   let n=0;
-  (DB.comissoes||[]).forEach(c=>{ if(c.manual || c.status==='pago' || !(c.abatimentos||[]).length) return; let mud=false;
+  (DB.comissoes||[]).forEach(c=>{ if(c.manual || (c.status==='pago' && String(c.competencia_raw||'')<'2026-10') || !(c.abatimentos||[]).length) return; let mud=false;   // v2.14.370: de Out/2026 em diante corrige mesmo paga
     c.abatimentos.forEach(a=>{ const k=c.codigo_rep+'|'+z(a.titulo), t=tx.get(k+'|'+z(a.serie))||tx.get(k); if(!t) return;
       if(Math.abs((Number(a.taxa)||0)-t)<0.005 && a.taxa_erp==null) return;
       if(a.taxa_erp==null){ a.taxa_erp=Number(a.taxa)||0; a.comi_erp=Number(a.comiliqu)||0; }
@@ -12642,7 +12642,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.369","2026-11-17 10:20","comissões: abatimento com taxa diferente da venda — o ERP grava a base reduzida (ex.: 956,86 a 7%); agora mostra o valor cheio do Contas a Receber (1.339,50 a 5%) e mantém a comissão do ERP (66,98)"],
+const ALTERACOES=[["2.14.370","2026-11-17 10:50","comissões: a correção do abatimento (valor cheio + comissão do ERP) vale também para as comissões já pagas a partir de Out/2026"],
+  ["2.14.369","2026-11-17 10:20","comissões: abatimento com taxa diferente da venda — o ERP grava a base reduzida (ex.: 956,86 a 7%); agora mostra o valor cheio do Contas a Receber (1.339,50 a 5%) e mantém a comissão do ERP (66,98)"],
   ["2.14.368","2026-11-17 09:40","relatório de comissões: representante com o mesmo nome no cabeçalho e no total (fantasia — nome); texto da taxa do ERP não corta mais"],
   ["2.14.367","2026-11-17 09:00","estorno de devolução: botão aparece também em nota de venda (VD1…) que veio como devolução sem a situação \"d\""],
   ["2.14.366","2026-11-16 12:00","faturamento: estornar a devolução de uma nota (situação \"d\" no ERP) — volta a contar como venda e, se marcado, entra na comissão pendente do representante; dá para desfazer"],
