@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.371</span>
+      ">v2.14.372</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -2755,7 +2755,7 @@ const FAT_COLS=[
   {k:'uf', rot:'UF', td:f=>`<td style="color:var(--gray-5)">${f.uf||'—'}</td>`},
   {k:'rep', rot:'Rep.', td:(f,x)=>`<td style="font-size:11px;color:var(--gray-5);white-space:nowrap">${x.nomeRep(f.rep)}</td>`},
   {k:'nat', rot:'Nat.', td:f=>`<td style="font-family:monospace;font-size:11px;color:var(--gray-5)">${f.nat}</td>`},
-  {k:'tp', rot:'Tipo', td:(f,x)=>`<td><span class="badge ${x.isDev?'badge-red':f.tp==='entrada'?'badge-blue':'badge-green'}" style="font-size:10px">${x.isDev?'Dev':f.tp==='entrada'?'Ent':'Vda'}</span></td>`},
+  {k:'tp', rot:'Tipo', td:(f,x)=>`<td><span class="badge ${x.isDev?'badge-red':f.tp==='entrada'?'badge-blue':'badge-green'}" style="font-size:10px">${x.isDev?'Dev':f.tp==='entrada'?'Ent':'Vda'}</span>${f.xmlDev?`<span title="Devolução por XML — ainda não lançada no ERP (fora da comissão)" style="font-size:9px;color:#b45309;margin-left:3px">⏳XML</span>`:''}</td>`},
   {k:'vb', rot:'Bruto', td:f=>`<td style="text-align:right;color:var(--gray-5)">${fmt(f.vb)}</td>`, tot:a=>_fcm(_fsum(a,f=>f.vb))},
   {k:'desc', rot:'Desc.', td:f=>`<td style="text-align:right;color:${(f.desc||0)>0?'var(--amber)':'var(--gray-3)'}">${(f.desc||0)>0?`-${fmt(f.desc)}`:'—'}</td>`, tot:a=>_fcm(_fsum(a,f=>f.desc)), cor:'var(--amber)'},
   {k:'nfb', rot:'NF Bruto', td:f=>`<td style="text-align:right;color:var(--gray-5)">${fmt(f.vnBruto!=null?f.vnBruto:f.vn)}</td>`, tot:a=>_fcm(_fsum(a,f=>f.vnBruto!=null?f.vnBruto:f.vn)), cor:'var(--gray-5)'},
@@ -2956,6 +2956,7 @@ function renderFaturamento() {
               <option value="">Consolidar: não</option>
               ${[['cli','por Cliente'],['fil','por Filial'],['rep','por Representante'],['nat','por Natureza'],['mes','por Mês'],['tp','por Tipo']].map(o=>`<option value="${o[0]}" ${window._fatConsol===o[0]?'selected':''}>${o[1]}</option>`).join('')}
             </select>
+            ${(()=>{ const n=(DB.faturamento||[]).filter(f=>f.xmlDev).length; return n?`<button class="btn btn-secondary btn-sm" style="color:#b45309;border-color:#f0c27b" title="Devoluções emitidas pelo cliente (XML) que ainda não estão no ERP — pendentes" onclick="modalDevXmlPendentes()">⏳ Devol. XML pendentes no ERP (${n})</button>`:''; })()}
             <button class="btn btn-secondary btn-sm" onclick="modalEstornoCancelamentos()">🚫 Cancelamentos</button>
             <button class="btn btn-secondary btn-sm" style="color:var(--red)" onclick="gerarFatPDF()">🖨 PDF</button>
           </div>
@@ -3185,6 +3186,26 @@ function _nvArg(f){ return `'${String(f.id).replace(/[^\w.-]/g,'')}','${String(f
 // nota de VENDA marcada como devolvida (situação "d" no ERP, ou tipo devolução com natureza que não é de devolução)
 // v2.14.371: devolução que ENTRA NA COMISSÃO = a lançada no ERP com natureza de devolução (ENT, RV1…). A que veio só pelo XML
 // do cliente fica fora até o ERP lançar (o relatório do ERP não tem) — conferido com VERA MARCIA out/26 (NFs 2683/2685/2686).
+// v2.14.372: DEVOLUÇÕES POR XML A LANÇAR NO ERP — lista para lançar no futuro; quando o ERP lançar, saem sozinhas
+function _devXmlLista(mes){ return (DB.faturamento||[]).filter(f=>f.xmlDev && (!mes || f.mes===mes)).sort((a,b)=>String(a.dt).localeCompare(String(b.dt))||String(a.nf).localeCompare(String(b.nf))); }
+function modalDevXmlPendentes(){
+  const todos=_devXmlLista(), meses=[...new Set(todos.map(f=>f.mes))].sort().reverse(), mes=meses.includes(window._dxMes)?window._dxMes:'';
+  const L=_devXmlLista(mes), nc=c=>{ const x=(DB.clientes||[]).find(y=>String(y.codigo)===String(c)); return x?(x.razao_social||x.nome_fantasia||c):(String(c).replace(/^CNPJ /,'CNPJ ')); };
+  const nr=r=>((typeof nomeRep==='function'?nomeRep(r):'')||r||'—'), tx=f=>Number(f.taxa)>0?Number(f.taxa):((typeof _taxaRepMes==='function'?_taxaRepMes(f.rep,f.mes):0)||0);
+  const M=m=>(_MABR[String(m).slice(5,7)]||'')+'/'+String(m).slice(0,4), tot=L.reduce((a,f)=>a+(Number(f.vn)||0),0), totC=L.reduce((a,f)=>a+(Number(f.vn)||0)*tx(f)/100,0);
+  window._dxLinhas=L.map(f=>[M(f.mes), fmtDate(f.dt), f.nf+'/'+(f.sr||''), nc(f.cli), String(nr(f.rep)).toUpperCase(), f.refVenda||'', +(Number(f.vn)||0).toFixed(2), tx(f), +((Number(f.vn)||0)*tx(f)/100).toFixed(2)]);
+  openModal('⏳ Devoluções por XML a lançar no ERP', `
+    <div style="font-size:12px;color:var(--gray-5);margin-bottom:10px">Notas de devolução emitidas pelo <b>cliente</b> (lidas do XML) que ainda <b>não estão no ERP</b>. Ficam aqui para lançar no futuro: aparecem no Faturamento com ⏳XML, mas <b>não descontam a comissão</b> até o ERP lançar. Quando a devolução for lançada no ERP e o faturamento importado de novo, ela sai desta lista sozinha.</div>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><select class="form-control" style="width:auto" onchange="window._dxMes=this.value;modalDevXmlPendentes()"><option value="">Todos os meses (${todos.length})</option>${meses.map(m=>`<option value="${m}" ${m===mes?'selected':''}>${M(m)} (${todos.filter(f=>f.mes===m).length})</option>`).join('')}</select>
+      <span style="font-size:13px"><b>${L.length}</b> nota(s) · <b>${fmt(tot)}</b> · comissão a descontar quando lançar <b>${fmt(totC)}</b></span></div>
+    <div style="max-height:55vh;overflow:auto"><table style="font-size:12px;width:100%"><thead><tr><th>Mês</th><th>Data</th><th>NF devolução</th><th>Cliente</th><th>Representante</th><th>NF venda</th><th style="text-align:right">Valor</th><th style="text-align:right">Comissão prev.</th></tr></thead><tbody>
+      ${L.map(f=>`<tr style="cursor:pointer" onclick="closeModal();modalVerNota(${_nvArg(f)})"><td>${M(f.mes)}</td><td>${fmtDate(f.dt)}</td><td style="font-family:monospace">${f.nf}/${f.sr||''}</td><td>${nc(f.cli)}</td><td>${String(nr(f.rep)).toUpperCase()}</td><td>${f.refVenda||'<span style="color:var(--red)">sem venda</span>'}</td><td style="text-align:right">${fmt(f.vn)}</td><td style="text-align:right">${fmt((Number(f.vn)||0)*tx(f)/100)}</td></tr>`).join('')||'<tr><td colspan="8" style="text-align:center;color:var(--gray-5)">Nenhuma devolução pendente</td></tr>'}
+    </tbody>${L.length?`<tfoot><tr style="font-weight:700"><td colspan="6">Total</td><td style="text-align:right">${fmt(tot)}</td><td style="text-align:right">${fmt(totC)}</td></tr></tfoot>`:''}</table></div>`,
+    `<button class="btn btn-secondary" onclick="_devXmlExcel()">⬇ Excel</button><button class="btn btn-primary" onclick="closeModal()">Fechar</button>`);
+}
+function _devXmlExcel(){ if(typeof XLSX==='undefined') return toast('Excel indisponível','error');
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['MÊS','DATA','NF DEVOLUÇÃO','CLIENTE','REPRESENTANTE','NF VENDA','VALOR','TAXA %','COMISSÃO PREVISTA']].concat(window._dxLinhas||[])), 'Devol XML a lançar');
+  XLSX.writeFile(wb, 'devolucoes_xml_a_lancar_'+new Date().toISOString().slice(0,10)+'.xlsx'); }
 function _devComissao(f){ return !!f && f.tp==='devolucao' && !f.sit && !f.xmlDev && ((typeof _natsDevolucao==='function')?_natsDevolucao():new Set(['ENT','RV1'])).has(String(f.nat||'').toUpperCase()); }
 function _ehDevolvidaVenda(f){ if(!f || f.estornoDev || f.xmlDev || f.manual || f.sit==='C') return false; if(f.sit==='D') return true;
   return f.tp==='devolucao' && !((typeof _natsDevolucao==='function')?_natsDevolucao():new Set(['ENT','RV1'])).has(String(f.nat||'').toUpperCase()); }
@@ -3259,7 +3280,7 @@ function modalVerNota(id, chave) {
         <div style="margin-left:auto">
           <span class="badge ${f.tp==='venda'?'badge-green':f.tp==='devolucao'?'badge-red':'badge-blue'}" style="font-size:13px;padding:5px 14px">
             ${f.tp==='venda'?'Venda':f.tp==='devolucao'?'Devolução':'Entrada'}
-          </span>${f.sit?`<span style="font-size:12px;color:${f.sit==='C'?'var(--red)':'#b45309'};font-weight:600">${f.sit==='C'?'🚫 CANCELADA no ERP (situação *) — fora dos totais':'↩ DEVOLVIDA inteira pelo cliente (situação "d" no ERP) — fora das vendas e das devoluções'}</span>`:''}${!f.sit&&_ehDevolvidaVenda(f)?`<span style="font-size:12px;color:#b45309;font-weight:600">↩ Nota de venda (${f.nat}) marcada como DEVOLVIDA no ERP</span>`:''}${_ehDevolvidaVenda(f)&&_ehAdmin()?`<button class="btn btn-secondary btn-sm" style="color:#1e7b45;border-color:#1e7b45" onclick="_estornarDevolNota('${_estKey(f)}')">↺ Estornar devolução</button>`:''}${f.estornoDev?`<span style="font-size:12px;color:#1e7b45;font-weight:600">↺ Devolução ESTORNADA — conta como venda${((DB.fat_estornos||{})[_estKey(f)]||{}).comi?' e na comissão':''}</span>${_ehAdmin()?`<button class="btn btn-secondary btn-sm" style="color:var(--red);border-color:var(--red)" onclick="_desfazerEstornoNota('${_estKey(f)}')">Desfazer estorno</button>`:''}`:''}
+          </span>${f.sit?`<span style="font-size:12px;color:${f.sit==='C'?'var(--red)':'#b45309'};font-weight:600">${f.sit==='C'?'🚫 CANCELADA no ERP (situação *) — fora dos totais':'↩ DEVOLVIDA inteira pelo cliente (situação "d" no ERP) — fora das vendas e das devoluções'}</span>`:''}${f.xmlDev?`<span style="font-size:12px;color:#b45309;font-weight:600">⏳ Devolução lida do XML do cliente — ainda NÃO lançada no ERP (fora da comissão até lançar)${f.refVenda?` · venda NF ${f.refVenda}`:''}</span>`:''}${!f.sit&&_ehDevolvidaVenda(f)?`<span style="font-size:12px;color:#b45309;font-weight:600">↩ Nota de venda (${f.nat}) marcada como DEVOLVIDA no ERP</span>`:''}${_ehDevolvidaVenda(f)&&_ehAdmin()?`<button class="btn btn-secondary btn-sm" style="color:#1e7b45;border-color:#1e7b45" onclick="_estornarDevolNota('${_estKey(f)}')">↺ Estornar devolução</button>`:''}${f.estornoDev?`<span style="font-size:12px;color:#1e7b45;font-weight:600">↺ Devolução ESTORNADA — conta como venda${((DB.fat_estornos||{})[_estKey(f)]||{}).comi?' e na comissão':''}</span>${_ehAdmin()?`<button class="btn btn-secondary btn-sm" style="color:var(--red);border-color:var(--red)" onclick="_desfazerEstornoNota('${_estKey(f)}')">Desfazer estorno</button>`:''}`:''}
         </div>
       </div>
 
@@ -12646,7 +12667,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.371","2026-11-17 11:30","comissões: só descontam devoluções lançadas no ERP com natureza de devolução; as que vieram apenas pelo XML do cliente ficam fora até o ERP lançar (igual ao relatório do ERP)"],
+const ALTERACOES=[["2.14.372","2026-11-17 12:10","faturamento: lista ⏳ Devoluções por XML a lançar no ERP (por mês, com representante, NF da venda, valor e comissão prevista; Excel) — saem sozinhas quando o ERP lançar"],
+  ["2.14.371","2026-11-17 11:30","comissões: só descontam devoluções lançadas no ERP com natureza de devolução; as que vieram apenas pelo XML do cliente ficam fora até o ERP lançar (igual ao relatório do ERP)"],
   ["2.14.370","2026-11-17 10:50","comissões: a correção do abatimento (valor cheio + comissão do ERP) vale também para as comissões já pagas a partir de Out/2026"],
   ["2.14.369","2026-11-17 10:20","comissões: abatimento com taxa diferente da venda — o ERP grava a base reduzida (ex.: 956,86 a 7%); agora mostra o valor cheio do Contas a Receber (1.339,50 a 5%) e mantém a comissão do ERP (66,98)"],
   ["2.14.368","2026-11-17 09:40","relatório de comissões: representante com o mesmo nome no cabeçalho e no total (fantasia — nome); texto da taxa do ERP não corta mais"],
