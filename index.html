@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.370</span>
+      ">v2.14.371</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -3183,6 +3183,9 @@ function _nvArg(f){ return `'${String(f.id).replace(/[^\w.-]/g,'')}','${String(f
 // v2.14.366: ESTORNO DA DEVOLUÇÃO — nota com situação "d" (devolvida) volta a contar como venda no faturamento e, se marcado,
 // entra como título na comissão pendente do representante. Guardado em DB.fat_estornos e reaplicado após cada importação.
 // nota de VENDA marcada como devolvida (situação "d" no ERP, ou tipo devolução com natureza que não é de devolução)
+// v2.14.371: devolução que ENTRA NA COMISSÃO = a lançada no ERP com natureza de devolução (ENT, RV1…). A que veio só pelo XML
+// do cliente fica fora até o ERP lançar (o relatório do ERP não tem) — conferido com VERA MARCIA out/26 (NFs 2683/2685/2686).
+function _devComissao(f){ return !!f && f.tp==='devolucao' && !f.sit && !f.xmlDev && ((typeof _natsDevolucao==='function')?_natsDevolucao():new Set(['ENT','RV1'])).has(String(f.nat||'').toUpperCase()); }
 function _ehDevolvidaVenda(f){ if(!f || f.estornoDev || f.xmlDev || f.manual || f.sit==='C') return false; if(f.sit==='D') return true;
   return f.tp==='devolucao' && !((typeof _natsDevolucao==='function')?_natsDevolucao():new Set(['ENT','RV1'])).has(String(f.nat||'').toUpperCase()); }
 function _estKey(f){ return [f.fil,f.nf,f.sr].map(v=>String(v==null?'':v).replace(/[^\w.-]/g,'')).join('|'); }
@@ -3342,7 +3345,7 @@ function _filtrarComissaoPorFilial(c, filial){
   const total_comissao=+tit.reduce((s,t)=>s+(Number(t.comivenc)||0),0).toFixed(2);
   const comi_liquida=+aba.reduce((s,a)=>s+(Number(a.comiliqu)||0),0).toFixed(2);
   let devol=0;
-  (DB.faturamento||[]).forEach(f=>{ if(f.tp==='devolucao' && String(f.rep)===String(c.codigo_rep) && f.mes===c.competencia_raw && String(f.fil)===fil) devol+=Number(f.vn)||0; });
+  (DB.faturamento||[]).forEach(f=>{ if(_devComissao(f) && String(f.rep)===String(c.codigo_rep) && f.mes===c.competencia_raw && String(f.fil)===fil) devol+=Number(f.vn)||0; });
   return Object.assign({}, c, { titulos:tit, abatimentos:aba, total_vendas, total_comissao, comi_liquida, val_devolucoes:+devol.toFixed(2), qtd_titulos:tit.length, qtd_notas:tit.length, _filial:fil });
 }
 // v2.14.282: a DEVOLUÇÃO/abatimento estorna a MESMA comissão paga na venda — usa a taxa do título original da nota
@@ -3455,6 +3458,7 @@ function renderComissoes() {
   try{ _abatTaxaVenda(); }catch(e){ console.warn('abatTaxa',e); }
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();   // garante a troca aplicada p/ a base da comissão
   try{ _aplicarEstornosFat(); }catch(e){}
+  try{ _revincularDevolucoes(); }catch(e){}   // v2.14.371: devoluções da comissão sempre pela regra atual
   const filtComp   = document.getElementById('filtro-comp')?.value||'';
   const filtReps   = (window._comiReps||[]).map(String); const filtRep = filtReps.length===1?filtReps[0]:'';
   // v2.14.349: ao ABRIR a tela, já vem no último mês COMPLETO (o mês anterior ao de hoje — ex.: em 15/11, Outubro);
@@ -3830,7 +3834,7 @@ function modalDetalheComissao(id) {
   const abats = c.abatimentos||[];
   const tAbatVal = abats.reduce((s,a)=>s+a.vlorliqu,0);
   const tAbatCom = abats.reduce((s,a)=>s+a.comiliqu,0);
-  const _devN = (DB.faturamento||[]).filter(f=>f.tp==='devolucao' && !f.sit && f.rep===String(c.codigo_rep) && f.mes && f.mes.startsWith(c.competencia_raw||'@'));
+  const _devN = (DB.faturamento||[]).filter(f=>_devComissao(f) && f.rep===String(c.codigo_rep) && f.mes && f.mes.startsWith(c.competencia_raw||'@'));
   const _txDev = Number(c.taxa)||7;
   const _devVal = _devN.reduce((s,f)=>s+Math.abs(Number(f.vn)||0),0);
   const _devCom = +(_devVal*_txDev/100).toFixed(2);
@@ -8383,7 +8387,7 @@ function _revincularDevolucoes(){
   (DB.faturamento||[]).forEach(f=>{
     if(!f.rep || !f.mes) return;
     temFat.add(f.rep+'|'+f.mes);
-    if(f.tp!=='devolucao' || f.sit) return;
+    if(!_devComissao(f)) return;
     const k=f.rep+'|'+f.mes;
     (devol[k]=devol[k]||{n:0,v:0}); devol[k].n++; devol[k].v+=(Number(f.vn)||0);
   });
@@ -8658,7 +8662,7 @@ function processarComissoes(rowsA, rowsB) {
   // Devoluções vêm do faturamento já importado — não do arquivo de comissão.
   const devol = {};
   (DB.faturamento||[]).forEach(f => {
-    if(f.tp !== 'devolucao' || f.sit || !f.rep || !f.mes) return;  // cancelada/devolvida já não conta
+    if(!_devComissao(f) || !f.rep || !f.mes) return;  // cancelada/devolvida já não conta · v2.14.371: só a lançada no ERP
     const k = f.rep + '|' + f.mes;
     if(!devol[k]) devol[k] = {n:0, v:0};
     devol[k].n++;
@@ -12642,7 +12646,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.370","2026-11-17 10:50","comissões: a correção do abatimento (valor cheio + comissão do ERP) vale também para as comissões já pagas a partir de Out/2026"],
+const ALTERACOES=[["2.14.371","2026-11-17 11:30","comissões: só descontam devoluções lançadas no ERP com natureza de devolução; as que vieram apenas pelo XML do cliente ficam fora até o ERP lançar (igual ao relatório do ERP)"],
+  ["2.14.370","2026-11-17 10:50","comissões: a correção do abatimento (valor cheio + comissão do ERP) vale também para as comissões já pagas a partir de Out/2026"],
   ["2.14.369","2026-11-17 10:20","comissões: abatimento com taxa diferente da venda — o ERP grava a base reduzida (ex.: 956,86 a 7%); agora mostra o valor cheio do Contas a Receber (1.339,50 a 5%) e mantém a comissão do ERP (66,98)"],
   ["2.14.368","2026-11-17 09:40","relatório de comissões: representante com o mesmo nome no cabeçalho e no total (fantasia — nome); texto da taxa do ERP não corta mais"],
   ["2.14.367","2026-11-17 09:00","estorno de devolução: botão aparece também em nota de venda (VD1…) que veio como devolução sem a situação \"d\""],
@@ -13820,7 +13825,7 @@ function gerarExtratoRep(comId){
   let linhas='';
   if(tits){
     linhas += tits.map(t=>{
-      const _fd=(DB.faturamento||[]).find(f=>f.tp==='devolucao'&&String(f.nf)===String(t.titulo)&&String(f.sr)===String(t.serie)&&f.rep===String(c.codigo_rep));
+      const _fd=(DB.faturamento||[]).find(f=>_devComissao(f)&&String(f.nf)===String(t.titulo)&&String(f.sr)===String(t.serie)&&f.rep===String(c.codigo_rep));
       if(_fd){ const _tx=_n(_fd.taxa)||_n(t.taxa)||taxa; const _vN=Math.abs(_n(_fd.vn)); const _cN=Math.abs(_n(_fd.comi))|| +(_vN*_tx/100).toFixed(2);
         return rowV(t.titulo, t.cli_nome||('Cód.'+t.cli_cod), _fd.dt||t.data, 'Devolução', t.serie||_fd.sr, _tx, _vN, _cN, true); }
       if(_n(t.vlorvenc)===0 && _n(t.comivenc)===0) return '';
@@ -16879,7 +16884,7 @@ function gerarRelatorioComiPDF(comId) {
       const taxaPad=_n(c.taxa)||7;
       const linhasVenda = tits
         ? _comiRelSort(tits).map(t=>{
-            const _fd=(DB.faturamento||[]).find(f=>f.tp==='devolucao'&&String(f.nf)===String(t.titulo)&&String(f.sr)===String(t.serie)&&f.rep===String(c.codigo_rep));
+            const _fd=(DB.faturamento||[]).find(f=>_devComissao(f)&&String(f.nf)===String(t.titulo)&&String(f.sr)===String(t.serie)&&f.rep===String(c.codigo_rep));
             if(_fd){ const _tx=_n(_fd.taxa)||_n(t.taxa)||taxaPad; const _vN=Math.abs(_n(_fd.vn)); const _cN=Math.abs(_n(_fd.comi))|| +(_vN*_tx/100).toFixed(2);
               return `<tr class="dev" data-d="${_fd.dt||t.data||''}"><td class="m">${t.titulo}</td><td>${t.cli_nome||('Cód.'+t.cli_cod)}</td><td>${_fmtD(_fd.dt||t.data)}</td><td>${_fmtD(_fd.dt||t.data)}</td><td><strong>Devolução</strong></td><td class="r">${t.serie||_fd.sr||''}</td><td class="r">${_tx.toFixed(2).replace('.',',')} %</td><td class="r">-${_fmt(_vN)}</td><td class="r">-${_fmt(_cN)}</td></tr>`; }
             if(_n(t.vlorvenc)===0 && _n(t.comivenc)===0) return '';
@@ -16891,7 +16896,7 @@ function gerarRelatorioComiPDF(comId) {
       // entram como linha própria para o representante ver a origem.
       const _titSet = new Set((tits||[]).map(t=>String(t.serie)+'|'+String(t.titulo)));
       const linhasDevol = tits ? (DB.faturamento||[])
-        .filter(f=>f.tp==='devolucao' && !f.sit && String(f.rep)===String(c.codigo_rep) && f.mes===c.competencia_raw && !_titSet.has(String(f.sr)+'|'+String(f.nf)))
+        .filter(f=>_devComissao(f) && String(f.rep)===String(c.codigo_rep) && f.mes===c.competencia_raw && !_titSet.has(String(f.sr)+'|'+String(f.nf)))
         .sort((a,b)=>(a.dt||'').localeCompare(b.dt||''))
         .map(f=>{
           const _cl=DB.clientes.find(x=>String(x.codigo)===String(f.cli));
