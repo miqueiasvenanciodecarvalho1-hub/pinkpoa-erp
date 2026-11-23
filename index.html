@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.375</span>
+      ">v2.14.377</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -7474,6 +7474,22 @@ function _impAutoAgendar(){
   window._impAutoT=setInterval(()=>{ const c=_impAutoCfg(); if(c.min && (!c.prox || Date.now()>=c.prox)) _impAutoRodar(false); }, 60000);
 }
 setTimeout(_impAutoAgendar, 5000);
+// v2.14.375: o robô do Audience (C:\PINKPOA\gerar_tudo.ps1) abre o app com #importar depois de gerar os arquivos →
+// espera o login e a cópia do servidor carregarem, varre a pasta conectada e importa o que for novo (mesmo caminho do ⏱ automático).
+(function _impPeloRobo(){
+  if(!/(^|[#&])importar(&|$)/.test(location.hash)) return;
+  let n=0;
+  const t=setInterval(async()=>{
+    if(++n>60){ clearInterval(t); return; }                       // desiste após ~10 min (sem login, por exemplo)
+    if(typeof USER==='undefined' || !USER || !window._nvRef || _nvAutoRodando || window._impAutoRodando) return;
+    clearInterval(t);
+    try{ history.replaceState(history.state,'',location.pathname+location.search); }catch(e){}
+    await new Promise(r=>setTimeout(r,15000));                    // deixa terminar a conferência com o servidor
+    toast('Robô do Audience: lendo a pasta e importando os arquivos novos…');
+    await _impAutoRodar(true);
+    const c=_impAutoCfg(); toast('Robô do Audience: '+(c.res||'concluído'), /erro|sem pasta|aguardando/.test(c.res||'')?'error':undefined);
+  }, 10000);
+})();
 function _impAutoHtml(){
   const c=_impAutoCfg(), h=t=>t?new Date(t).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'—';
   const ops=[[0,'Desligada'],[30,'a cada 30 min'],[60,'a cada 1 hora'],[120,'a cada 2 horas'],[240,'a cada 4 horas'],[480,'a cada 8 horas']];
@@ -12558,8 +12574,76 @@ function cardEnvioComissoes(){
   </div>`;
 }
 
+// v2.14.375: MANUAL DO ROBÔ DO AUDIENCE — gera os arquivos no Audience (VerUP), copia para C:\PINKPOA\EXPORT
+// e abre o app com #importar (ver _impPeloRobo). O robô roda numa máquina virtual para não usar o mouse/teclado de ninguém.
+const _ROBO_INSTALAR='iwr https://www.pinkpoafinanceiro.com.br/robo/instalar_robo.ps1 -OutFile $env:TEMP\\instalar_robo.ps1 -UseBasicParsing; powershell -ExecutionPolicy Bypass -File $env:TEMP\\instalar_robo.ps1';
+function cardRoboAudience(){
+  const c=(typeof _impAutoCfg==='function')?_impAutoCfg():{};
+  const quando=c.ultimo?new Date(c.ultimo).toLocaleString('pt-BR'):'nunca';
+  const ok=c.res && !/erro|sem pasta|aguardando/.test(c.res);
+  const sec=(t,h)=>`<details style="border:1px solid var(--gray-2);border-radius:var(--radius);padding:10px 14px;margin-top:10px"><summary style="cursor:pointer;font-weight:700;font-size:13.5px">${t}</summary><div style="font-size:13px;line-height:1.6;margin-top:8px">${h}</div></details>`;
+  const cod=s=>`<code style="background:var(--gray-1);padding:1px 6px;border-radius:4px;font-size:12px">${s}</code>`;
+  const bloco=s=>`<pre style="background:#1e1e2e;color:#e6e6e6;padding:10px 12px;border-radius:6px;font-size:12px;white-space:pre-wrap;margin:6px 0">${s}</pre>`;
+  const tab=(cab,lin)=>`<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12.5px;margin:6px 0"><thead><tr style="background:var(--gray-1)">${cab.map(h=>`<th style="text-align:left;padding:5px 6px">${h}</th>`).join('')}</tr></thead><tbody>${lin.map(l=>`<tr style="border-top:1px solid var(--gray-2)">${l.map(x=>`<td style="padding:5px 6px;vertical-align:top">${x}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+  return `<div class="card" style="margin-bottom:20px">
+    <div class="card-header"><h2>📘 Robô do Audience — manual</h2>
+      <span style="font-size:12px;color:var(--gray-5)">Última importação pelo robô (neste navegador): <b>${quando}</b>${c.res?` · <span style="color:${ok?'var(--green)':'var(--red)'}">${_nvEsc(c.res)}</span>`:''}</span></div>
+    <div class="card-body" style="padding:16px 20px">
+      <p style="font-size:13px;margin:0 0 6px">Todo dia o robô entra no <b>Audience (VerUP)</b>, roda as exportações, copia os arquivos para a pasta
+      ${cod('C:\\PINKPOA\\EXPORT')} e abre este app com ${cod('#importar')} no endereço — o app lê a pasta e importa sozinho o que for novo
+      (o mesmo que <b>Importação → ⚡ Importar tudo</b>) e salva no servidor.</p>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:12.5px;margin:10px 0">
+        <span class="badge badge-blue">1 · Audience gera os .zip</span>→<span class="badge badge-blue">2 · robô copia para EXPORT</span>→<span class="badge badge-blue">3 · abre o app com #importar</span>→<span class="badge badge-green">4 · app importa e salva no servidor</span></div>
+      ${sec('📅 Rotina diária — programas e filtros', tab(['Programa','Arquivos para o app','Período','Por quê'],[
+        [cod('vp1252ex'),'vpfatu1, vpfatu2 (faturamento)','01/01 do ano atual até hoje','o app soma as notas pela chave — as de anos anteriores continuam na base'],
+        [cod('vp1352ex'),'vpdpcl1, vpdpcl2 (contas a receber e baixas)','<b>completo</b> (sem filtro)','é a foto da carteira: o arquivo mais novo substitui o anterior; filtrar por data apagaria títulos antigos ainda em aberto'],
+        [cod('vp4254ex'),'vp42541a (opção 01), vp42541b (opção 02) — comissões','01/01 do ano atual até hoje','filiais 001 a 004, as 7 caixas de considerar/abater marcadas']])
+        +`<div style="font-size:12px;color:var(--gray-5)">Sob demanda (${cod('gerar_tudo.ps1 -Completo')}): vp1155ex (banco e documentos), vp4151ex (clientes), vp4251ex (representantes), vp1251ex (naturezas), vp3556ex (produtos e preços), vp3577ex (pedidos e estoque), vp3351ex e vp3353ex (materiais e estoques).</div>`)}
+      ${sec('📁 Pastas e arquivos', tab(['Onde','O quê'],[
+        [cod('C:\\Audience'),'Audience instalado (cliente sp2tccli.exe). Os .zip gerados caem em '+cod('C:\\Audience\\arq')+' com o nome &lt;empresa&gt;_…_&lt;programa&gt;_AAAAMMDD_HHMMSS.zip'],
+        [cod('C:\\PINKPOA\\gerar_tudo.ps1'),'o robô (gera, copia e aciona o app)'],
+        [cod('C:\\PINKPOA\\login_audience.ps1'),'entra no Audience'],
+        [cod('C:\\PINKPOA\\robo.conf'),'código da empresa, do usuário e filial no Audience (criado pelo instalador; fica só na máquina)'],
+        [cod('C:\\PINKPOA\\audience.cred'),'senha do Audience criptografada pelo Windows — só o usuário que a gravou, naquela máquina, consegue ler'],
+        [cod('C:\\PINKPOA\\EXPORT'),'<b>pasta que o app importa</b>: só a versão completa de cada arquivo (ex.: o vpdpcl1 vem do vp1352ex — o do vp1155ex é parcial e nunca é usado)'],
+        [cod('C:\\PINKPOA\\EXTRAS'),'conteúdo completo de cada .zip, fora da pasta do app (consulta)'],
+        [cod('C:\\PINKPOA\\logs'),'um log por dia ('+cod('AAAA-MM-DD.log')+') e prints da tela quando algo falha']]))}
+      ${sec('🖥️ Instalação na máquina virtual (uma vez)', `
+        <p style="margin:0 0 6px">O robô usa mouse e teclado. Para não atrapalhar quem usa o computador, ele roda numa <b>máquina virtual Hyper-V</b>, com tela própria. Áreas de trabalho virtuais do Windows (Win+Tab) <b>não</b> servem: mouse e teclado são os mesmos em todas.</p>
+        <ol style="margin:0;padding-left:20px">
+          <li><b>Ativar o Hyper-V</b> (administrador; reinicia o PC) — PowerShell como administrador:${bloco('Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V-All -All')}</li>
+          <li><b>Criar a máquina virtual</b> no Gerenciador do Hyper-V: Geração 2, 4 GB de memória, disco de 60 GB, rede "Default Switch", instalar o Windows 11 (imagem .iso da Microsoft + licença da TI).</li>
+          <li>Dentro da máquina virtual: <b>instalar o Audience</b> (instalador da Verup) em ${cod('C:\\Audience')}, abrir uma vez e conferir o login.</li>
+          <li><b>Tela sempre desbloqueada</b> na máquina virtual: resolução 1920×1080, sem proteção de tela, sem bloqueio automático, entrada automática no Windows. Usar a <b>sessão básica</b> do Hyper-V (a sessão avançada bloqueia a tela ao fechar a janela). A janela da VM pode ficar fechada — ela continua rodando.</li>
+          <li><b>Instalar o robô</b> — na máquina virtual, abrir o PowerShell (não precisa ser administrador) e colar:${bloco(_ROBO_INSTALAR)}
+            O instalador baixa os arquivos (seção 📦 abaixo) para ${cod('C:\\PINKPOA')}, pergunta o código da empresa, do usuário e a filial do Audience,
+            pede a <b>senha do Audience</b> (quem sabe a senha digita; fica criptografada, ninguém vê) e agenda a tarefa diária (padrão 06:00).
+            Pode rodar de novo quando quiser: atualiza os scripts e só pergunta o que você quiser trocar.</li>
+          <li><b>Chrome da máquina virtual</b>: entrar no PinkPoa com o usuário do robô, ir em <b>Importação → 🔗 Conectar pasta</b> → ${cod('C:\\PINKPOA\\EXPORT')} e marcar <b>"Permitir em todas as visitas"</b>.</li>
+          <li><b>Testar</b>: ${cod('schtasks /Run /TN "PinkPoa - Robo Audience"')} — não mexer no mouse/teclado da VM; conferir o log em ${cod('C:\\PINKPOA\\logs')} e o topo desta tela.</li>
+        </ol>`)}
+      ${sec('📦 Arquivos do robô (download)', `
+        <p style="margin:0 0 6px">Os mesmos arquivos que o instalador baixa. Salve em ${cod('C:\\PINKPOA')}. A senha e os dados da empresa <b>não</b> ficam aqui: o instalador grava na própria máquina (${cod('robo.conf')} e ${cod('audience.cred')}).</p>
+        ${tab(['Arquivo','Para quê',''],[
+          [cod('instalar_robo.ps1'),'instalador: baixa os scripts, grava robo.conf e a senha, agenda a tarefa diária',`<a class="btn btn-secondary" style="padding:3px 10px;font-size:12px" href="robo/instalar_robo.ps1" download>⬇ Baixar</a>`],
+          [cod('gerar_tudo.ps1'),'o robô: gera as exportações no Audience, copia para EXPORT e abre o app com #importar',`<a class="btn btn-secondary" style="padding:3px 10px;font-size:12px" href="robo/gerar_tudo.ps1" download>⬇ Baixar</a>`],
+          [cod('login_audience.ps1'),'entra no Audience usando robo.conf + audience.cred',`<a class="btn btn-secondary" style="padding:3px 10px;font-size:12px" href="robo/login_audience.ps1" download>⬇ Baixar</a>`],
+          [cod('robo.conf.exemplo'),'modelo do robo.conf (Empresa=, Usuario=, Filial=)',`<a class="btn btn-secondary" style="padding:3px 10px;font-size:12px" href="robo/robo.conf.exemplo" download>⬇ Baixar</a>`]])}
+        <div style="font-size:12px;color:var(--gray-5)">Instalar sem a máquina virtual (num PC que fica livre no horário agendado): mesmo comando do passo 5, direto nesse PC.</div>`)}
+      ${sec('▶️ Rodar à mão', `Na máquina virtual, PowerShell:${bloco('powershell -ExecutionPolicy Bypass -File C:\\PINKPOA\\gerar_tudo.ps1               # rotina diária\npowershell -ExecutionPolicy Bypass -File C:\\PINKPOA\\gerar_tudo.ps1 -Completo     # todos os programas\npowershell -ExecutionPolicy Bypass -File C:\\PINKPOA\\gerar_tudo.ps1 -Somente vp1352ex')}
+        Leva de 10 a 20 minutos (o vp3577ex sozinho ~8 min). Não mexer no mouse/teclado da máquina virtual enquanto roda.`)}
+      ${sec('🛠️ Quando algo falha', tab(['Sintoma','O que fazer'],[
+        ['Esta tela mostra "sem pasta conectada" ou "aguardando autorização"','No Chrome da máquina virtual: Importação → Conectar pasta (ou Varrer novamente uma vez) e marcar "Permitir em todas as visitas".'],
+        ['A importação não rodou e o app pediu login','O login vale 7 dias: entrar de novo no Chrome da máquina virtual.'],
+        ['No log: "A tela do vpXXXX não abriu"','O Audience estava fechado, minimizado ou com outra janela por cima. Ver o print em '+cod('C:\\PINKPOA\\logs')+'; fechar avisos abertos e rodar de novo.'],
+        ['No log: "O zip do vpXXXX não apareceu"','O Audience parou numa tela inesperada (aviso novo da Verup, por exemplo). Ver o print, responder a tela à mão e rodar '+cod('-Somente vpXXXX')+'.'],
+        ['Não entra no Audience','Senha trocada: gravar de novo o '+cod('audience.cred')+' (passo 5 da instalação).'],
+        ['Dados do dia não aparecem','Conferir em '+cod('C:\\PINKPOA\\EXPORT')+' a data dos arquivos e, nesta tela, a última importação. Importar à mão: Importação → ⚡ Importar tudo.']]))}
+    </div></div>`;
+}
 function renderAutomacao() {
   document.getElementById('content').innerHTML = `
+    ${cardRoboAudience()}
     <div class="card" style="margin-bottom:20px">
       <div class="card-header"><h2>🤖 Configurar Automação</h2></div>
       <div class="card-body" style="padding:20px">
@@ -12689,7 +12773,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.375","2026-11-23 10:00","usuários: opção \"Ao entrar, abrir o relatório da comissão dele\" — o gestor/representante vê a comissão do último mês fechado assim que faz login (ex.: ANDREA MIRANDA)"],
+const ALTERACOES=[["2.14.377","2026-11-23 10:00","usuários: opção \"Ao entrar, abrir o relatório da comissão dele\" — o gestor/representante vê a comissão do último mês fechado assim que faz login (ex.: ANDREA MIRANDA)"],
+  ["2.14.376","2026-11-23 01:00","manual do robô do Audience com os arquivos para baixar (pasta robo/) e instalador que grava a configuração e a senha na própria máquina e agenda a tarefa diária"],["2.14.375","2026-11-22 11:00","importação disparada pelo robô do Audience: abrir o app com #importar no endereço varre a pasta conectada e importa os arquivos novos"],["2.14.374","2026-11-17 13:40","supervisão: a base do supervisionado só desconta devoluções lançadas no ERP (igual à comissão) — VERA MARCIA out/26 volta a 16.118,00"],
   ["2.14.374","2026-11-17 13:40","supervisão: a base do supervisionado só desconta devoluções lançadas no ERP (igual à comissão) — VERA MARCIA out/26 volta a 16.118,00"],
   ["2.14.373","2026-11-17 13:00","resumo de comissões agrupado: marcar um representante no filtro traz o grupo inteiro dele (ex.: SIMONE com PRONTA ENTREGA 45 e PENT)"],
   ["2.14.372","2026-11-17 12:10","faturamento: lista ⏳ Devoluções por XML a lançar no ERP (por mês, com representante, NF da venda, valor e comissão prevista; Excel) — saem sozinhas quando o ERP lançar"],

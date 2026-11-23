@@ -1,0 +1,5 @@
+﻿# PinkPoa — robô do Audience: configuração local (fica em C:\PINKPOA\robo.conf; não publicar)
+# O instalar_robo.ps1 cria este arquivo perguntando os valores.
+Empresa=
+Usuario=
+Filial=1
