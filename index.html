@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.381</span>
+      ">v2.14.382</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1628,6 +1628,13 @@ function _usuPeriodoHtml(u){
     <label style="display:flex;gap:8px;align-items:flex-start;margin-top:8px;font-size:12.5px;cursor:pointer">
       <input type="checkbox" id="uu-abrircomi" ${(u.permissoes||{})._abrirComissao?'checked':''} style="margin-top:2px">
       <span><b>Ao entrar, abrir o relatório da comissão dele</b> <span style="color:var(--gray-5);font-size:11px">(menu Minha comissão com painel e meses fechados — ex.: gestor ANDREA MIRANDA). Vale para nível <b>Usuário</b> (não precisa de Master): ele só VÊ e baixa a comissão dele. Basta marcar o representante/gestor dele.</span></span></label>
+    ${(()=>{ const com=new Set((DB.comissoes||[]).map(c=>String(c.codigo_rep)));
+      const ops=(DB.representantes||[]).filter(r=>com.has(String(r.codigo))).map(r=>({c:String(r.codigo), n:String(r.fantasia||r.nome||r.codigo).toUpperCase()})).sort((a,b)=>a.n.localeCompare(b.n,'pt-BR'));
+      const P=u.permissoes||{}, atual=String((P._reps||[])[0]||''), nu=String(u.nome||'').toUpperCase().trim();
+      const auto=ops.some(o=>o.c===atual)?atual:((ops.find(o=>nu && (o.n===nu || o.n.includes(nu) || nu.includes(o.n)))||{}).c||'');
+      return `<div style="margin:6px 0 0 26px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px"><b>Comissão de:</b>
+        <select id="uu-mc-rep" class="form-control" style="width:auto;min-width:260px"><option value="">— escolha o nome —</option>${ops.map(o=>`<option value="${_nvEsc(o.c)}" ${o.c===auto?'selected':''}>${_nvEsc(o.n)}</option>`).join('')}</select>
+        <span style="color:var(--gray-5);font-size:11px">o código certo é marcado sozinho</span></div>`; })()}
   </div>`;
 }
 function _usuPeriodoLer(){
@@ -1655,7 +1662,10 @@ async function _usuSalvar(id){
   const permissoes={};
   document.querySelectorAll('#uu-perms input[data-acao]').forEach(c=>{ const m=c.dataset.mod; permissoes[m]=permissoes[m]||{}; permissoes[m][c.dataset.acao]=c.checked; });
   Object.keys(permissoes).forEach(m=>{ if(!_ACOES.some(a=>permissoes[m][a])) delete permissoes[m]; });
-  if(document.querySelector('input[name="uu-repmodo"]:checked')?.value==='lista'){   // v226
+  // v2.14.382: Minha comissão escolhida pelo NOME → vale como o representante marcado (dispensa achar a caixinha do código)
+  const _mcSel=(document.getElementById('uu-abrircomi')||{}).checked ? ((document.getElementById('uu-mc-rep')||{}).value||'') : '';
+  if(_mcSel){ permissoes._reps=[_mcSel]; }
+  else if(document.querySelector('input[name="uu-repmodo"]:checked')?.value==='lista'){   // v226
     const reps=[...document.querySelectorAll('.uu-rep:checked')].map(c=>c.value);
     if(!reps.length) return toast('Marque pelo menos um representante (ou escolha "Todos")','error');
     permissoes._reps=reps;
@@ -1664,6 +1674,8 @@ async function _usuSalvar(id){
   }
   const _bx=document.getElementById('uu-baixas'); if(_bx) permissoes._baixas=!!_bx.checked;   // v250
   const _vc=document.getElementById('uu-vercomi'); if(_vc && _vc.checked) permissoes._verComissao=true;   // v2.14.363
+  const _mcr=(document.getElementById('uu-mc-rep')||{}).value||'';
+  if(document.getElementById('uu-abrircomi') && document.getElementById('uu-abrircomi').checked){ if(!_mcr) return toast('Em "Comissão de:", escolha o nome do representante/gestor','error'); permissoes._reps=[_mcr]; }   // v2.14.382: escolhido pelo nome
   const _ac=document.getElementById('uu-abrircomi'); if(_ac && _ac.checked) permissoes._abrirComissao=true;   // v2.14.375
   if(document.querySelector('input[name="uu-colmodo"]:checked')?.value==='lista'){   // v265
     const cols=[...document.querySelectorAll('.uu-col:checked')].map(c=>c.value);
@@ -12876,7 +12888,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.381","2026-11-24 13:00","Minha comissão: não precisa de Master — usuário comum vê só a comissão dele; painel com total do ano, média, último e maior mês e gráfico mês a mês (clique na barra abre o relatório)"],
+const ALTERACOES=[["2.14.382","2026-11-24 14:00","usuários: Minha comissão — campo \"Comissão de:\" com os NOMES (quem tem comissão); o código certo é marcado sozinho"],
+  ["2.14.381","2026-11-24 13:00","Minha comissão: não precisa de Master — usuário comum vê só a comissão dele; painel com total do ano, média, último e maior mês e gráfico mês a mês (clique na barra abre o relatório)"],
   ["2.14.380","2026-11-24 12:00","usuários: 👁 Prévia agora é navegável — o admin entra como o usuário (mesmos menus, dados e permissões) e navega à vontade; nada é gravado; ✕ Sair da prévia volta ao admin (📄 continua gerando o PDF das telas)"],
   ["2.14.379","2026-11-24 11:00","Minha comissão: quando não há mês liberado, mostra a conferência (códigos liberados e comissões recebidas do servidor)"],
   ["2.14.378","2026-11-24 10:00","Minha comissão: o gestor/representante com \"abrir a comissão dele\" tem o menu Minha comissão — escolhe o ano e o mês (só os fechados) e abre o relatório"],
