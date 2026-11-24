@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.382</span>
+      ">v2.14.383</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1370,10 +1370,11 @@ function _usuResumo(u, mods){
   const nMods=mods.filter(m=>_normAcoes((u.permissoes||{})[m.id])).length;
   const _mst=!!(u.permissoes||{})._master;   // v270
   const vêTudo=_mst && !R.length && _normAcoes((u.permissoes||{}).comissoes);   // v269
-  const semComi=!_mst && (_normAcoes((u.permissoes||{}).comissoes)||_normAcoes((u.permissoes||{}).automacao));
+  const _minhaC=!_mst && (u.permissoes||{})._abrirComissao && R.length;   // v2.14.383: Minha comissão (usuário comum vê só a dele)
+  const semComi=!_mst && !_minhaC && (_normAcoes((u.permissoes||{}).comissoes)||_normAcoes((u.permissoes||{}).automacao));
   const COLs=(u.permissoes||{})._colecoes||[];
   const resumo=[`${nMods} módulo(s)`, R.length?`👤 ${R.length} representante(s)`:'', COLs.length?`👗 ${COLs.length} coleção(ões)`:'', LV.length&&R.length?'🌐 empresa toda em '+LV.length:'', PT?'📅 '+PT:'', Object.keys(PMx).length?'📅 '+Object.keys(PMx).length+' por módulo':''].filter(Boolean).join(' · ');
-  return `${_mst?'<div style="display:inline-block;margin:0 4px 3px 0;padding:1px 7px;border-radius:8px;font-size:10.5px;font-weight:700;background:#FCE7F3;color:#9D174D">★ Master limitado — vê comissão</div>':''}${semComi?'<div style="display:inline-block;margin-bottom:3px;padding:1px 7px;border-radius:8px;font-size:10.5px;font-weight:700;background:#FEF3C7;color:#92400E">⚠ Comissões bloqueada: só Master vê comissão — mude o nível se ele deve ver</div>':''}${vêTudo?'<div style="display:inline-block;margin-bottom:3px;padding:1px 7px;border-radius:8px;font-size:10.5px;font-weight:700;background:#FEE2E2;color:#B91C1C">⚠ vê a comissão de TODOS os representantes</div>':''}<details style="max-width:460px;white-space:normal"><summary style="cursor:pointer;font-size:12px;color:var(--gray-6)">${_nvEsc(resumo)} <span style="color:var(--pink);font-size:11px">ver ›</span></summary>
+  return `${_minhaC?`<div style="display:inline-block;margin:0 4px 3px 0;padding:1px 7px;border-radius:8px;font-size:10.5px;font-weight:700;background:#DCFCE7;color:#166534">💰 Minha comissão — vê só a de ${_nvEsc(R.map(c=>{ const r=(DB.representantes||[]).find(x=>String(x.codigo)===String(c)); return r?(r.fantasia||r.nome):c+' (código não existe)'; }).join(', '))}</div>`:''}${_mst?'<div style="display:inline-block;margin:0 4px 3px 0;padding:1px 7px;border-radius:8px;font-size:10.5px;font-weight:700;background:#FCE7F3;color:#9D174D">★ Master limitado — vê comissão</div>':''}${semComi?'<div style="display:inline-block;margin-bottom:3px;padding:1px 7px;border-radius:8px;font-size:10.5px;font-weight:700;background:#FEF3C7;color:#92400E">⚠ Comissões bloqueada: só Master vê comissão — mude o nível se ele deve ver</div>':''}${vêTudo?'<div style="display:inline-block;margin-bottom:3px;padding:1px 7px;border-radius:8px;font-size:10.5px;font-weight:700;background:#FEE2E2;color:#B91C1C">⚠ vê a comissão de TODOS os representantes</div>':''}<details style="max-width:460px;white-space:normal"><summary style="cursor:pointer;font-size:12px;color:var(--gray-6)">${_nvEsc(resumo)} <span style="color:var(--pink);font-size:11px">ver ›</span></summary>
     <div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:4px">${(ls||'<span style="color:var(--red)">nenhum módulo</span>')+rp+lv+pp+pmx}${COLs.length?`<span style="display:inline-block;margin:1px 2px;padding:1px 6px;border-radius:8px;font-size:10.5px;background:#FFE4E6;color:#9F1239">👗 ${_nvEsc(COLs.join(', '))}</span>`:''}</div></details>`;
 }
 async function renderUsuarios(){
@@ -1388,12 +1389,12 @@ async function renderUsuarios(){
       <div class="card-table" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr style="text-align:left;border-bottom:1px solid var(--gray-2)"><th style="padding:8px">Nome</th><th>CPF</th><th>E-mail</th><th>Cargo</th><th>Acessos</th><th>Situação</th><th>Último acesso</th><th></th></tr></thead>
         <tbody>${(_usuCache.usuarios||[]).map(u=>`<tr style="border-bottom:1px solid var(--gray-1)">
-          <td style="padding:8px"><b>${_nvEsc(u.nome)}</b></td><td style="white-space:nowrap;font-size:12px">${u.cpf?_cpfFmt(u.cpf):'<span style="color:#B45309">falta CPF</span>'}</td><td>${_nvEsc(u.email)}</td><td>${_nvEsc(u.cargo||'')}</td>
+          <td style="padding:8px"><b>${_nvEsc(u.nome)}</b>${u.perfil!=='admin'&&u.ativo?`<div><button class="btn btn-primary" style="padding:3px 10px;font-size:11.5px;margin-top:4px" title="Entra no sistema como este usuário: mesmos menus, dados e permissões — nada é gravado" onclick="_previaEntrar(${u.id})">👁 Navegar como</button></div>`:''}</td><td style="white-space:nowrap;font-size:12px">${u.cpf?_cpfFmt(u.cpf):'<span style="color:#B45309">falta CPF</span>'}</td><td>${_nvEsc(u.email)}</td><td>${_nvEsc(u.cargo||'')}</td>
           <td style="max-width:420px">${_usuResumo(u,mods)}</td>
           <td style="font-size:12px;min-width:120px;white-space:normal;padding-left:10px">${!u.ativo?'<span style="color:var(--red)">desativado</span>':u.convite_expira?`<span style="color:#B45309">convite pendente</span><div style="font-size:10.5px;color:var(--gray-5)">vale até ${new Date(u.convite_expira).toLocaleString('pt-BR')}</div>`:'<span style="color:var(--green)">ativo</span>'}</td>
           <td style="font-size:11px">${u.ultimo_login?new Date(u.ultimo_login).toLocaleString('pt-BR'):'—'}</td>
           <td style="white-space:nowrap"><button class="btn btn-secondary" style="padding:4px 10px" onclick="_usuEditar(${u.id})">Alterar</button>
-            <button class="btn btn-secondary" style="padding:4px 10px" title="PDF com as telas exatamente como este usuário vê (módulos e representantes liberados)" onclick="_previaEntrar(${u.id})">👁 Prévia</button><button class="btn btn-secondary" style="padding:4px 8px" title="PDF com as telas deste usuário" onclick="_usuPrevia(${u.id})">📄</button>
+            <button class="btn btn-secondary" style="padding:4px 10px" title="Navegar como este usuário (mesmos menus, dados e permissões — nada é gravado)" onclick="_previaEntrar(${u.id})">👁 Prévia</button><button class="btn btn-secondary" style="padding:4px 8px" title="PDF com as telas deste usuário" onclick="_usuPrevia(${u.id})">📄</button>
             ${u.ativo?`<button class="btn btn-secondary" style="padding:4px 10px" title="Gera um link novo (primeiro acesso ou esqueceu a senha)" onclick="_usuNovoConvite(${u.id})">🔗 Convite</button>`:''}</td></tr>`).join('')}</tbody></table></div></div></div>`;
 }
 function _usuEditar(id){
@@ -12888,7 +12889,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.382","2026-11-24 14:00","usuários: Minha comissão — campo \"Comissão de:\" com os NOMES (quem tem comissão); o código certo é marcado sozinho"],
+const ALTERACOES=[["2.14.383","2026-11-24 15:00","usuários: botão 👁 Navegar como embaixo do nome (entra como o usuário e navega por todos os acessos dele); aviso 💰 Minha comissão com o nome do representante, no lugar de \"Comissões bloqueada\""],
+  ["2.14.382","2026-11-24 14:00","usuários: Minha comissão — campo \"Comissão de:\" com os NOMES (quem tem comissão); o código certo é marcado sozinho"],
   ["2.14.381","2026-11-24 13:00","Minha comissão: não precisa de Master — usuário comum vê só a comissão dele; painel com total do ano, média, último e maior mês e gráfico mês a mês (clique na barra abre o relatório)"],
   ["2.14.380","2026-11-24 12:00","usuários: 👁 Prévia agora é navegável — o admin entra como o usuário (mesmos menus, dados e permissões) e navega à vontade; nada é gravado; ✕ Sair da prévia volta ao admin (📄 continua gerando o PDF das telas)"],
   ["2.14.379","2026-11-24 11:00","Minha comissão: quando não há mês liberado, mostra a conferência (códigos liberados e comissões recebidas do servidor)"],
