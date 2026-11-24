@@ -481,7 +481,7 @@ License: MIT
   <div class="nav-group">
     <div class="nav-label">Financeiro</div>
     <div class="nav-item" onclick="navigate('faturamento')"><span class="nav-icon">🧾</span> Faturamento</div>
-    <div class="nav-item" onclick="navigate('comissoes')"><span class="nav-icon">💰</span> Comissões</div>
+    <div class="nav-item" id="nav-comissoes" onclick="navigate('comissoes')"><span class="nav-icon">💰</span> <span id="nav-comissoes-lbl">Comissões</span></div>
     <div class="nav-item" onclick="navigate('recebiveis')"><span class="nav-icon">📋</span> Contas a Receber</div>
     <div class="nav-item" onclick="navigate('pagar')"><span class="nav-icon">🧾</span> Contas a Pagar</div>
     <div class="nav-item" onclick="navigate('fluxo')"><span class="nav-icon">💵</span> Fluxo de Caixa</div>
@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.377</span>
+      ">v2.14.378</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1191,6 +1191,39 @@ function _perm(mod){ if(mod==='relatorios') return _relCatalogo().length?'ver':'
   const a=_acoes(mod); return !a?'':(a.incluir||a.alterar||a.excluir)?'editar':'ver'; }   // compatível com o código antigo
 function _podeEditarAlgo(){ return _ehAdmin() || Object.keys((USER&&USER.permissoes)||{}).some(m=>_perm(m)==='editar'); }
 // v2.14.375: "Ao entrar, abrir o relatório da comissão dele" — espera a cópia do servidor chegar e abre o último mês fechado
+// v2.14.378: MINHA COMISSÃO — menu simples para o gestor/representante: escolhe o ano e o mês, abre o relatório
+function _modoMinhaComissao(){ return !!(USER && !_ehAdmin() && USER.permissoes && USER.permissoes._abrirComissao); }
+function _minhasComissoes(){ const R=new Set(((USER&&USER.permissoes&&USER.permissoes._reps)||[]).map(String));
+  const _d=new Date(), atual=_d.getFullYear()+'-'+String(_d.getMonth()+1).padStart(2,'0');   // mês atual só depois que terminar (após o dia 30/31)
+  return (DB.comissoes||[]).filter(c=>(!R.size || R.has(String(c.codigo_rep))) && (c.status==='fechado' || c.status==='pago') && c.competencia_raw && String(c.competencia_raw).slice(0,7)<atual); }
+function _renderMinhaComissao(){
+  const el=document.getElementById('content'); if(!el) return;
+  const L=_minhasComissoes(), anos=[...new Set(L.map(c=>c.competencia_raw.slice(0,4)))].sort().reverse();
+  const ano=anos.includes(window._mcAno)?window._mcAno:(anos[0]||String(new Date().getFullYear()));
+  const MN=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const nome=String(USER.nome||'').toUpperCase();
+  const cards=MN.map((m,i)=>{ const comp=ano+'-'+String(i+1).padStart(2,'0'), cs=L.filter(c=>c.competencia_raw===comp);
+    const tot=cs.reduce((a,c)=>a+(Number(c.total_comissao)||0)+(Number(c.comi_liquida)||0)-(Number(c.val_devolucoes)||0)*(Number(c.taxa)||0)/100,0);
+    return cs.length
+      ? `<div onclick="_mcAbrir('${comp}')" style="cursor:pointer;border:1px solid var(--pink);border-radius:12px;padding:14px 16px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.06)">
+          <div style="font-weight:700;font-size:15px;color:var(--pink)">${m}</div>
+          <div style="font-size:18px;font-weight:700;margin:6px 0 2px">${fmt(tot)}</div>
+          <div style="font-size:11px;color:var(--gray-5)">${cs.some(c=>c.status==='pago')?'✅ paga':'🔒 fechada'} · clique para ver o relatório</div></div>`
+      : `<div style="border:1px dashed var(--gray-2);border-radius:12px;padding:14px 16px;background:var(--gray-1);opacity:.7">
+          <div style="font-weight:700;font-size:15px;color:var(--gray-5)">${m}</div>
+          <div style="font-size:12px;color:var(--gray-5);margin-top:8px">${(()=>{ const d=new Date(), at=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); if(comp===at){ const u=new Date(d.getFullYear(),d.getMonth()+1,0).getDate(); return `libera após ${u}/${String(i+1).padStart(2,'0')}`; } return comp>at?'—':'ainda não fechada'; })()}</div></div>`; }).join('');
+  el.innerHTML=`<div style="max-width:980px">
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+      <div><div style="font-size:20px;font-weight:700">💰 Minha comissão</div><div style="font-size:13px;color:var(--gray-5)">${nome} · escolha o mês para ver e baixar o relatório</div></div>
+      <div style="margin-left:auto;display:flex;gap:6px">${(anos.length?anos:[ano]).map(a=>`<button class="btn ${a===ano?'btn-primary':'btn-secondary'} btn-sm" onclick="window._mcAno='${a}';_renderMinhaComissao()">${a}</button>`).join('')}</div></div>
+    ${L.length?'':'<div style="padding:12px 14px;border:1px solid #f0c27b;background:#fff8ec;border-radius:10px;margin-bottom:14px;font-size:13px">Ainda não há comissão fechada liberada para você. Assim que o mês for fechado, ele aparece aqui.</div>'}
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px">${cards}</div></div>`;
+}
+function _mcAbrir(comp){
+  const cs=_minhasComissoes().filter(c=>c.competencia_raw===comp); if(!cs.length) return;
+  if(cs.length===1) return gerarRelatorioComiPDF(cs[0].id);
+  openModal('Escolha', cs.map(c=>`<button class="btn btn-secondary" style="display:block;width:100%;margin-bottom:6px;text-align:left" onclick="closeModal();gerarRelatorioComiPDF(${c.id})">${String(c.representante||c.codigo_rep).toUpperCase()} — ${c.competencia} · ${fmt(c.total_comissao)}</button>`).join(''));
+}
 function _abrirMinhaComissao(tent){
   tent=tent||0;
   try{ if(sessionStorage.getItem('pinkpoa_minhacomi_ok')) return; }catch(e){}
@@ -1213,6 +1246,7 @@ function _primeiraPagina(){
 }
 function _aplicarPermissoes(){
   try{ document.body.classList.toggle('sem-comissao', !_veComissao()); }catch(e){}   // v270
+  try{ const l=document.getElementById('nav-comissoes-lbl'); if(l) l.textContent=_modoMinhaComissao()?'Minha comissão':'Comissões'; }catch(e){}   // v2.14.378
   const itens=Array.from(document.querySelectorAll('#sidebar .nav-item'));
   itens.forEach(el=>{ const m=(el.getAttribute('onclick')||'').match(/navigate\('(\w+)'\)/); if(!m) return;
     el.style.display = (_PAGINAS_ADMIN.includes(m[1]) ? _ehAdmin() : !!_perm(m[1])) ? '' : 'none'; });
@@ -1624,6 +1658,7 @@ async function _usuSalvar(id){
   // v270: COMISSÃO SÓ PARA MASTER — "Usuário" nunca vê comissão (o servidor também corta); Master limitado vê dentro dos limites
   const _nivel=g('uu-perfil');
   if(_nivel==='master') permissoes._master=true;
+  if(permissoes._abrirComissao && _nivel!=='master') return toast('Para ver a comissão, escolha o nível "Master limitado" e marque Comissões (Ver + Relatórios)','error');   // v2.14.378
   else if(_nivel==='user'){ if(permissoes.comissoes||permissoes.automacao){ toast('Comissões e Automação ficam sem acesso: só o Master limitado vê comissão','error'); } delete permissoes.comissoes; delete permissoes.automacao; }
   // v269: TRAVA DE SEGURANÇA — master limitado com Comissões e sem representante marcado vê a comissão de TODOS
   if(_nivel==='master' && permissoes.comissoes && permissoes.comissoes.ver && !(permissoes._reps||[]).length){
@@ -3497,6 +3532,7 @@ function _cpvVincular(i, ignorar){
   _cpvSalvar(); modalComiPagamentos(window._cpvComp);
 }
 function renderComissoes() {
+  if(_modoMinhaComissao()) return _renderMinhaComissao();   // v2.14.378: gestor/representante com "abrir a comissão dele" → tela simples de meses
   try{ _abatTaxaVenda(); }catch(e){ console.warn('abatTaxa',e); }
   if(typeof _aplicarReposicaoFat==='function') _aplicarReposicaoFat();   // garante a troca aplicada p/ a base da comissão
   try{ _aplicarEstornosFat(); }catch(e){}
@@ -12773,7 +12809,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.377","2026-11-23 10:00","usuários: opção \"Ao entrar, abrir o relatório da comissão dele\" — o gestor/representante vê a comissão do último mês fechado assim que faz login (ex.: ANDREA MIRANDA)"],
+const ALTERACOES=[["2.14.378","2026-11-24 10:00","Minha comissão: o gestor/representante com \"abrir a comissão dele\" tem o menu Minha comissão — escolhe o ano e o mês (só os fechados) e abre o relatório"],
+  ["2.14.377","2026-11-23 10:00","usuários: opção \"Ao entrar, abrir o relatório da comissão dele\" — o gestor/representante vê a comissão do último mês fechado assim que faz login (ex.: ANDREA MIRANDA)"],
   ["2.14.376","2026-11-23 01:00","manual do robô do Audience com os arquivos para baixar (pasta robo/) e instalador que grava a configuração e a senha na própria máquina e agenda a tarefa diária"],["2.14.375","2026-11-22 11:00","importação disparada pelo robô do Audience: abrir o app com #importar no endereço varre a pasta conectada e importa os arquivos novos"],["2.14.374","2026-11-17 13:40","supervisão: a base do supervisionado só desconta devoluções lançadas no ERP (igual à comissão) — VERA MARCIA out/26 volta a 16.118,00"],
   ["2.14.374","2026-11-17 13:40","supervisão: a base do supervisionado só desconta devoluções lançadas no ERP (igual à comissão) — VERA MARCIA out/26 volta a 16.118,00"],
   ["2.14.373","2026-11-17 13:00","resumo de comissões agrupado: marcar um representante no filtro traz o grupo inteiro dele (ex.: SIMONE com PRONTA ENTREGA 45 e PENT)"],
