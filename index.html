@@ -564,7 +564,7 @@ License: MIT
         background:var(--pink-lt);color:var(--pink);
         border:1px solid var(--pink);border-radius:12px;
         padding:2px 10px;font-weight:700;font-size:11px;letter-spacing:.03em
-      ">v2.14.379</span>
+      ">v2.14.380</span>
       <span>Pink Poá ERP © 2026</span>
     </div>
     <div style="display:flex;align-items:center;gap:16px">
@@ -1313,6 +1313,7 @@ function _modoLeitura(){
 }
 // reconfere usuário e permissões no servidor (o admin pode ter mudado algo)
 async function _sessaoAtualizar(){
+  if(window._previaAtiva) return;   // v2.14.380: na prévia o usuário é o simulado — não troca pela sessão do admin
   try{
     const j=await _nvFetch('/me');
     // v235: app desatualizado no navegador → recarrega sem cache (1 tentativa por versão exigida)
@@ -1374,7 +1375,7 @@ async function renderUsuarios(){
           <td style="font-size:12px;min-width:120px;white-space:normal;padding-left:10px">${!u.ativo?'<span style="color:var(--red)">desativado</span>':u.convite_expira?`<span style="color:#B45309">convite pendente</span><div style="font-size:10.5px;color:var(--gray-5)">vale até ${new Date(u.convite_expira).toLocaleString('pt-BR')}</div>`:'<span style="color:var(--green)">ativo</span>'}</td>
           <td style="font-size:11px">${u.ultimo_login?new Date(u.ultimo_login).toLocaleString('pt-BR'):'—'}</td>
           <td style="white-space:nowrap"><button class="btn btn-secondary" style="padding:4px 10px" onclick="_usuEditar(${u.id})">Alterar</button>
-            <button class="btn btn-secondary" style="padding:4px 10px" title="PDF com as telas exatamente como este usuário vê (módulos e representantes liberados)" onclick="_usuPrevia(${u.id})">👁 Prévia</button>
+            <button class="btn btn-secondary" style="padding:4px 10px" title="PDF com as telas exatamente como este usuário vê (módulos e representantes liberados)" onclick="_previaEntrar(${u.id})">👁 Prévia</button><button class="btn btn-secondary" style="padding:4px 8px" title="PDF com as telas deste usuário" onclick="_usuPrevia(${u.id})">📄</button>
             ${u.ativo?`<button class="btn btn-secondary" style="padding:4px 10px" title="Gera um link novo (primeiro acesso ou esqueceu a senha)" onclick="_usuNovoConvite(${u.id})">🔗 Convite</button>`:''}</td></tr>`).join('')}</tbody></table></div></div></div>`;
 }
 function _usuEditar(id){
@@ -1688,7 +1689,52 @@ function _previaCapturar(){
   cl.querySelectorAll('input,select,textarea').forEach(e=>{ if(e.tagName==='SELECT'){ const o=e.options[e.selectedIndex]; if(o) o.setAttribute('selected',''); } else e.setAttribute('value',e.value||''); });
   return cl.innerHTML;
 }
+// v2.14.380: PRÉVIA NAVEGÁVEL — o admin entra no sistema "como o usuário" (mesmo menu, dados e permissões) e navega à vontade.
+// Nada é gravado: salvamento automático, importação automática e atualização da nuvem ficam parados enquanto durar.
+async function _previaEntrar(id){
+  if(window._previaAtiva) return toast('Já está numa prévia — saia dela primeiro','error');
+  const u0=(_usuCache.usuarios||[]).find(x=>x.id===id); if(!u0) return;
+  const u={...u0, permissoes:{...(u0.permissoes||{})}}; if(u.perfil!=='admin' && !u.permissoes._master){ delete u.permissoes.comissoes; delete u.permissoes.automacao; }
+  if(_asRodando) return toast('Aguarde terminar de salvar no servidor','error');
+  toast(`Entrando como ${u.nome}… (alguns segundos)`);
+  let obj;
+  try{ obj=JSON.parse(await _nvFetchTexto('/usuarios/'+id+'/previa')); }catch(e){ return toast('Prévia: '+e.message,'error'); }
+  window._previaAtiva=true;
+  const bakDB={}; Object.keys(DB).forEach(k=>bakDB[k]=DB[k]);
+  window._previaBak={db:bakDB, user:USER, page:CURRENT_PAGE||'usuarios'};
+  Object.keys(DB).forEach(k=>{ const v=bakDB[k]; DB[k]=(obj.db&&k in obj.db)?obj.db[k]:(Array.isArray(v)?[]:(v&&typeof v==='object')?{}:v); });
+  Object.keys(obj.db||{}).forEach(k=>{ if(!(k in bakDB)) DB[k]=obj.db[k]; });
+  const _loc=obj.local||{}, _lj=(k,d)=>{ try{ return _loc[k]!=null?JSON.parse(_loc[k]):d; }catch(e){ return d; } };
+  [['compras','pinkpoa_compras',[]],['compras_map','pinkpoa_compras_map',{}],['compras_grupos','pinkpoa_compras_grupos',{}],['compras_forn_grupos','pinkpoa_compras_forn_grupos',{}],['compras_forn_excluidos','pinkpoa_compras_forn_excl',[]]]
+    .forEach(([k,lk,d])=>{ const v=DB[k]; const vazio=!v || (Array.isArray(v)?!v.length:!Object.keys(v).length); if(vazio && _loc[lk]!=null) DB[k]=_lj(lk,d); });
+  USER=Object.assign({},window._previaBak.user,{id:u.id,nome:u.nome,email:u.email,cargo:u.cargo,perfil:u.perfil,permissoes:u.permissoes||{},modulos:_usuCache.modulos});
+  try{ closeModal(); }catch(e){}
+  let b=document.getElementById('previa-banner');
+  if(!b){ b=document.createElement('div'); b.id='previa-banner'; document.body.appendChild(b); }
+  b.style.cssText='position:fixed;top:0;left:0;right:0;z-index:99999;background:#7a1f4f;color:#fff;padding:7px 14px;display:flex;gap:12px;align-items:center;justify-content:center;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+  b.innerHTML=`👁 <b>PRÉVIA</b> — você está navegando como <b>${_nvEsc(String(u.nome||'').toUpperCase())}</b> (mesmos menus, dados e permissões · nada é gravado)
+    <button class="btn btn-sm" style="background:#fff;color:#7a1f4f;font-weight:700" onclick="_previaSair()">✕ Sair da prévia</button>`;
+  document.body.style.paddingTop='38px';
+  _aplicarPermissoes();
+  try{ const ue=document.getElementById('user-email'); if(ue){ window._previaBak.rotulo=ue.textContent; ue.textContent=u.nome||u.email; } }catch(e){}
+  try{ sessionStorage.removeItem('pinkpoa_minhacomi_ok'); }catch(e){}
+  navigate(_primeiraPagina() || 'dashboard');
+  setTimeout(()=>{ if(window._previaAtiva) _abrirMinhaComissao(0); }, 800);   // igual ao login dele
+}
+function _previaSair(){
+  const B=window._previaBak; if(!window._previaAtiva || !B) return;
+  try{ const ov=document.getElementById('pdf-overlay'); if(ov) ov.style.display='none'; closeModal(); }catch(e){}
+  Object.keys(DB).forEach(k=>{ if(!(k in B.db)) delete DB[k]; });
+  Object.keys(B.db).forEach(k=>{ DB[k]=B.db[k]; });
+  USER=B.user; window._previaAtiva=false; window._previaBak=null;
+  const b=document.getElementById('previa-banner'); if(b) b.remove(); document.body.style.paddingTop='';
+  try{ const ue=document.getElementById('user-email'); if(ue && B.rotulo!=null) ue.textContent=B.rotulo; }catch(e){}
+  _aplicarPermissoes();
+  try{ navigate('usuarios'); }catch(e){ navigate(B.page); }
+  toast('Prévia encerrada — de volta como administrador');
+}
 async function _usuPrevia(id){
+  if(window._previaAtiva) return toast('Saia da prévia antes de gerar o PDF','error');
   const u0=(_usuCache.usuarios||[]).find(x=>x.id===id); if(!u0) return;
   // v270: a prévia usa o acesso EFETIVO — quem não é master não tem Comissões/Automação (igual ao servidor)
   const u={...u0, permissoes:{...(u0.permissoes||{})}}; if(u.perfil!=='admin' && !u.permissoes._master){ delete u.permissoes.comissoes; delete u.permissoes.automacao; }
@@ -12810,7 +12856,8 @@ function imprimirRelatorio(){
 }
 // ===== SNAPSHOT: exportar mês e comparar (faturamento + comissões) =====
 // v206: montagem/aplicação do backup separadas (usadas pelo arquivo .json E pela nuvem/MySQL)
-const ALTERACOES=[["2.14.379","2026-11-24 11:00","Minha comissão: quando não há mês liberado, mostra a conferência (códigos liberados e comissões recebidas do servidor)"],
+const ALTERACOES=[["2.14.380","2026-11-24 12:00","usuários: 👁 Prévia agora é navegável — o admin entra como o usuário (mesmos menus, dados e permissões) e navega à vontade; nada é gravado; ✕ Sair da prévia volta ao admin (📄 continua gerando o PDF das telas)"],
+  ["2.14.379","2026-11-24 11:00","Minha comissão: quando não há mês liberado, mostra a conferência (códigos liberados e comissões recebidas do servidor)"],
   ["2.14.378","2026-11-24 10:00","Minha comissão: o gestor/representante com \"abrir a comissão dele\" tem o menu Minha comissão — escolhe o ano e o mês (só os fechados) e abre o relatório"],
   ["2.14.377","2026-11-23 10:00","usuários: opção \"Ao entrar, abrir o relatório da comissão dele\" — o gestor/representante vê a comissão do último mês fechado assim que faz login (ex.: ANDREA MIRANDA)"],
   ["2.14.376","2026-11-23 01:00","manual do robô do Audience com os arquivos para baixar (pasta robo/) e instalador que grava a configuração e a senha na própria máquina e agenda a tarefa diária"],["2.14.375","2026-11-22 11:00","importação disparada pelo robô do Audience: abrir o app com #importar no endereço varre a pasta conectada e importa os arquivos novos"],["2.14.374","2026-11-17 13:40","supervisão: a base do supervisionado só desconta devoluções lançadas no ERP (igual à comissão) — VERA MARCIA out/26 volta a 16.118,00"],
